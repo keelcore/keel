@@ -35,3 +35,9 @@
 * [ ] **Integration Testing**: Automated tests for all features using a staging environment.
 * [ ] **Performance Testing**: Benchmarking suite to measure throughput and latency under load.
 * [ ] **Security Scanning**: Regularly scan the codebase for vulnerabilities using tools like Snyk or Trivy.
+
+## GOVERNANCE & IDENTITY
+* [ ] **Logo Acquisition**: Finalize and register the "Anchor" visual identity.
+* [ ] **TRADEMARK.md**: Periodically review usage in the OCI ecosystem to ensure no "bloated" forks are using the name.
+* [ ] **Identity Check**: Add a `--check-integrity` flag to the binary that prints the Trademark & License notice.
+* [ ] **Shred-Check**: Add a `--check-shred` flag to the binary that verifies the binary size and FIPS compliance.

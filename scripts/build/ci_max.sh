@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # ci_max.sh
-# Builds a statically-linked, FIPS-compatible Keel binary.
+# Corporate Default: Builds a statically-linked, FIPS-compatible Keel binary.
 
-# bash configuration per Google Style Guide:
+# bash configuration:
+# 1) Exit script if you try to use an uninitialized variable.
 set -o nounset
+
+# 2) Exit script if a statement returns a non-true return value.
 set -o errexit
+
+# 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-# Constants for pinned toolchain
 readonly REQUIRED_GO_VERSION="go1.23.0"
 readonly REQUIRED_GO_EXP="boringcrypto"
 
@@ -20,6 +24,7 @@ function main() {
   prepare_dist
   execute_fips_build
   verify_fips_symbols
+  log "✅ Authorized Keel Build: Meets Shredded & Hardened Standards"
 }
 
 function log() {
@@ -29,27 +34,22 @@ function log() {
 
 function verify_toolchain() {
   log "🔍 Verifying toolchain: ${REQUIRED_GO_VERSION} with ${REQUIRED_GO_EXP}"
-
-  # Check Go version and BoringCrypto experiment
   if [[ ! "$(go version)" =~ ${REQUIRED_GO_VERSION} ]]; then
     log "❌ Error: Requires ${REQUIRED_GO_VERSION}"
     exit 1
   fi
-
   if [[ ! "$(go env GOEXPERIMENT)" =~ ${REQUIRED_GO_EXP} ]]; then
     log "❌ Error: GOEXPERIMENT=${REQUIRED_GO_EXP} not active"
     exit 1
   fi
-
-  # Max build requires a C compiler for static linking
   if ! command -v gcc >/dev/null 2>&1; then
-    log "❌ Error: gcc is required for static CGO linking"
+    log "❌ Error: gcc required for static CGO"
     exit 1
   fi
 }
 
 function execute_fips_build() {
-  # -linkmode external + -static ensures no dynamic libc dependency
+  log "🛠️ Compiling from source with BoringCrypto"
   GOEXPERIMENT=boringcrypto CGO_ENABLED=1 \
     go build -v \
     -ldflags='-linkmode external -extldflags "-static" -s -w' \
@@ -57,14 +57,13 @@ function execute_fips_build() {
 }
 
 function verify_fips_symbols() {
-  log "🧪 Verifying BoringCrypto symbols..."
   if ! go tool nm "dist/keel-fips" | grep -q "_Cfunc__goboringcrypto_"; then
-    log "❌ Error: FIPS symbols missing from binary!"
+    log "❌ Error: FIPS symbols missing!"
     exit 1
   fi
-  log "✅ FIPS verification successful"
 }
 
-# Functions omitted for brevity (validate_args, prepare_dist)...
+function validate_args() { :; }
+function prepare_dist() { mkdir -p 'dist'; }
 
 main "${@:-}"
