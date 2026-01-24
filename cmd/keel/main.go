@@ -1,30 +1,30 @@
 package main
 
 import (
-	"crypto/tls"
-	"fmt"
-	"os"
+    "context"
+    "fmt"
+    "os"
 
-	// This is the "shredded" magic link to BoringSSL
-	_ "crypto/tls/fipsonly"
+    "github.com/keelcore/keel/pkg/core"
 )
 
 func main() {
-	checkFipsOrDie()
+    ctx, cancel := context.WithCancel(context.Background())
+    defer cancel()
 
-	fmt.Println("⚓ Keel: Authorized Build")
-	fmt.Println("Status: Ripped. Hard. Shredded.")
+    cfg, err := core.LoadConfigFromEnvAndOptionalFile(os.Getenv("KEEL_CONFIG"))
+    if err != nil {
+        _, _ = fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+        os.Exit(2)
+    }
 
-	// Server logic goes here
-}
+    srv := core.NewServer(
+        core.WithConfig(cfg),
+        core.WithDefaultRegistrar(),
+    )
 
-func checkFipsOrDie() {
-	// If the binary is built with GOEXPERIMENT=boringcrypto,
-	// this ensures it's actually functioning.
-	if os.Getenv("FIPS_ENABLED") == "true" && !tls.CipherSuiteName(0x002f) == "TLS_RSA_WITH_AES_128_CBC_SHA" {
-		// In a real BoringCrypto build, specific checks confirm the module is active.
-		// For now, we gate the boot if the environment requires FIPS but logic fails.
-		fmt.Fprintln(os.Stderr, "❌ FIPS ERROR: Rock-hard posture required but not detected. Failing closed.")
-		os.Exit(1)
-	}
+    if err := srv.Run(ctx); err != nil {
+        _, _ = fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+        os.Exit(1)
+    }
 }

@@ -12,8 +12,7 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly REQUIRED_GO_VERSION="go1.23.0"
-readonly REQUIRED_GO_EXP="boringcrypto"
+readonly REQUIRED_GO_VERSION="go1.25"
 
 function main() {
   exec 5>&1
@@ -33,34 +32,26 @@ function log() {
 }
 
 function verify_toolchain() {
-  log "🔍 Verifying toolchain: ${REQUIRED_GO_VERSION} with ${REQUIRED_GO_EXP}"
+  log "🔍 Verifying toolchain: ${REQUIRED_GO_VERSION} (native FIPS-capable toolchain)"
   if [[ ! "$(go version)" =~ ${REQUIRED_GO_VERSION} ]]; then
     log "❌ Error: Requires ${REQUIRED_GO_VERSION}"
-    exit 1
-  fi
-  if [[ ! "$(go env GOEXPERIMENT)" =~ ${REQUIRED_GO_EXP} ]]; then
-    log "❌ Error: GOEXPERIMENT=${REQUIRED_GO_EXP} not active"
-    exit 1
-  fi
-  if ! command -v gcc >/dev/null 2>&1; then
-    log "❌ Error: gcc required for static CGO"
     exit 1
   fi
 }
 
 function execute_fips_build() {
-  log "🛠️ Compiling from source with BoringCrypto"
-  GOEXPERIMENT=boringcrypto CGO_ENABLED=1 \
-    go build -v \
-    -ldflags='-linkmode external -extldflags "-static" -s -w' \
+  log "🛠️ Compiling from source with Go native FIPS 140 mode (GOFIPS140)"
+  # NOTE: HTTP/3 is not compatible with fips140=only; compile it out for FIPS builds.
+  GOFIPS140=latest CGO_ENABLED=0 \
+    go build -v -tags "fips,no_h3" \
+    -ldflags='-s -w' \
     -o 'dist/keel-fips' ./cmd/keel
 }
 
 function verify_fips_symbols() {
-  if ! go tool nm "dist/keel-fips" | grep -q "_Cfunc__goboringcrypto_"; then
-    log "❌ Error: FIPS symbols missing!"
-    exit 1
-  fi
+  log "🧪 Verifying FIPS enforcement via test run (GODEBUG=fips140=only)"
+  GOFIPS140=latest GODEBUG=fips140=only \
+    go test -v -count=1 -tags "no_h3" ./...
 }
 
 function validate_args() { :; }

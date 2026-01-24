@@ -1,0 +1,51 @@
+# charts/keel/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "keel.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "keel.name" . }}
+    helm.sh/chart: {{ include "keel.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "keel.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    {{- if .Values.service.http.enabled }}
+    - name: http
+      port: {{ .Values.service.http.port }}
+      targetPort: http
+      protocol: TCP
+    {{- end }}
+
+    {{- if and .Values.service.https.enabled .Values.keel.https.enabled }}
+    - name: https
+      port: {{ .Values.service.https.port }}
+      targetPort: https
+      protocol: TCP
+    {{- end }}
+
+    {{- if and .Values.service.http3.enabled .Values.keel.h3.enabled }}
+    - name: h3
+      port: {{ .Values.service.http3.port }}
+      targetPort: h3
+      protocol: UDP
+    {{- end }}
+
+    {{- if .Values.serviceProbes.enabled }}
+    - name: health
+      port: {{ .Values.serviceProbes.healthPort }}
+      targetPort: health
+      protocol: TCP
+    - name: ready
+      port: {{ .Values.serviceProbes.readyPort }}
+      targetPort: ready
+      protocol: TCP
+    {{- end }}

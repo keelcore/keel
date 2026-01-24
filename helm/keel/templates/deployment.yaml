@@ -1,0 +1,167 @@
+# charts/keel/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "keel.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "keel.name" . }}
+    helm.sh/chart: {{ include "keel.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "keel.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "keel.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "keel.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: keel
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          args:
+            {{- range .Values.keel.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: KEEL_HTTP_ENABLED
+              value: {{ .Values.keel.http.enabled | quote }}
+            - name: KEEL_HTTP_PORT
+              value: {{ .Values.keel.http.port | quote }}
+
+            - name: KEEL_HTTPS_ENABLED
+              value: {{ .Values.keel.https.enabled | quote }}
+            - name: KEEL_HTTPS_PORT
+              value: {{ .Values.keel.https.port | quote }}
+
+            - name: KEEL_H3_ENABLED
+              value: {{ .Values.keel.h3.enabled | quote }}
+            - name: KEEL_H3_PORT
+              value: {{ .Values.keel.h3.port | quote }}
+
+            - name: KEEL_HEALTH_ENABLED
+              value: {{ .Values.keel.probes.health.enabled | quote }}
+            - name: KEEL_HEALTH_PORT
+              value: {{ .Values.keel.probes.health.port | quote }}
+
+            - name: KEEL_READY_ENABLED
+              value: {{ .Values.keel.probes.ready.enabled | quote }}
+            - name: KEEL_READY_PORT
+              value: {{ .Values.keel.probes.ready.port | quote }}
+
+            - name: KEEL_ADMIN_ENABLED
+              value: {{ .Values.keel.probes.admin.enabled | quote }}
+            - name: KEEL_ADMIN_PORT
+              value: {{ .Values.keel.probes.admin.port | quote }}
+
+            - name: KEEL_TLS_CERT
+              value: {{ .Values.keel.tls.cert | quote }}
+            - name: KEEL_TLS_KEY
+              value: {{ .Values.keel.tls.key | quote }}
+
+            - name: KEEL_OWASP
+              value: {{ .Values.keel.features.owasp | quote }}
+            - name: KEEL_AUTHN
+              value: {{ .Values.keel.features.authn | quote }}
+            - name: KEEL_SHEDDING
+              value: {{ .Values.keel.features.shedding | quote }}
+            - name: KEEL_LOG_JSON
+              value: {{ .Values.keel.features.log_json | quote }}
+
+            {{- with .Values.keel.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.keel.http.port }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.keel.probes.health.port }}
+              protocol: TCP
+            - name: ready
+              containerPort: {{ .Values.keel.probes.ready.port }}
+              protocol: TCP
+            {{- if .Values.keel.https.enabled }}
+            - name: https
+              containerPort: {{ .Values.keel.https.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.keel.h3.enabled }}
+            - name: h3
+              containerPort: {{ .Values.keel.h3.port }}
+              protocol: UDP
+            {{- end }}
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: ready
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          {{- with .Values.keel.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+      {{- with .Values.keel.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

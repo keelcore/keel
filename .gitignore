@@ -1,4 +1,77 @@
-.idea
-.idea/**
 .results
 .results/**
+
+# ---- Go build outputs ----
+bin/
+dist/
+build/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.o
+*.test
+
+# ---- Go tooling / caches ----
+*.cover
+*.prof
+*.pprof
+coverage.out
+coverage.txt
+coverage/
+*.trace
+
+# ---- Vendor (keep unless you explicitly don't vendor) ----
+# vendor/
+
+# ---- IDE / Editor ----
+.vscode/
+.vscode/**
+.idea/
+.idea/**
+*.iml
+.DS_Store
+Thumbs.db
+
+# ---- OS / temp ----
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*.bak
+
+# ---- Logs / runtime artifacts ----
+*.log
+logs/
+
+# ---- Helm / Kubernetes local ----
+charts/*/charts/
+charts/*/Chart.lock
+*.tgz
+
+# ---- Env / secrets ----
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# ---- Terraform / infra (if present) ----
+.terraform/
+*.tfstate
+*.tfstate.*
+.crash.log
+
+# ---- Node (if any tooling) ----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- macOS (extra) ----
+.AppleDouble
+.LSOverride

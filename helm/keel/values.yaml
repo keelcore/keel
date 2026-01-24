@@ -1,0 +1,122 @@
+# charts/keel/values.yaml
+replicaCount: 1
+
+image:
+  repository: keelcore/keel
+  tag: "0.5.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  capabilities:
+    drop: ["ALL"]
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+terminationGracePeriodSeconds: 30
+
+service:
+  type: ClusterIP
+  annotations: {}
+  http:
+    enabled: true
+    port: 80
+  https:
+    enabled: false
+    port: 443
+  http3:
+    enabled: false
+    port: 443
+
+# Probes do NOT need a Service. Kubelet hits PodIP:port directly.
+# Expose only if you explicitly want in-cluster access.
+serviceProbes:
+  enabled: false
+  healthPort: 9091
+  readyPort: 9092
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: keel.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # Example:
+  # tls:
+  #   - secretName: keel-tls
+  #     hosts:
+  #       - keel.local
+
+keel:
+  # Listener enable/port flags (match the new config.Config Listener model)
+  http:
+    enabled: true
+    port: 8080
+
+  https:
+    enabled: false
+    port: 8443
+
+  h3:
+    enabled: false
+    port: 8443
+
+  probes:
+    health:
+      enabled: true
+      port: 9091
+    ready:
+      enabled: true
+      port: 9092
+    admin:
+      enabled: false
+      port: 9090
+
+  tls:
+    cert: ""
+    key: ""
+
+  features:
+    owasp: true
+    authn: true
+    shedding: true
+    log_json: true
+
+  # Optional: pass through additional env vars
+  extraEnv: []
+  # - name: KEEL_MY_ID
+  #   value: "keel-prod-1"
+
+  # Optional: pass through extra args
+  extraArgs: []
+
+  # Optional: mount additional secrets/configs
+  extraVolumeMounts: []
+  extraVolumes: []

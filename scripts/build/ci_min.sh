@@ -12,7 +12,7 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly REQUIRED_GO_VERSION="go1.23.0"
+readonly REQUIRED_GO_VERSION="go1.25"
 
 function main() {
   exec 5>&1
@@ -36,10 +36,10 @@ function verify_toolchain() {
 }
 
 function execute_tiny_build() {
-  local -r tiny_tags='no_fips,no_otel,no_prom,no_remotelog'
+  local -r tiny_tags='no_fips,no_otel,no_prom,no_remotelog,no_authn,no_h3,no_sidecar'
   CGO_ENABLED=0 \
-    go build -v -tags "${tiny_tags}" \
-    -ldflags='-s -w' \
+    go build -v -trimpath -tags "${tiny_tags}" \
+    -ldflags='-s -w -buildid=' \
     -o 'dist/keel-min' ./cmd/keel
 }
 

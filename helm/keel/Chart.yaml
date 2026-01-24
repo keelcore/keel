@@ -1,0 +1,18 @@
+# charts/keel/Chart.yaml
+apiVersion: v2
+name: keel
+description: Keel (keelcore) - hardened, port-isolated service with FIPS-capable Go toolchain support.
+type: application
+version: 0.5.0
+appVersion: "0.5.0"
+home: https://github.com/keelcore/keel
+sources:
+  - https://github.com/keelcore/keel
+maintainers:
+  - name: keelcore
+keywords:
+  - keel
+  - security
+  - fips
+  - http2
+  - http3
