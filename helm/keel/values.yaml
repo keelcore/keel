@@ -21,13 +21,15 @@ rbac:
 podAnnotations: {}
 podLabels: {}
 
-podSecurityContext: {}
-securityContext:
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: true
+podSecurityContext:
   runAsNonRoot: true
   runAsUser: 65532
   runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   capabilities:
     drop: ["ALL"]
 

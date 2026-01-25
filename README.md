@@ -11,13 +11,13 @@
 [![Container](https://img.shields.io/badge/container-2--4MB-success)](#2-stated-objective-10-year-durability)
 [![Helm](https://img.shields.io/badge/helm-chart-success)](#6-canonical-helm-chart-required)
 
-A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops. **Not nginx. Not HAProxy.** This is the smallest, most secure subset of features *fully app-integrated*—built to be **durable for 10+ years** and “30,000 GitHub star” boring.
+A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops. **Not nginx. Not HAProxy.** This is the smallest, most secure subset of features *fully app-integrated*—built to be **durable for 10+ years** and a goal of “30,000 GitHub star” boring.
 
 ---
 
 ## 0. Call to action
 
-- **Minimal size, maximal performance + functionality**: scratch-style images in the **~2–4 MB** range while still being a good Kubernetes/observability citizen.
+- **Minimal size, maximal performance + functionality**: scratch-style images in the **~5–8 MB** range while still being a good Kubernetes/observability citizen.
 - **Keel-haul legacy services into compliance**: run Keel as a sidecar envelope around legacy HTTP/HTTPS apps to force modern security posture without rewriting the app.
 - **Maximum flexibility without feature sprawl**: defaults are built-in and on; you opt out at build time to reach a smaller/stricter subset.
 
@@ -25,7 +25,7 @@ A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops
 
 ## 1. Why Golang
 
-I picked **golang** because it hits the best “ops-to-footprint” ratio for a deployable HTTP(S) core:
+We picked **golang** because it hits the best “ops-to-footprint” ratio for a deployable HTTP(S) core:
 
 - Single self-contained binary (scratch-style images, easy rollbacks).
 - HTTPS in the standard library (`net/http` + `crypto/tls`).
@@ -37,13 +37,13 @@ I picked **golang** because it hits the best “ops-to-footprint” ratio for a 
 These are practical “server bones” comparisons (HTTPS + minimal routing + sane defaults). Exact sizes vary by base image, libc choice, and what you link in.
 
 | Option | Typical minimal prod container size | HTTPS/TLS story | Notes (re: this project) |
-|---|---:|---|---|
-| **golang** | **~2–4 MB** | Built-in `crypto/tls`; easy to make TLS1.3-only | Best “small + capable + boring” combo |
-| Rust | ~5–15 MB | Strong crates (`rustls`, `hyper/axum`) | Great, but more build complexity; usually larger than golang in practice |
-| Zig | ~10–30+ MB | You bring TCP/TLS/HTTP(S) plumbing | Zig is not “that small” once you add TCP/TLS/HTTP(S) support |
-| Python | ~40–120+ MB | Runtime-heavy; TLS via OpenSSL | Great DX; not aligned with “tiny core” objective |
-| Ruby | ~40–120+ MB | Runtime-heavy; TLS via OpenSSL | Same size story as Python |
-| Node.js | ~60–150+ MB | Runtime-heavy; TLS via OpenSSL | Often the largest option |
+|---|------------------------------------:|---|---|
+| **golang** |                         **~5-8 MB** | Built-in `crypto/tls`; easy to make TLS1.3-only | Best “small + capable + boring” combo |
+| Rust |                            ~5–15 MB | Strong crates (`rustls`, `hyper/axum`) | Great, but more build complexity; usually larger than golang in practice |
+| Zig |                          ~10–30+ MB | You bring TCP/TLS/HTTP(S) plumbing | Zig is not “that small” once you add TCP/TLS/HTTP(S) support |
+| Python |                         ~40–120+ MB | Runtime-heavy; TLS via OpenSSL | Great DX; not aligned with “tiny core” objective |
+| Ruby |                         ~40–120+ MB | Runtime-heavy; TLS via OpenSSL | Same size story as Python |
+| Node.js |                         ~60–150+ MB | Runtime-heavy; TLS via OpenSSL | Often the largest option |
 
 ---
 
@@ -51,7 +51,7 @@ These are practical “server bones” comparisons (HTTPS + minimal routing + sa
 
 This project optimizes for:
 - **Longevity**: stable APIs, conservative dependencies, strong upgrade story.
-- **Small prod footprint**: core image target **~2–4 MB** (scratch-style + CA certs where needed).
+- **Small prod footprint**: core image target **~5–8 MB** (scratch-style + CA certs where needed).
 - **Security posture by default**: strict TLS policy, safe defaults, documented hardening, proactive vulnerability handling.
 - **Operational excellence**: predictable behavior in Kubernetes, systemd, Windows services, and “boring” infra.
 
@@ -67,7 +67,7 @@ All major features are **built-in by default**. There is **no golang command-lin
   - You **opt out** by adding build arguments (tags) to remove features you don’t want.
 
 ### 3.1 CI discipline: scripts-first
-All CI must use **POSIX bash scripts** to the maximum extent possible. CI config files should not contain long chains of inline `run:` lines.
+All CI must use provided **POSIX bash scripts** to the maximum extent possible. CI config files should not contain long chains of inline `run:` lines.
 
 **Rule:** CI invokes comprehensive scripts from `./scripts/` (e.g., `./scripts/ci_build.sh`, `./scripts/ci_test.sh`, `./scripts/release.sh`).
 
