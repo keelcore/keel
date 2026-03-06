@@ -10,7 +10,6 @@ import (
 
 func BuildTLSConfig(_ config.Config) *tls.Config {
 	return &tls.Config{
-		MinVersion:               tls.VersionTLS12,
-		PreferServerCipherSuites: true,
+		MinVersion: tls.VersionTLS13,
 	}
 }
