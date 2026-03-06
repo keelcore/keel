@@ -1,17 +1,17 @@
 package probes
 
 import (
-    "sync/atomic"
+	"sync/atomic"
 )
 
 type Readiness struct {
-    ready atomic.Bool
+	ready atomic.Bool
 }
 
 func NewReadiness() *Readiness {
-    r := &Readiness{}
-    r.ready.Store(true)
-    return r
+	r := &Readiness{}
+	r.ready.Store(true)
+	return r
 }
 
 func (r *Readiness) Set(v bool) { r.ready.Store(v) }

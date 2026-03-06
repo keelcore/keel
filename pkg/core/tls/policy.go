@@ -3,14 +3,14 @@
 package tls
 
 import (
-    "crypto/tls"
+	"crypto/tls"
 
-    "github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/config"
 )
 
 func BuildTLSConfig(_ config.Config) *tls.Config {
-    return &tls.Config{
-        MinVersion:               tls.VersionTLS12,
-        PreferServerCipherSuites: true,
-    }
+	return &tls.Config{
+		MinVersion:               tls.VersionTLS12,
+		PreferServerCipherSuites: true,
+	}
 }

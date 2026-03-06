@@ -3,15 +3,15 @@
 package sidecar
 
 import (
-    "net/http"
-    "net/http/httputil"
-    "net/url"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 )
 
 func ReverseProxy(upstream string) (http.Handler, error) {
-    u, err := url.Parse(upstream)
-    if err != nil {
-        return nil, err
-    }
-    return httputil.NewSingleHostReverseProxy(u), nil
+	u, err := url.Parse(upstream)
+	if err != nil {
+		return nil, err
+	}
+	return httputil.NewSingleHostReverseProxy(u), nil
 }
