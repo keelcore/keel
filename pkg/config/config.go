@@ -2,247 +2,488 @@
 package config
 
 import (
-    "encoding/json"
-    "fmt"
-    "os"
-    "strconv"
-    "time"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 
-    "github.com/keelcore/keel/pkg/core/ports"
+	"gopkg.in/yaml.v3"
+
+	"github.com/keelcore/keel/pkg/core/ports"
 )
 
-type Listener struct {
-    Enabled bool
-    Port    int
+// ---------------------------------------------------------------------------
+// Duration — wraps time.Duration for clean YAML "5s" / "30s" notation.
+// ---------------------------------------------------------------------------
+
+type Duration struct{ time.Duration }
+
+func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
+	var s string
+	if err := value.Decode(&s); err != nil {
+		return fmt.Errorf("duration must be a string like \"5s\": %w", err)
+	}
+	dur, err := time.ParseDuration(s)
+	if err != nil {
+		return fmt.Errorf("invalid duration %q: %w", s, err)
+	}
+	d.Duration = dur
+	return nil
 }
+
+func DurationOf(d time.Duration) Duration { return Duration{d} }
+
+// ---------------------------------------------------------------------------
+// Sub-structs (hierarchical, matching keel.yaml schema in README §3.8.1)
+// ---------------------------------------------------------------------------
+
+type ListenerConfig struct {
+	Enabled bool `yaml:"enabled"`
+	Port    int  `yaml:"port"`
+}
+
+type ListenersConfig struct {
+	HTTP    ListenerConfig `yaml:"http"`
+	HTTPS   ListenerConfig `yaml:"https"`
+	H3      ListenerConfig `yaml:"h3"`
+	Health  ListenerConfig `yaml:"health"`
+	Ready   ListenerConfig `yaml:"ready"`
+	Startup ListenerConfig `yaml:"startup"`
+	Admin   ListenerConfig `yaml:"admin"`
+}
+
+type ACMEConfig struct {
+	Enabled  bool     `yaml:"enabled"`
+	Domains  []string `yaml:"domains"`
+	Email    string   `yaml:"email"`
+	CacheDir string   `yaml:"cache_dir"`
+	CAUrl    string   `yaml:"ca_url"`
+}
+
+type TLSConfig struct {
+	CertFile string     `yaml:"cert_file"`
+	KeyFile  string     `yaml:"key_file"`
+	ACME     ACMEConfig `yaml:"acme"`
+}
+
+type UpstreamTLSConfig struct {
+	Enabled            bool   `yaml:"enabled"`
+	CAFile             string `yaml:"ca_file"`
+	ClientCertFile     string `yaml:"client_cert_file"`
+	ClientKeyFile      string `yaml:"client_key_file"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
+}
+
+type CircuitBreakerConfig struct {
+	Enabled          bool     `yaml:"enabled"`
+	FailureThreshold int      `yaml:"failure_threshold"`
+	ResetTimeout     Duration `yaml:"reset_timeout"`
+}
+
+type HeaderPolicyConfig struct {
+	Forward []string `yaml:"forward"`
+	Strip   []string `yaml:"strip"`
+}
+
+type SidecarConfig struct {
+	Enabled                bool                 `yaml:"enabled"`
+	UpstreamURL            string               `yaml:"upstream_url"`
+	UpstreamHealthPath     string               `yaml:"upstream_health_path"`
+	UpstreamHealthInterval Duration             `yaml:"upstream_health_interval"`
+	UpstreamHealthTimeout  Duration             `yaml:"upstream_health_timeout"`
+	UpstreamTLS            UpstreamTLSConfig    `yaml:"upstream_tls"`
+	CircuitBreaker         CircuitBreakerConfig `yaml:"circuit_breaker"`
+	HeaderPolicy           HeaderPolicyConfig   `yaml:"header_policy"`
+	XFFMode                string               `yaml:"xff_mode"`
+	XFFTrustedHops         int                  `yaml:"xff_trusted_hops"`
+}
+
+type SecurityConfig struct {
+	OWASPHeaders         bool  `yaml:"owasp_headers"`
+	MaxHeaderBytes       int   `yaml:"max_header_bytes"`
+	MaxRequestBodyBytes  int64 `yaml:"max_request_body_bytes"`
+	MaxResponseBodyBytes int64 `yaml:"max_response_body_bytes"`
+	HSTSMaxAge           int   `yaml:"hsts_max_age"`
+}
+
+type TimeoutsConfig struct {
+	ReadHeader    Duration `yaml:"read_header"`
+	Read          Duration `yaml:"read"`
+	Write         Duration `yaml:"write"`
+	Idle          Duration `yaml:"idle"`
+	ShutdownDrain Duration `yaml:"shutdown_drain"`
+	PrestopSleep  Duration `yaml:"prestop_sleep"`
+}
+
+type LimitsConfig struct {
+	MaxConcurrent int `yaml:"max_concurrent"`
+	QueueDepth    int `yaml:"queue_depth"`
+}
+
+type BackpressureConfig struct {
+	HeapMaxBytes    int64   `yaml:"heap_max_bytes"`
+	HighWatermark   float64 `yaml:"high_watermark"`
+	LowWatermark    float64 `yaml:"low_watermark"`
+	SheddingEnabled bool    `yaml:"shedding_enabled"`
+}
+
+type AuthnConfig struct {
+	Enabled            bool     `yaml:"enabled"`
+	TrustedIDs         []string `yaml:"trusted_ids"`
+	TrustedSigners     []string `yaml:"trusted_signers"`
+	TrustedSignersFile string   `yaml:"trusted_signers_file"`
+	MyID               string   `yaml:"my_id"`
+	MySignatureKeyFile string   `yaml:"my_signature_key_file"`
+}
+
+type RemoteSinkConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Endpoint string `yaml:"endpoint"`
+	Protocol string `yaml:"protocol"`
+}
+
+type LoggingConfig struct {
+	JSON       bool             `yaml:"json"`
+	Level      string           `yaml:"level"`
+	AccessLog  bool             `yaml:"access_log"`
+	RemoteSink RemoteSinkConfig `yaml:"remote_sink"`
+}
+
+type StatsDConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Endpoint string `yaml:"endpoint"`
+	Prefix   string `yaml:"prefix"`
+}
+
+type MetricsConfig struct {
+	Prometheus bool         `yaml:"prometheus"`
+	StatsD     StatsDConfig `yaml:"statsd"`
+}
+
+type OTLPConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Endpoint string `yaml:"endpoint"`
+	Insecure bool   `yaml:"insecure"`
+}
+
+type TracingConfig struct {
+	OTLP OTLPConfig `yaml:"otlp"`
+}
+
+type FIPSConfig struct {
+	Monitor bool `yaml:"monitor"`
+}
+
+// ---------------------------------------------------------------------------
+// Top-level Config
+// ---------------------------------------------------------------------------
 
 type Config struct {
-    HTTP  Listener
-    HTTPS Listener
-    H3    Listener
-
-    Admin  Listener
-    Health Listener
-    Ready  Listener
-
-    TLSCertFile string
-    TLSKeyFile  string
-
-    SidecarEnabled bool
-    UpstreamURL    string
-
-    SecurityHeadersEnabled bool
-    MaxRequestBodyBytes    int64
-    ReadHeaderTimeout      time.Duration
-    ReadTimeout            time.Duration
-    WriteTimeout           time.Duration
-    IdleTimeout            time.Duration
-
-    HeapMaxBytes          int64
-    PressureHighWatermark float64
-    PressureLowWatermark  float64
-    SheddingEnabled       bool
-
-    AuthnEnabled   bool
-    TrustedIDs     []string
-    TrustedSigners []string
-    MyID           string
-
-    LogJSON bool
+	Listeners    ListenersConfig    `yaml:"listeners"`
+	TLS          TLSConfig          `yaml:"tls"`
+	Sidecar      SidecarConfig      `yaml:"sidecar"`
+	Security     SecurityConfig     `yaml:"security"`
+	Timeouts     TimeoutsConfig     `yaml:"timeouts"`
+	Limits       LimitsConfig       `yaml:"limits"`
+	Backpressure BackpressureConfig `yaml:"backpressure"`
+	Authn        AuthnConfig        `yaml:"authn"`
+	Logging      LoggingConfig      `yaml:"logging"`
+	Metrics      MetricsConfig      `yaml:"metrics"`
+	Tracing      TracingConfig      `yaml:"tracing"`
+	FIPS         FIPSConfig         `yaml:"fips"`
 }
+
+// ---------------------------------------------------------------------------
+// Defaults
+// ---------------------------------------------------------------------------
+
+func defaults() Config {
+	return Config{
+		Listeners: ListenersConfig{
+			HTTP:    ListenerConfig{Enabled: true, Port: ports.HTTP},
+			HTTPS:   ListenerConfig{Enabled: false, Port: ports.HTTPS},
+			H3:      ListenerConfig{Enabled: false, Port: ports.H3},
+			Health:  ListenerConfig{Enabled: true, Port: ports.HEALTH},
+			Ready:   ListenerConfig{Enabled: true, Port: ports.READY},
+			Startup: ListenerConfig{Enabled: false, Port: ports.STARTUP},
+			Admin:   ListenerConfig{Enabled: false, Port: ports.ADMIN},
+		},
+		Security: SecurityConfig{
+			OWASPHeaders:         true,
+			MaxHeaderBytes:       65536,
+			MaxRequestBodyBytes:  10 << 20, // 10 MB
+			MaxResponseBodyBytes: 50 << 20, // 50 MB
+			HSTSMaxAge:           63072000,
+		},
+		Timeouts: TimeoutsConfig{
+			ReadHeader:    DurationOf(5 * time.Second),
+			Read:          DurationOf(30 * time.Second),
+			Write:         DurationOf(30 * time.Second),
+			Idle:          DurationOf(60 * time.Second),
+			ShutdownDrain: DurationOf(10 * time.Second),
+			PrestopSleep:  DurationOf(0),
+		},
+		Backpressure: BackpressureConfig{
+			HighWatermark:   0.85,
+			LowWatermark:    0.70,
+			SheddingEnabled: true,
+		},
+		Authn: AuthnConfig{
+			Enabled: true,
+		},
+		Logging: LoggingConfig{
+			JSON:      true,
+			Level:     "info",
+			AccessLog: true,
+		},
+		Metrics: MetricsConfig{
+			Prometheus: true,
+			StatsD:     StatsDConfig{Prefix: "keel"},
+		},
+		FIPS: FIPSConfig{
+			Monitor: true,
+		},
+		Sidecar: SidecarConfig{
+			UpstreamHealthPath:     "/health",
+			UpstreamHealthInterval: DurationOf(10 * time.Second),
+			UpstreamHealthTimeout:  DurationOf(2 * time.Second),
+			CircuitBreaker: CircuitBreakerConfig{
+				Enabled:          true,
+				FailureThreshold: 5,
+				ResetTimeout:     DurationOf(30 * time.Second),
+			},
+			XFFMode: "append",
+		},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Load — merge order: defaults → config YAML → secrets YAML → ENV vars.
+// ---------------------------------------------------------------------------
+
+// Load is the primary entry point. configPath and secretsPath may be empty.
+func Load(configPath, secretsPath string) (Config, error) {
+	cfg := defaults()
+
+	if configPath != "" {
+		if err := applyYAMLFile(configPath, &cfg); err != nil {
+			return cfg, fmt.Errorf("config file: %w", err)
+		}
+	}
+
+	if secretsPath != "" {
+		if err := applyYAMLFile(secretsPath, &cfg); err != nil {
+			return cfg, fmt.Errorf("secrets file: %w", err)
+		}
+	}
+
+	applyEnv(&cfg)
+
+	return cfg, nil
+}
+
+// LoadFromEnvAndOptionalFile is a convenience alias for backwards compatibility.
+func LoadFromEnvAndOptionalFile(configPath string) (Config, error) {
+	return Load(configPath, os.Getenv("KEEL_SECRETS"))
+}
+
+// Validate returns an error if the config contains an invalid combination.
+func Validate(cfg Config) error {
+	httpsWantsCert := cfg.Listeners.HTTPS.Enabled || cfg.Listeners.H3.Enabled
+	acme := cfg.TLS.ACME.Enabled
+	hasCert := cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != ""
+
+	if httpsWantsCert && !acme && !hasCert {
+		return fmt.Errorf("HTTPS/H3 enabled but no TLS cert/key configured and ACME is disabled")
+	}
+	if acme && hasCert {
+		return fmt.Errorf("ACME is enabled but cert_file/key_file are also set; leave them empty when using ACME")
+	}
+	if acme && len(cfg.TLS.ACME.Domains) == 0 {
+		return fmt.Errorf("ACME is enabled but no domains are configured")
+	}
+	if cfg.Backpressure.HighWatermark > 0 && cfg.Backpressure.LowWatermark >= cfg.Backpressure.HighWatermark {
+		return fmt.Errorf("backpressure.low_watermark (%.2f) must be less than high_watermark (%.2f)",
+			cfg.Backpressure.LowWatermark, cfg.Backpressure.HighWatermark)
+	}
+	if cfg.Sidecar.Enabled && cfg.Sidecar.UpstreamURL == "" {
+		return fmt.Errorf("sidecar is enabled but upstream_url is not set")
+	}
+	if cfg.Sidecar.UpstreamTLS.InsecureSkipVerify {
+		// Warn but do not block; caller may log this.
+		_ = "insecure_skip_verify is set; do not use in production"
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+func applyYAMLFile(path string, cfg *Config) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %q: %w", path, err)
+	}
+	// yaml.Unmarshal into an already-populated struct only overwrites fields
+	// present in the YAML document; absent fields retain their current values.
+	if err := yaml.Unmarshal(b, cfg); err != nil {
+		return fmt.Errorf("parse %q: %w", path, err)
+	}
+	return nil
+}
+
+// applyEnv overlays environment variables onto cfg. Only vars that are
+// explicitly set (non-empty) override the current value.
+func applyEnv(cfg *Config) {
+	// Listeners
+	applyBool("KEEL_HTTP_ENABLED", &cfg.Listeners.HTTP.Enabled)
+	applyInt("KEEL_HTTP_PORT", &cfg.Listeners.HTTP.Port)
+	applyBool("KEEL_HTTPS_ENABLED", &cfg.Listeners.HTTPS.Enabled)
+	applyInt("KEEL_HTTPS_PORT", &cfg.Listeners.HTTPS.Port)
+	applyBool("KEEL_H3_ENABLED", &cfg.Listeners.H3.Enabled)
+	applyInt("KEEL_H3_PORT", &cfg.Listeners.H3.Port)
+	applyBool("KEEL_HEALTH_ENABLED", &cfg.Listeners.Health.Enabled)
+	applyInt("KEEL_HEALTH_PORT", &cfg.Listeners.Health.Port)
+	applyBool("KEEL_READY_ENABLED", &cfg.Listeners.Ready.Enabled)
+	applyInt("KEEL_READY_PORT", &cfg.Listeners.Ready.Port)
+	applyBool("KEEL_STARTUP_ENABLED", &cfg.Listeners.Startup.Enabled)
+	applyInt("KEEL_STARTUP_PORT", &cfg.Listeners.Startup.Port)
+	applyBool("KEEL_ADMIN_ENABLED", &cfg.Listeners.Admin.Enabled)
+	applyInt("KEEL_ADMIN_PORT", &cfg.Listeners.Admin.Port)
+
+	// TLS
+	applyString("KEEL_TLS_CERT", &cfg.TLS.CertFile)
+	applyString("KEEL_TLS_KEY", &cfg.TLS.KeyFile)
+
+	// Sidecar
+	applyBool("KEEL_SIDECAR", &cfg.Sidecar.Enabled)
+	applyString("KEEL_UPSTREAM_URL", &cfg.Sidecar.UpstreamURL)
+	applyBool("KEEL_UPSTREAM_TLS", &cfg.Sidecar.UpstreamTLS.Enabled)
+	applyString("KEEL_UPSTREAM_CA_FILE", &cfg.Sidecar.UpstreamTLS.CAFile)
+	applyString("KEEL_UPSTREAM_CLIENT_CERT", &cfg.Sidecar.UpstreamTLS.ClientCertFile)
+	applyString("KEEL_UPSTREAM_CLIENT_KEY", &cfg.Sidecar.UpstreamTLS.ClientKeyFile)
+
+	// Security
+	applyBool("KEEL_OWASP", &cfg.Security.OWASPHeaders)
+	applyInt64("KEEL_MAX_REQ_BODY_BYTES", &cfg.Security.MaxRequestBodyBytes)
+	applyInt64("KEEL_MAX_RESP_BODY_BYTES", &cfg.Security.MaxResponseBodyBytes)
+	applyInt("KEEL_MAX_HEADER_BYTES", &cfg.Security.MaxHeaderBytes)
+
+	// Timeouts
+	applyDuration("KEEL_READ_HEADER_TIMEOUT", &cfg.Timeouts.ReadHeader)
+	applyDuration("KEEL_READ_TIMEOUT", &cfg.Timeouts.Read)
+	applyDuration("KEEL_WRITE_TIMEOUT", &cfg.Timeouts.Write)
+	applyDuration("KEEL_IDLE_TIMEOUT", &cfg.Timeouts.Idle)
+	applyDuration("KEEL_SHUTDOWN_DRAIN", &cfg.Timeouts.ShutdownDrain)
+	applyDuration("KEEL_PRESTOP_SLEEP", &cfg.Timeouts.PrestopSleep)
+
+	// Limits
+	applyInt("KEEL_MAX_CONCURRENT", &cfg.Limits.MaxConcurrent)
+	applyInt("KEEL_QUEUE_DEPTH", &cfg.Limits.QueueDepth)
+
+	// Backpressure
+	applyInt64("KEEL_HEAP_MAX_BYTES", &cfg.Backpressure.HeapMaxBytes)
+	applyFloat64("KEEL_PRESSURE_HIGH", &cfg.Backpressure.HighWatermark)
+	applyFloat64("KEEL_PRESSURE_LOW", &cfg.Backpressure.LowWatermark)
+	applyBool("KEEL_SHEDDING", &cfg.Backpressure.SheddingEnabled)
+
+	// Authn
+	applyBool("KEEL_AUTHN", &cfg.Authn.Enabled)
+	applyString("KEEL_MY_ID", &cfg.Authn.MyID)
+	applyCSV("KEEL_TRUSTED_IDS", &cfg.Authn.TrustedIDs)
+	applyCSV("KEEL_TRUSTED_SIGNERS", &cfg.Authn.TrustedSigners)
+
+	// Logging
+	applyBool("KEEL_LOG_JSON", &cfg.Logging.JSON)
+	applyString("KEEL_LOG_LEVEL", &cfg.Logging.Level)
+}
+
+// ---------------------------------------------------------------------------
+// ENV primitives
+// ---------------------------------------------------------------------------
+
+func applyBool(key string, dst *bool) {
+	v := os.Getenv(key)
+	if v == "" {
+		return
+	}
+	b, err := strconv.ParseBool(v)
+	if err == nil {
+		*dst = b
+	}
+}
+
+func applyInt(key string, dst *int) {
+	v := os.Getenv(key)
+	if v == "" {
+		return
+	}
+	n, err := strconv.Atoi(v)
+	if err == nil {
+		*dst = n
+	}
+}
+
+func applyInt64(key string, dst *int64) {
+	v := os.Getenv(key)
+	if v == "" {
+		return
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err == nil {
+		*dst = n
+	}
+}
+
+func applyFloat64(key string, dst *float64) {
+	v := os.Getenv(key)
+	if v == "" {
+		return
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err == nil {
+		*dst = f
+	}
+}
+
+func applyString(key string, dst *string) {
+	if v := os.Getenv(key); v != "" {
+		*dst = v
+	}
+}
+
+func applyDuration(key string, dst *Duration) {
+	v := os.Getenv(key)
+	if v == "" {
+		return
+	}
+	d, err := time.ParseDuration(v)
+	if err == nil {
+		*dst = Duration{d}
+	}
+}
+
+func applyCSV(key string, dst *[]string) {
+	v := os.Getenv(key)
+	if v == "" {
+		return
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	if len(out) > 0 {
+		*dst = out
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
 
 func AddrFromPort(port int) string { return ":" + strconv.Itoa(port) }
-
-func LoadFromEnvAndOptionalFile(path string) (Config, error) {
-    cfg := Config{
-        HTTP: Listener{
-            Enabled: getenvBool("KEEL_HTTP_ENABLED", true),
-            Port:    getenvInt("KEEL_HTTP_PORT", ports.HTTP),
-        },
-        HTTPS: Listener{
-            Enabled: getenvBool("KEEL_HTTPS_ENABLED", false),
-            Port:    getenvInt("KEEL_HTTPS_PORT", ports.HTTPS),
-        },
-        H3: Listener{
-            Enabled: getenvBool("KEEL_H3_ENABLED", false),
-            Port:    getenvInt("KEEL_H3_PORT", ports.H3),
-        },
-        Admin: Listener{
-            Enabled: getenvBool("KEEL_ADMIN_ENABLED", false),
-            Port:    getenvInt("KEEL_ADMIN_PORT", ports.ADMIN),
-        },
-        Health: Listener{
-            Enabled: getenvBool("KEEL_HEALTH_ENABLED", false),
-            Port:    getenvInt("KEEL_HEALTH_PORT", ports.HEALTH),
-        },
-        Ready: Listener{
-            Enabled: getenvBool("KEEL_READY_ENABLED", false),
-            Port:    getenvInt("KEEL_READY_PORT", ports.READY),
-        },
-
-        TLSCertFile: os.Getenv("KEEL_TLS_CERT"),
-        TLSKeyFile:  os.Getenv("KEEL_TLS_KEY"),
-
-        SidecarEnabled:         getenvBool("KEEL_SIDECAR", false),
-        UpstreamURL:            os.Getenv("KEEL_UPSTREAM_URL"),
-        SecurityHeadersEnabled: getenvBool("KEEL_OWASP", true),
-        MaxRequestBodyBytes:    int64(getenvInt("KEEL_MAX_REQ_BODY_BYTES", 10<<20)),
-        ReadHeaderTimeout:      getenvDuration("KEEL_READ_HEADER_TIMEOUT", 5*time.Second),
-        ReadTimeout:            getenvDuration("KEEL_READ_TIMEOUT", 30*time.Second),
-        WriteTimeout:           getenvDuration("KEEL_WRITE_TIMEOUT", 30*time.Second),
-        IdleTimeout:            getenvDuration("KEEL_IDLE_TIMEOUT", 60*time.Second),
-
-        HeapMaxBytes:          getenvInt64("KEEL_HEAP_MAX_BYTES", 0),
-        PressureHighWatermark: getenvFloat("KEEL_PRESSURE_HIGH", 0.85),
-        PressureLowWatermark:  getenvFloat("KEEL_PRESSURE_LOW", 0.70),
-        SheddingEnabled:       getenvBool("KEEL_SHEDDING", true),
-
-        AuthnEnabled: getenvBool("KEEL_AUTHN", true),
-        MyID:         os.Getenv("KEEL_MY_ID"),
-
-        LogJSON: getenvBool("KEEL_LOG_JSON", true),
-    }
-
-    if path == "" {
-        return cfg, nil
-    }
-    b, err := os.ReadFile(path)
-    if err != nil {
-        return cfg, fmt.Errorf("read config file: %w", err)
-    }
-    var fromFile Config
-    if err := json.Unmarshal(b, &fromFile); err != nil {
-        return cfg, fmt.Errorf("parse config file json: %w", err)
-    }
-
-    // Minimal merge: file overrides env-derived defaults when fields are non-zero.
-    mergeConfig(&cfg, fromFile)
-    return cfg, nil
-}
-
-func mergeListener(dst *Listener, src Listener) {
-    if src.Port != 0 {
-        dst.Port = src.Port
-    }
-    dst.Enabled = src.Enabled
-}
-
-func mergeConfig(dst *Config, src Config) {
-    mergeListener(&dst.HTTP, src.HTTP)
-    mergeListener(&dst.HTTPS, src.HTTPS)
-    mergeListener(&dst.H3, src.H3)
-    mergeListener(&dst.Admin, src.Admin)
-    mergeListener(&dst.Health, src.Health)
-    mergeListener(&dst.Ready, src.Ready)
-
-    if src.TLSCertFile != "" {
-        dst.TLSCertFile = src.TLSCertFile
-    }
-    if src.TLSKeyFile != "" {
-        dst.TLSKeyFile = src.TLSKeyFile
-    }
-    if src.UpstreamURL != "" {
-        dst.UpstreamURL = src.UpstreamURL
-    }
-
-    dst.SidecarEnabled = src.SidecarEnabled
-    dst.SecurityHeadersEnabled = src.SecurityHeadersEnabled
-    dst.SheddingEnabled = src.SheddingEnabled
-    dst.AuthnEnabled = src.AuthnEnabled
-    dst.LogJSON = src.LogJSON
-
-    if src.MaxRequestBodyBytes != 0 {
-        dst.MaxRequestBodyBytes = src.MaxRequestBodyBytes
-    }
-    if src.ReadHeaderTimeout != 0 {
-        dst.ReadHeaderTimeout = src.ReadHeaderTimeout
-    }
-    if src.ReadTimeout != 0 {
-        dst.ReadTimeout = src.ReadTimeout
-    }
-    if src.WriteTimeout != 0 {
-        dst.WriteTimeout = src.WriteTimeout
-    }
-    if src.IdleTimeout != 0 {
-        dst.IdleTimeout = src.IdleTimeout
-    }
-    if src.HeapMaxBytes != 0 {
-        dst.HeapMaxBytes = src.HeapMaxBytes
-    }
-    if src.PressureHighWatermark != 0 {
-        dst.PressureHighWatermark = src.PressureHighWatermark
-    }
-    if src.PressureLowWatermark != 0 {
-        dst.PressureLowWatermark = src.PressureLowWatermark
-    }
-
-    if len(src.TrustedIDs) > 0 {
-        dst.TrustedIDs = append([]string(nil), src.TrustedIDs...)
-    }
-    if len(src.TrustedSigners) > 0 {
-        dst.TrustedSigners = append([]string(nil), src.TrustedSigners...)
-    }
-    if src.MyID != "" {
-        dst.MyID = src.MyID
-    }
-}
-
-func getenvInt(k string, def int) int {
-    v := os.Getenv(k)
-    if v == "" {
-        return def
-    }
-    n, err := strconv.Atoi(v)
-    if err != nil {
-        return def
-    }
-    return n
-}
-
-func getenvInt64(k string, def int64) int64 {
-    v := os.Getenv(k)
-    if v == "" {
-        return def
-    }
-    n, err := strconv.ParseInt(v, 10, 64)
-    if err != nil {
-        return def
-    }
-    return n
-}
-
-func getenvFloat(k string, def float64) float64 {
-    v := os.Getenv(k)
-    if v == "" {
-        return def
-    }
-    f, err := strconv.ParseFloat(v, 64)
-    if err != nil {
-        return def
-    }
-    return f
-}
-
-func getenvBool(k string, def bool) bool {
-    v := os.Getenv(k)
-    if v == "" {
-        return def
-    }
-    b, err := strconv.ParseBool(v)
-    if err != nil {
-        return def
-    }
-    return b
-}
-
-func getenvDuration(k string, def time.Duration) time.Duration {
-    v := os.Getenv(k)
-    if v == "" {
-        return def
-    }
-    d, err := time.ParseDuration(v)
-    if err != nil {
-        return def
-    }
-    return d
-}

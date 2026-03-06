@@ -1,0 +1,127 @@
+{{- $v := .Values.keel }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "keel.fullname" . }}-config
+  labels:
+    app.kubernetes.io/name: {{ include "keel.name" . }}
+    helm.sh/chart: {{ include "keel.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  keel.yaml: |
+    listeners:
+      http:
+        enabled: {{ $v.listeners.http.enabled }}
+        port: {{ $v.listeners.http.port }}
+      https:
+        enabled: {{ $v.listeners.https.enabled }}
+        port: {{ $v.listeners.https.port }}
+      h3:
+        enabled: {{ $v.listeners.h3.enabled }}
+        port: {{ $v.listeners.h3.port }}
+      health:
+        enabled: {{ $v.listeners.health.enabled }}
+        port: {{ $v.listeners.health.port }}
+      ready:
+        enabled: {{ $v.listeners.ready.enabled }}
+        port: {{ $v.listeners.ready.port }}
+      startup:
+        enabled: {{ $v.listeners.startup.enabled }}
+        port: {{ $v.listeners.startup.port }}
+      admin:
+        enabled: {{ $v.listeners.admin.enabled }}
+        port: {{ $v.listeners.admin.port }}
+
+    tls:
+      {{- if $v.tls.certSecretName }}
+      cert_file: /etc/keel/tls/tls.crt
+      key_file: /etc/keel/tls/tls.key
+      {{- else }}
+      cert_file: ""
+      key_file: ""
+      {{- end }}
+      acme:
+        enabled: {{ $v.tls.acme.enabled }}
+        domains: {{ toJson $v.tls.acme.domains }}
+        email: {{ $v.tls.acme.email | quote }}
+        cache_dir: /var/lib/keel/acme
+        ca_url: {{ $v.tls.acme.caUrl | quote }}
+
+    sidecar:
+      enabled: {{ eq .Values.mode "sidecar" }}
+      upstream_url: {{ $v.upstream.url | quote }}
+      upstream_health_path: /health
+      upstream_health_interval: 10s
+      upstream_health_timeout: 2s
+      upstream_tls:
+        enabled: {{ and (eq .Values.mode "sidecar") (ne $v.upstream.tlsSecret "") }}
+        {{- if $v.upstream.tlsSecret }}
+        ca_file: /etc/keel/secrets/upstream-tls/ca.crt
+        client_cert_file: /etc/keel/secrets/upstream-tls/tls.crt
+        client_key_file: /etc/keel/secrets/upstream-tls/tls.key
+        {{- end }}
+        insecure_skip_verify: {{ $v.upstream.tlsInsecureSkipVerify }}
+      circuit_breaker:
+        enabled: true
+        failure_threshold: 5
+        reset_timeout: 30s
+      xff_mode: append
+      xff_trusted_hops: 0
+
+    security:
+      owasp_headers: {{ $v.security.owaspHeaders }}
+      max_header_bytes: {{ $v.security.maxHeaderBytes }}
+      max_request_body_bytes: {{ $v.security.maxRequestBodyBytes }}
+      max_response_body_bytes: {{ $v.security.maxResponseBodyBytes }}
+      hsts_max_age: {{ $v.security.hstsMaxAge }}
+
+    timeouts:
+      read_header: {{ $v.timeouts.readHeader | quote }}
+      read: {{ $v.timeouts.read | quote }}
+      write: {{ $v.timeouts.write | quote }}
+      idle: {{ $v.timeouts.idle | quote }}
+      shutdown_drain: {{ $v.timeouts.shutdownDrain | quote }}
+      prestop_sleep: {{ $v.timeouts.prestopSleep | quote }}
+
+    limits:
+      max_concurrent: {{ $v.limits.maxConcurrent }}
+      queue_depth: {{ $v.limits.queueDepth }}
+
+    backpressure:
+      heap_max_bytes: {{ $v.backpressure.heapMaxBytes }}
+      high_watermark: {{ $v.backpressure.highWatermark }}
+      low_watermark: {{ $v.backpressure.lowWatermark }}
+      shedding_enabled: {{ $v.backpressure.sheddingEnabled }}
+
+    authn:
+      enabled: {{ $v.authn.enabled }}
+      trusted_ids: {{ toJson $v.authn.trustedIDs }}
+      trusted_signers: {{ toJson $v.authn.trustedSigners }}
+      my_id: {{ $v.authn.myID | quote }}
+
+    logging:
+      json: {{ $v.logging.json }}
+      level: {{ $v.logging.level | quote }}
+      access_log: {{ $v.logging.accessLog }}
+
+    metrics:
+      prometheus: {{ $v.metrics.prometheus }}
+      statsd:
+        enabled: {{ $v.metrics.statsd.enabled }}
+        endpoint: {{ $v.metrics.statsd.endpoint | quote }}
+        prefix: {{ $v.metrics.statsd.prefix | quote }}
+
+    tracing:
+      otlp:
+        enabled: {{ $v.tracing.otlp.enabled }}
+        endpoint: {{ $v.tracing.otlp.endpoint | quote }}
+        insecure: {{ $v.tracing.otlp.insecure }}
+
+    fips:
+      monitor: {{ $v.fips.monitor }}
+
+    {{- with $v.config }}
+    # Inline overrides from values.keel.config
+    {{- toYaml . | nindent 4 }}
+    {{- end }}

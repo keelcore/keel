@@ -1,4 +1,3 @@
-# charts/keel/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -38,7 +37,39 @@ spec:
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+
+      volumes:
+        # Generated keel.yaml config file
+        - name: keel-config
+          configMap:
+            name: {{ include "keel.fullname" . }}-config
+        {{- if .Values.keel.secrets.existingSecret }}
+        - name: keel-secrets
+          secret:
+            secretName: {{ .Values.keel.secrets.existingSecret }}
+        {{- end }}
+        {{- if .Values.keel.tls.certSecretName }}
+        - name: keel-tls
+          secret:
+            secretName: {{ .Values.keel.tls.certSecretName }}
+        {{- end }}
+        {{- if .Values.keel.upstream.tlsSecret }}
+        - name: upstream-tls
+          secret:
+            secretName: {{ .Values.keel.upstream.tlsSecret }}
+        {{- end }}
+        {{- if .Values.keel.tls.acme.cachePVC }}
+        - name: acme-cache
+          persistentVolumeClaim:
+            claimName: {{ .Values.keel.tls.acme.cachePVC }}
+        {{- end }}
+        {{- with .Values.keel.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+
       containers:
+
+        # ── Keel container ────────────────────────────────────────────────────
         - name: keel
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
@@ -46,78 +77,50 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+
           args:
+            - --config=/etc/keel/keel.yaml
+            {{- if .Values.keel.secrets.existingSecret }}
+            - --secrets={{ .Values.keel.secrets.mountPath }}/keel-secrets.yaml
+            {{- end }}
             {{- range .Values.keel.extraArgs }}
             - {{ . | quote }}
             {{- end }}
+
           env:
-            - name: KEEL_HTTP_ENABLED
-              value: {{ .Values.keel.http.enabled | quote }}
-            - name: KEEL_HTTP_PORT
-              value: {{ .Values.keel.http.port | quote }}
-
-            - name: KEEL_HTTPS_ENABLED
-              value: {{ .Values.keel.https.enabled | quote }}
-            - name: KEEL_HTTPS_PORT
-              value: {{ .Values.keel.https.port | quote }}
-
-            - name: KEEL_H3_ENABLED
-              value: {{ .Values.keel.h3.enabled | quote }}
-            - name: KEEL_H3_PORT
-              value: {{ .Values.keel.h3.port | quote }}
-
-            - name: KEEL_HEALTH_ENABLED
-              value: {{ .Values.keel.probes.health.enabled | quote }}
-            - name: KEEL_HEALTH_PORT
-              value: {{ .Values.keel.probes.health.port | quote }}
-
-            - name: KEEL_READY_ENABLED
-              value: {{ .Values.keel.probes.ready.enabled | quote }}
-            - name: KEEL_READY_PORT
-              value: {{ .Values.keel.probes.ready.port | quote }}
-
-            - name: KEEL_ADMIN_ENABLED
-              value: {{ .Values.keel.probes.admin.enabled | quote }}
-            - name: KEEL_ADMIN_PORT
-              value: {{ .Values.keel.probes.admin.port | quote }}
-
-            - name: KEEL_TLS_CERT
-              value: {{ .Values.keel.tls.cert | quote }}
-            - name: KEEL_TLS_KEY
-              value: {{ .Values.keel.tls.key | quote }}
-
-            - name: KEEL_OWASP
-              value: {{ .Values.keel.features.owasp | quote }}
-            - name: KEEL_AUTHN
-              value: {{ .Values.keel.features.authn | quote }}
-            - name: KEEL_SHEDDING
-              value: {{ .Values.keel.features.shedding | quote }}
-            - name: KEEL_LOG_JSON
-              value: {{ .Values.keel.features.log_json | quote }}
-
             {{- with .Values.keel.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
 
           ports:
             - name: http
-              containerPort: {{ .Values.keel.http.port }}
+              containerPort: {{ .Values.keel.listeners.http.port }}
               protocol: TCP
-            - name: health
-              containerPort: {{ .Values.keel.probes.health.port }}
-              protocol: TCP
-            - name: ready
-              containerPort: {{ .Values.keel.probes.ready.port }}
-              protocol: TCP
-            {{- if .Values.keel.https.enabled }}
+            {{- if .Values.keel.listeners.https.enabled }}
             - name: https
-              containerPort: {{ .Values.keel.https.port }}
+              containerPort: {{ .Values.keel.listeners.https.port }}
               protocol: TCP
             {{- end }}
-            {{- if .Values.keel.h3.enabled }}
+            {{- if .Values.keel.listeners.h3.enabled }}
             - name: h3
-              containerPort: {{ .Values.keel.h3.port }}
+              containerPort: {{ .Values.keel.listeners.h3.port }}
               protocol: UDP
+            {{- end }}
+            - name: health
+              containerPort: {{ .Values.keel.listeners.health.port }}
+              protocol: TCP
+            - name: ready
+              containerPort: {{ .Values.keel.listeners.ready.port }}
+              protocol: TCP
+            {{- if .Values.keel.listeners.startup.enabled }}
+            - name: startup
+              containerPort: {{ .Values.keel.listeners.startup.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.keel.listeners.admin.enabled }}
+            - name: admin
+              containerPort: {{ .Values.keel.listeners.admin.port }}
+              protocol: TCP
             {{- end }}
 
           livenessProbe:
@@ -125,7 +128,7 @@ spec:
               path: /healthz
               port: health
             initialDelaySeconds: 2
-            periodSeconds: 5
+            periodSeconds: 10
             timeoutSeconds: 2
             failureThreshold: 3
 
@@ -138,20 +141,81 @@ spec:
             timeoutSeconds: 2
             failureThreshold: 3
 
+          {{- if .Values.keel.listeners.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: /startupz
+              port: startup
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 30
+          {{- end }}
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep {{ .Values.keel.timeouts.prestopSleep | trimSuffix \"s\" | default \"0\" }}"]
+
+          volumeMounts:
+            - name: keel-config
+              mountPath: /etc/keel/keel.yaml
+              subPath: keel.yaml
+              readOnly: true
+            {{- if .Values.keel.secrets.existingSecret }}
+            - name: keel-secrets
+              mountPath: {{ .Values.keel.secrets.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.keel.tls.certSecretName }}
+            - name: keel-tls
+              mountPath: /etc/keel/tls
+              readOnly: true
+            {{- end }}
+            {{- if .Values.keel.upstream.tlsSecret }}
+            - name: upstream-tls
+              mountPath: /etc/keel/secrets/upstream-tls
+              readOnly: true
+            {{- end }}
+            {{- if .Values.keel.tls.acme.cachePVC }}
+            - name: acme-cache
+              mountPath: /var/lib/keel/acme
+            {{- end }}
+            {{- with .Values.keel.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
 
-          {{- with .Values.keel.extraVolumeMounts }}
-          volumeMounts:
+        # ── App container (sidecar mode only) ─────────────────────────────────
+        {{- if eq .Values.mode "sidecar" }}
+        - name: app
+          image: "{{ .Values.sidecar.app.image }}:{{ .Values.sidecar.app.tag }}"
+          imagePullPolicy: {{ .Values.sidecar.app.pullPolicy }}
+          {{- with .Values.sidecar.app.securityContext }}
+          securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-
-      {{- with .Values.keel.extraVolumes }}
-      volumes:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+          {{- with .Values.sidecar.app.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.sidecar.app.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: app
+              containerPort: {{ .Values.sidecar.app.port }}
+              protocol: TCP
+          {{- with .Values.sidecar.app.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
 
       {{- with .Values.nodeSelector }}
       nodeSelector:

@@ -1,45 +1,150 @@
-# charts/keel/values.yaml
+## Keel Helm chart values
+## All keel.yaml config fields are mirrored here. See README §3.8 for full schema docs.
+
 replicaCount: 1
+
+# library  = single Keel container; your Go code links keel as a library.
+# sidecar  = two containers (app + keel); keel wraps an existing service.
+mode: library
 
 image:
   repository: keelcore/keel
   tag: "0.5.0"
+  # default | min | fips
+  # Ensures values align with compile-time build tags baked into the image.
+  flavor: default
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-serviceAccount:
-  create: true
-  name: ""
-  annotations: {}
+# ── Sidecar app container (mode: sidecar only) ────────────────────────────────
+sidecar:
+  app:
+    image: ""          # required when mode: sidecar
+    tag: latest
+    pullPolicy: IfNotPresent
+    port: 3000
+    args: []
+    env: []
+    resources: {}
+    securityContext: {}
 
-rbac:
-  create: true
+# ── Keel config ───────────────────────────────────────────────────────────────
+keel:
+  # Inline keel.yaml overrides. Rendered to /etc/keel/keel.yaml and passed via
+  # --config. Keys here override chart-derived defaults. Use sparingly; prefer
+  # the typed values below for chart-managed fields.
+  config: {}
 
-podAnnotations: {}
-podLabels: {}
+  # k8s Secret to mount as /etc/keel/secrets/keel-secrets.yaml
+  # The secret should contain a key named "keel-secrets.yaml".
+  secrets:
+    existingSecret: ""
+    mountPath: /etc/keel/secrets
 
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 65532
-  runAsGroup: 65532
-  seccompProfile:
-    type: RuntimeDefault
-securityContext:
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: true
-  capabilities:
-    drop: ["ALL"]
+  listeners:
+    http:
+      enabled: true
+      port: 8080
+    https:
+      enabled: false
+      port: 8443
+    h3:
+      enabled: false
+      port: 8443
+    health:
+      enabled: true
+      port: 9091
+    ready:
+      enabled: true
+      port: 9092
+    startup:
+      enabled: false
+      port: 9093
+    admin:
+      enabled: false
+      port: 9999
 
-resources: {}
-nodeSelector: {}
-tolerations: []
-affinity: {}
+  tls:
+    # k8s Secret of type kubernetes.io/tls (keys: tls.crt, tls.key).
+    # Leave empty when using ACME or when TLS is terminated upstream.
+    certSecretName: ""
+    acme:
+      enabled: false
+      domains: []
+      email: ""
+      # PVC name for on-disk cert cache.  Must be ReadWriteOnce or ReadWriteMany.
+      cachePVC: ""
+      caUrl: ""  # default: Let's Encrypt production
 
-terminationGracePeriodSeconds: 30
+  # Upstream connection (sidecar mode)
+  upstream:
+    url: ""
+    # k8s Secret with keys: ca.crt, tls.crt, tls.key
+    # Mounted at /etc/keel/secrets/upstream-tls/ and wired into upstream_tls.*_file paths.
+    tlsSecret: ""
+    tlsInsecureSkipVerify: false
 
+  security:
+    owaspHeaders: true
+    maxHeaderBytes: 65536
+    maxRequestBodyBytes: 10485760
+    maxResponseBodyBytes: 52428800
+    hstsMaxAge: 63072000
+
+  timeouts:
+    readHeader: "5s"
+    read: "30s"
+    write: "30s"
+    idle: "60s"
+    shutdownDrain: "10s"
+    prestopSleep: "0s"
+
+  limits:
+    maxConcurrent: 0
+    queueDepth: 0
+
+  backpressure:
+    heapMaxBytes: 0
+    highWatermark: 0.85
+    lowWatermark: 0.70
+    sheddingEnabled: true
+
+  authn:
+    enabled: true
+    trustedIDs: []
+    trustedSigners: []
+    myID: ""
+
+  logging:
+    json: true
+    level: info
+    accessLog: true
+
+  metrics:
+    prometheus: true
+    statsd:
+      enabled: false
+      endpoint: ""
+      prefix: keel
+
+  tracing:
+    otlp:
+      enabled: false
+      endpoint: ""
+      insecure: false
+
+  fips:
+    monitor: true
+
+  extraEnv: []
+  extraArgs: []
+  extraVolumeMounts: []
+  extraVolumes: []
+
+# ── Kubernetes Service ────────────────────────────────────────────────────────
 service:
   type: ClusterIP
   annotations: {}
@@ -49,17 +154,19 @@ service:
   https:
     enabled: false
     port: 443
-  http3:
+  h3:
     enabled: false
     port: 443
 
-# Probes do NOT need a Service. Kubelet hits PodIP:port directly.
-# Expose only if you explicitly want in-cluster access.
+# Probe ports are hit by kubelet on PodIP; they don't need a Service.
+# Enable only if you need in-cluster access to probe endpoints.
 serviceProbes:
   enabled: false
   healthPort: 9091
   readyPort: 9092
+  startupPort: 9093
 
+# ── Ingress ───────────────────────────────────────────────────────────────────
 ingress:
   enabled: false
   className: ""
@@ -70,55 +177,65 @@ ingress:
         - path: /
           pathType: Prefix
   tls: []
-  # Example:
-  # tls:
-  #   - secretName: keel-tls
-  #     hosts:
-  #       - keel.local
 
-keel:
-  # Listener enable/port flags (match the new config.Config Listener model)
-  http:
-    enabled: true
-    port: 8080
+# ── Prometheus Operator ServiceMonitor ────────────────────────────────────────
+serviceMonitor:
+  enabled: false
+  namespace: ""
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  # targetPort is the admin port name; must match containerPort name "admin".
+  targetPort: admin
 
-  https:
-    enabled: false
-    port: 8443
+# ── NetworkPolicy ─────────────────────────────────────────────────────────────
+networkPolicy:
+  enabled: false
+  # CIDR for kubelet liveness/readiness probe traffic.
+  # Set to your node CIDR (e.g. "10.0.0.0/8").  Default allows all.
+  kubeletCIDR: "0.0.0.0/0"
+  # Namespace selector for admin port access (e.g. monitoring namespace).
+  adminNamespaceSelector: {}
+  # Extra ingress rules appended verbatim.
+  extraIngressRules: []
+  # Extra egress rules appended verbatim.
+  extraEgressRules: []
 
-  h3:
-    enabled: false
-    port: 8443
+# ── PodDisruptionBudget ───────────────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1  (use one or the other, not both)
 
-  probes:
-    health:
-      enabled: true
-      port: 9091
-    ready:
-      enabled: true
-      port: 9092
-    admin:
-      enabled: false
-      port: 9090
+# ── RBAC / ServiceAccount ─────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
 
-  tls:
-    cert: ""
-    key: ""
+rbac:
+  create: true
 
-  features:
-    owasp: true
-    authn: true
-    shedding: true
-    log_json: true
+# ── Pod / container settings ──────────────────────────────────────────────────
+podAnnotations: {}
+podLabels: {}
 
-  # Optional: pass through additional env vars
-  extraEnv: []
-  # - name: KEEL_MY_ID
-  #   value: "keel-prod-1"
+terminationGracePeriodSeconds: 30
 
-  # Optional: pass through extra args
-  extraArgs: []
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
 
-  # Optional: mount additional secrets/configs
-  extraVolumeMounts: []
-  extraVolumes: []
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

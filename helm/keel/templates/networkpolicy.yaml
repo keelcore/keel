@@ -1,0 +1,79 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "keel.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "keel.name" . }}
+    helm.sh/chart: {{ include "keel.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "keel.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Main HTTP/HTTPS traffic — from any pod in the cluster
+    - ports:
+        - port: {{ .Values.keel.listeners.http.port }}
+          protocol: TCP
+        {{- if .Values.keel.listeners.https.enabled }}
+        - port: {{ .Values.keel.listeners.https.port }}
+          protocol: TCP
+        {{- end }}
+        {{- if .Values.keel.listeners.h3.enabled }}
+        - port: {{ .Values.keel.listeners.h3.port }}
+          protocol: UDP
+        {{- end }}
+
+    # Probe ports — from kubelet CIDR only
+    - from:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.kubeletCIDR }}
+      ports:
+        - port: {{ .Values.keel.listeners.health.port }}
+          protocol: TCP
+        - port: {{ .Values.keel.listeners.ready.port }}
+          protocol: TCP
+        {{- if .Values.keel.listeners.startup.enabled }}
+        - port: {{ .Values.keel.listeners.startup.port }}
+          protocol: TCP
+        {{- end }}
+
+    # Admin port — restricted to a specific namespace (e.g. monitoring)
+    {{- if .Values.keel.listeners.admin.enabled }}
+    - from:
+        {{- if .Values.networkPolicy.adminNamespaceSelector }}
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.adminNamespaceSelector | nindent 12 }}
+        {{- else }}
+        - podSelector: {}   # same namespace only when no selector specified
+        {{- end }}
+      ports:
+        - port: {{ .Values.keel.listeners.admin.port }}
+          protocol: TCP
+    {{- end }}
+
+    {{- with .Values.networkPolicy.extraIngressRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+
+  egress:
+    # Allow DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow all other egress (upstream calls, OTLP, StatsD, etc.)
+    # Tighten with extraEgressRules if needed.
+    - {}
+    {{- with .Values.networkPolicy.extraEgressRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

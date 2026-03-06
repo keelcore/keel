@@ -9,7 +9,8 @@ const (
 	HTTPS = 8443
 	H3    = 8443 // QUIC/UDP port (if enabled)
 
-	ADMIN  = 9090
-	HEALTH = 9091
-	READY  = 9092
+	HEALTH  = 9091
+	READY   = 9092
+	STARTUP = 9093
+	ADMIN   = 9999
 )
