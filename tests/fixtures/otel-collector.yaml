@@ -1,0 +1,33 @@
+# tests/fixtures/otel-collector.yaml
+# OpenTelemetry Collector configuration for the P3 compose test harness.
+# Receives OTLP from keel; forwards to Jaeger via internal Docker DNS.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # Log all received spans to collector stdout for CI debugging.
+  debug:
+    verbosity: normal
+
+service:
+  pipelines:
+    traces:
+      receivers:  [otlp]
+      processors: [batch]
+      exporters:  [otlp/jaeger, debug]

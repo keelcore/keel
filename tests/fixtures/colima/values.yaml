@@ -1,0 +1,139 @@
+# tests/fixtures/colima/values.yaml
+# Helm values for deploying Keel to the local Colima k8s cluster (P3.5).
+# Single replica, HTTP only, no TLS, no authn — optimised for local dev testing.
+
+replicaCount: 1
+
+image:
+  repository: keel
+  tag: test
+  pullPolicy: Never   # image was built directly inside the colima VM
+
+mode: library
+
+keel:
+  listeners:
+    http:
+      enabled: true
+      port: 8080
+    https:
+      enabled: false
+      port: 8443
+    h3:
+      enabled: false
+      port: 8443
+    health:
+      enabled: true
+      port: 9091
+    ready:
+      enabled: true
+      port: 9092
+    startup:
+      enabled: false
+      port: 9093
+    admin:
+      enabled: true
+      port: 9999
+
+  tls:
+    certSecretName: ""
+    acme:
+      enabled: false
+      domains: []
+      email: ""
+      caUrl: ""
+      cachePVC: ""
+
+  security:
+    owaspHeaders: true
+    maxHeaderBytes: 65536
+    maxRequestBodyBytes: 10485760
+    maxResponseBodyBytes: 52428800
+    hstsMaxAge: 63072000
+
+  timeouts:
+    readHeader: 5s
+    read: 30s
+    write: 30s
+    idle: 60s
+    shutdownDrain: 10s
+    prestopSleep: 3s
+
+  limits:
+    maxConcurrent: 0
+    queueDepth: 0
+
+  backpressure:
+    heapMaxBytes: 0
+    highWatermark: 0.85
+    lowWatermark: 0.70
+    sheddingEnabled: false
+
+  authn:
+    enabled: false
+    trustedIDs: []
+    trustedSigners: []
+    myID: ""
+
+  logging:
+    json: true
+    level: debug
+    accessLog: true
+
+  metrics:
+    prometheus: true
+    statsd:
+      enabled: false
+      endpoint: ""
+      prefix: keel
+
+  tracing:
+    otlp:
+      enabled: false
+      endpoint: ""
+      insecure: true
+
+  fips:
+    monitor: false
+
+  upstream:
+    url: ""
+    tlsSecret: ""
+    tlsInsecureSkipVerify: false
+
+service:
+  type: ClusterIP
+  annotations: {}
+  http:
+    enabled: true
+    port: 8080
+  https:
+    enabled: false
+    port: 8443
+  h3:
+    enabled: false
+    port: 8443
+
+serviceProbes:
+  enabled: true
+  healthPort: 9091
+  readyPort: 9092
+  startupPort: 9093
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi
+
+podDisruptionBudget:
+  enabled: false
+
+networkPolicy:
+  enabled: false
+  kubeletCIDR: 0.0.0.0/0
+
+serviceMonitor:
+  enabled: false

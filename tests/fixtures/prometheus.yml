@@ -1,0 +1,20 @@
+# tests/fixtures/prometheus.yml
+# Prometheus scrape config for the P3 compose test harness.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Scrape keel's admin port for Prometheus metrics.
+  - job_name: keel
+    static_configs:
+      - targets:
+          - keel:9999
+    metrics_path: /metrics
+
+  # Scrape Prometheus itself (sanity check).
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090

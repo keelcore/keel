@@ -85,6 +85,22 @@ Goal: all integration tests run against the named compose topology from the READ
 
 ---
 
+## P3.5 — Local k8s via macOS Colima
+
+Goal: a one-command local Kubernetes environment for testing the Helm chart end-to-end before pushing to staging.
+
+* [ ] **`scripts/colima/setup.sh`**: install Colima + kubectl + helm via Homebrew; start a Colima VM with `--kubernetes --runtime docker`; wait for all nodes Ready.
+* [ ] **`scripts/colima/deploy.sh`**: build `keel:test` image inside the Colima VM via `colima nerdctl`; `helm upgrade --install` using `tests/fixtures/colima/values.yaml`.
+* [ ] **`scripts/colima/test.sh`**: k8s-specific test scenarios:
+  * Pod reaches `Ready` condition within 120s.
+  * `/healthz` and `/readyz` endpoints respond via `kubectl port-forward`.
+  * Rolling restart (`kubectl rollout restart`) completes without error.
+* [ ] **`scripts/colima/teardown.sh`**: `helm uninstall` + `colima stop`.
+* [ ] **`tests/fixtures/colima/values.yaml`**: minimal Helm overrides for local testing (single replica, `imagePullPolicy: Never`, HTTP only, authn disabled).
+* [ ] **Makefile targets**: `colima-setup`, `colima-deploy`, `colima-test`, `colima-teardown`.
+
+---
+
 ## P4 — TLS Correctness
 
 * [ ] **TLS 1.3 only**: fix `BuildTLSConfig` — `MinVersion: tls.VersionTLS13`, no `MaxVersion` ceiling.

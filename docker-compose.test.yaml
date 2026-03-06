@@ -1,0 +1,91 @@
+# docker-compose.test.yaml
+# Keel P3 integration test harness.
+# Topology: upstream ← keel → prometheus / otel-collector → jaeger
+#
+# Usage:
+#   scripts/test/compose.sh            # full run
+#   docker compose -f docker-compose.test.yaml up -d --build
+#   docker compose -f docker-compose.test.yaml down --volumes
+
+services:
+
+  # ── Upstream ────────────────────────────────────────────────────────────────
+  # A simple HTTP echo server that keel will eventually proxy.
+  # Present now so the full topology exists from day one.
+  upstream:
+    image: hashicorp/http-echo:latest
+    command: ["-text=upstream-ok", "-listen=:9000"]
+    networks:
+      - keel-test
+    ports:
+      - "9000:9000"
+
+  # ── Keel ─────────────────────────────────────────────────────────────────────
+  keel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        FLAVOR: min
+    image: keel:test
+    depends_on:
+      - upstream
+    networks:
+      - keel-test
+    volumes:
+      - ./tests/fixtures:/etc/keel:ro
+    environment:
+      KEEL_CONFIG: /etc/keel/keel.yaml
+      KEEL_SECRETS: /etc/keel/keel-secrets.yaml
+    ports:
+      - "8080:8080"   # HTTP main
+      - "9091:9091"   # /healthz
+      - "9092:9092"   # /readyz
+      - "9093:9093"   # /startupz
+      - "9999:9999"   # admin (/metrics, /debug/pprof)
+
+  # ── Jaeger (tracing backend) ──────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.56
+    networks:
+      - keel-test
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI (human inspection)
+      # OTLP gRPC 4317 reachable inside the Docker network as jaeger:4317
+
+  # ── OpenTelemetry Collector ───────────────────────────────────────────────────
+  # Receives OTLP from keel; exports to Jaeger via internal Docker DNS.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.97.0
+    depends_on:
+      - jaeger
+    networks:
+      - keel-test
+    volumes:
+      - ./tests/fixtures/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC  (keel → collector)
+      - "4318:4318"   # OTLP HTTP  (keel → collector)
+
+  # ── Prometheus ───────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.50.1
+    networks:
+      - keel-test
+    volumes:
+      - ./tests/fixtures/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+      - "--log.level=warn"
+    ports:
+      - "9090:9090"   # Prometheus UI / query API
+
+networks:
+  keel-test:
+    driver: bridge

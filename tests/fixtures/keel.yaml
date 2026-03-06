@@ -1,0 +1,100 @@
+# tests/fixtures/keel.yaml
+# Keel configuration for the P3 Docker Compose integration test harness.
+# This file is mounted at /etc/keel/keel.yaml inside the keel container.
+
+listeners:
+  http:
+    enabled: true
+    port: 8080
+  https:
+    enabled: false
+    port: 8443
+  h3:
+    enabled: false
+    port: 8443
+  health:
+    enabled: true
+    port: 9091
+  ready:
+    enabled: true
+    port: 9092
+  startup:
+    enabled: true
+    port: 9093
+  admin:
+    enabled: true
+    port: 9999
+
+tls:
+  cert_file: ""
+  key_file: ""
+  acme:
+    enabled: false
+    domains: []
+    email: ""
+    ca_url: ""
+
+sidecar:
+  enabled: false
+  upstream_url: "http://upstream:9000"
+  upstream_health_path: /
+  upstream_health_interval: 10s
+  upstream_health_timeout: 2s
+  upstream_tls:
+    enabled: false
+    insecure_skip_verify: false
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5
+    reset_timeout: 30s
+  xff_mode: append
+  xff_trusted_hops: 0
+
+security:
+  owasp_headers: true
+  max_header_bytes: 65536
+  max_request_body_bytes: 10485760    # 10 MB
+  max_response_body_bytes: 52428800   # 50 MB
+  hsts_max_age: 63072000
+
+timeouts:
+  read_header: 5s
+  read: 30s
+  write: 30s
+  idle: 60s
+  shutdown_drain: 10s
+  prestop_sleep: 0s
+
+limits:
+  max_concurrent: 0    # unlimited for tests
+  queue_depth: 0
+
+backpressure:
+  heap_max_bytes: 0    # disabled for tests
+  high_watermark: 0.85
+  low_watermark: 0.70
+  shedding_enabled: false
+
+authn:
+  enabled: false       # disabled — secrets file enables for authn tests
+
+logging:
+  json: true
+  level: debug
+  access_log: true
+
+metrics:
+  prometheus: true
+  statsd:
+    enabled: false
+    endpoint: ""
+    prefix: keel
+
+tracing:
+  otlp:
+    enabled: false
+    endpoint: "otel-collector:4317"
+    insecure: true
+
+fips:
+  monitor: false
