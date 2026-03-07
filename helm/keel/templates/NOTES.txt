@@ -6,15 +6,15 @@ Service:
 
 Ports:
   HTTP  (Service): {{ if .Values.service.http.enabled }}{{ .Values.service.http.port }}{{ else }}disabled{{ end }}
-  HTTPS (Service): {{ if and .Values.service.https.enabled .Values.keel.https.enabled }}{{ .Values.service.https.port }}{{ else }}disabled{{ end }}
-  H3    (Service): {{ if and .Values.service.http3.enabled .Values.keel.h3.enabled }}{{ .Values.service.http3.port }}/udp{{ else }}disabled{{ end }}
+  HTTPS (Service): {{ if and .Values.service.https.enabled .Values.keel.listeners.https.enabled }}{{ .Values.service.https.port }}{{ else }}disabled{{ end }}
+  H3    (Service): {{ if and .Values.service.h3.enabled .Values.keel.listeners.h3.enabled }}{{ .Values.service.h3.port }}/udp{{ else }}disabled{{ end }}
 
 Pod listeners (container ports):
-  HTTP:   {{ if .Values.keel.http.enabled }}{{ .Values.keel.http.port }}{{ else }}disabled{{ end }}
-  HTTPS:  {{ if .Values.keel.https.enabled }}{{ .Values.keel.https.port }}{{ else }}disabled{{ end }}
-  H3:     {{ if .Values.keel.h3.enabled }}{{ .Values.keel.h3.port }}/udp{{ else }}disabled{{ end }}
-  Health: {{ if .Values.keel.probes.health.enabled }}{{ .Values.keel.probes.health.port }}{{ else }}disabled{{ end }}
-  Ready:  {{ if .Values.keel.probes.ready.enabled }}{{ .Values.keel.probes.ready.port }}{{ else }}disabled{{ end }}
+  HTTP:   {{ if .Values.keel.listeners.http.enabled }}{{ .Values.keel.listeners.http.port }}{{ else }}disabled{{ end }}
+  HTTPS:  {{ if .Values.keel.listeners.https.enabled }}{{ .Values.keel.listeners.https.port }}{{ else }}disabled{{ end }}
+  H3:     {{ if .Values.keel.listeners.h3.enabled }}{{ .Values.keel.listeners.h3.port }}/udp{{ else }}disabled{{ end }}
+  Health: {{ if .Values.keel.listeners.health.enabled }}{{ .Values.keel.listeners.health.port }}{{ else }}disabled{{ end }}
+  Ready:  {{ if .Values.keel.listeners.ready.enabled }}{{ .Values.keel.listeners.ready.port }}{{ else }}disabled{{ end }}
 
 Probes are reached directly via PodIP (recommended). To expose them via Service, set:
   serviceProbes.enabled=true

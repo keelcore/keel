@@ -47,8 +47,7 @@ function require_syft() {
 
 function generate_sbom() {
   syft . \
-    --output 'spdx-json' \
-    --file "${SBOM_OUTPUT}" \
+    --output "spdx-json=${SBOM_OUTPUT}" \
     --quiet
 }
 

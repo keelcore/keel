@@ -42,6 +42,8 @@ jobs:
         run: bash scripts/build/ci_max.sh
       - name: Rename artifacts with platform suffix
         run: bash scripts/release/rename-assets.sh
+      - name: Install syft
+        run: bash scripts/release/install-syft.sh
       - name: Generate SBOM
         run: bash scripts/release/sbom.sh
       - name: Generate checksums
