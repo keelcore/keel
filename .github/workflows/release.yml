@@ -87,7 +87,7 @@ jobs:
       - name: Sign artifacts
         run: bash scripts/release/sign.sh
       - name: Generate SLSA provenance attestation
-        uses: actions/attest-build-provenance@1c608d11d69870c477cf5b2e27d3a326d17d4e85  # v1.4.4
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
         with:
           subject-path: 'dist/keel-*'
       - name: Upload to GitHub Release
