@@ -46,11 +46,12 @@ function run_lint() {
 }
 
 function run_template_validate() {
-  if command -v kubectl >/dev/null 2>&1; then
-    helm template keel-test "${CHART_DIR}" | kubectl apply --dry-run=client -f -
-  else
-    log "kubectl not found; skipping dry-run apply (helm lint still ran)"
+  if ! command -v kubectl >/dev/null 2>&1; then
+    log "ERROR: kubectl not found — run scripts/ci/setup-kind.sh first"
+    exit 1
   fi
+  helm template keel-test "${CHART_DIR}" \
+    | kubectl apply --dry-run=client -f -
 }
 
 main "${@:-}"

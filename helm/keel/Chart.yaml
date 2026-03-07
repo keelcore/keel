@@ -5,6 +5,7 @@ description: Keel (keelcore) - hardened, port-isolated service with FIPS-capable
 type: application
 version: 0.5.0
 appVersion: "0.5.0"
+icon: https://raw.githubusercontent.com/keelcore/keel/main/docs/keel-icon.png
 home: https://github.com/keelcore/keel
 sources:
   - https://github.com/keelcore/keel
