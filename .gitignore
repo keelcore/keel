@@ -2,9 +2,9 @@
 .results/**
 
 # ---- Go build outputs ----
-bin/
-dist/
-build/
+/bin/
+/dist/
+/build/
 out/
 *.exe
 *.dll

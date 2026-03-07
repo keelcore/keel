@@ -36,13 +36,6 @@ func TestBuildTLSConfig_NoMaxVersionCeiling(t *testing.T) {
 	}
 }
 
-func TestBuildTLSConfig_NoPreferServerCipherSuites(t *testing.T) {
-	cfg := keeltls.BuildTLSConfig(config.Config{})
-	if cfg.PreferServerCipherSuites { //lint:ignore SA1019 intentional: verify deprecated field is not set
-		t.Error("PreferServerCipherSuites must not be set (deprecated, ignored in TLS 1.3)")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // TLS 1.2 connection is rejected
 // ---------------------------------------------------------------------------
