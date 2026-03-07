@@ -27,6 +27,7 @@ import (
 	"github.com/keelcore/keel/pkg/core/sidecar"
 	"github.com/keelcore/keel/pkg/core/statsd"
 	keeltls "github.com/keelcore/keel/pkg/core/tls"
+	"github.com/keelcore/keel/pkg/core/version"
 )
 
 type Server struct {
@@ -36,6 +37,7 @@ type Server struct {
 
 	registrars []router.Registrar
 	readiness  *probes.Readiness
+	startup    *probes.Startup
 	logger     *logging.Logger
 	met        *metrics.Metrics
 	sd         *statsd.Client
@@ -46,6 +48,7 @@ func NewServer(opts ...Option) *Server {
 	s := &Server{
 		cfg:       config.Config{},
 		readiness: probes.NewReadiness(),
+		startup:   probes.NewStartup(),
 		logger:    logging.New(logging.Config{JSON: true}),
 		met:       metrics.New(),
 	}
@@ -100,8 +103,12 @@ func (s *Server) Run(ctx context.Context) error {
 	adminMux := http.NewServeMux()
 	probes.RegisterHealth(adminMux)
 	probes.RegisterReady(adminMux, s.readiness)
+	probes.RegisterStartup(adminMux, s.startup)
+	probes.RegisterFIPS(adminMux)
+	probes.RegisterPProf(adminMux)
 	adminMux.Handle("/metrics", s.met.Handler())
 	adminMux.Handle("/admin/reload", s.ReloadHandler())
+	adminMux.Handle("/version", version.Handler())
 
 	mainHandler := s.wrapMain(mainRT.Handler())
 
@@ -138,6 +145,17 @@ func (s *Server) Run(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.Admin.Port), adminMux, s.cfg, s.logger)
+		}()
+	}
+
+	// Startup probe listener (separate port; /startupz only).
+	if s.cfg.Listeners.Startup.Enabled {
+		startupMux := http.NewServeMux()
+		probes.RegisterStartup(startupMux, s.startup)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.Startup.Port), startupMux, s.cfg, s.logger)
 		}()
 	}
 
@@ -201,6 +219,9 @@ func (s *Server) Run(ctx context.Context) error {
 			mw.RunPressureLoop(ctx, s.readiness, s.cfg, s.logger)
 		}()
 	}
+
+	// All initialization complete; mark the startup probe ready.
+	s.startup.Done()
 
 	sigErr := shutdown.WaitForStop(ctx)
 	if sigErr != nil {

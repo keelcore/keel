@@ -27,3 +27,11 @@ func WithConfigPaths(configPath, secretsPath string) Option {
 		s.cfgPaths[1] = secretsPath
 	}
 }
+
+// WithReadinessCheck registers a named dependency check evaluated on /readyz.
+// fn should return a non-nil error when the dependency is unhealthy.
+func WithReadinessCheck(name string, fn func() error) Option {
+	return func(s *Server) {
+		s.readiness.AddCheck(name, fn)
+	}
+}
