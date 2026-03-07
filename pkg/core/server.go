@@ -11,7 +11,11 @@ import (
 	"sync"
 	"time"
 
+	"io"
+	"os"
+
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/acme"
 	"github.com/keelcore/keel/pkg/core/http3"
 	"github.com/keelcore/keel/pkg/core/httpx"
 	"github.com/keelcore/keel/pkg/core/lifecycle"
@@ -21,6 +25,7 @@ import (
 	"github.com/keelcore/keel/pkg/core/probes"
 	"github.com/keelcore/keel/pkg/core/router"
 	"github.com/keelcore/keel/pkg/core/sidecar"
+	"github.com/keelcore/keel/pkg/core/statsd"
 	"github.com/keelcore/keel/pkg/core/tls"
 )
 
@@ -31,6 +36,7 @@ type Server struct {
 	readiness *probes.Readiness
 	logger    *logging.Logger
 	met       *metrics.Metrics
+	sd        *statsd.Client
 }
 
 func NewServer(opts ...Option) *Server {
@@ -48,8 +54,31 @@ func NewServer(opts ...Option) *Server {
 }
 
 func (s *Server) Run(ctx context.Context) error {
+	if err := acme.Validate(s.cfg); err != nil {
+		return err
+	}
+
 	if s.cfg.Backpressure.HeapMaxBytes > 0 {
 		debug.SetMemoryLimit(s.cfg.Backpressure.HeapMaxBytes)
+	}
+
+	// Remote log sink: attach to logger if configured.
+	if s.cfg.Logging.RemoteSink.Enabled && s.cfg.Logging.RemoteSink.Endpoint != "" {
+		sink := logging.NewHTTPSink(s.cfg.Logging.RemoteSink.Endpoint, 1000, 5*time.Second)
+		go sink.Run(ctx)
+		s.logger = logging.New(logging.Config{
+			JSON: s.cfg.Logging.JSON,
+			Out:  io.MultiWriter(os.Stdout, sink),
+		})
+	}
+
+	// StatsD client.
+	if s.cfg.Metrics.StatsD.Enabled && s.cfg.Metrics.StatsD.Endpoint != "" {
+		if sd, err := statsd.New(s.cfg.Metrics.StatsD.Endpoint, s.cfg.Metrics.StatsD.Prefix); err == nil {
+			s.sd = sd
+		} else {
+			s.logger.Warn("statsd_dial_failed", map[string]any{"err": err.Error()})
+		}
 	}
 
 	// Main router: ONLY application routes, each registered with an explicit fixed port.
@@ -109,10 +138,16 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// --- Main listeners ---
 	if s.cfg.Listeners.HTTP.Enabled {
+		httpH := http.Handler(mainHandler)
+		if s.cfg.TLS.ACME.Enabled {
+			acmeMgr := acme.New()
+			go func() { _ = acmeMgr.Start(ctx, s.cfg.TLS.ACME) }()
+			httpH = acmeMgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port)
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), mainHandler, s.cfg, s.logger)
+			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), httpH, s.cfg, s.logger)
 		}()
 	}
 
@@ -188,6 +223,12 @@ func (s *Server) wrapMain(h http.Handler) http.Handler {
 	}
 	h = mw.RequestID(h)
 	h = mw.TraceContext(h)
+	if s.cfg.Limits.MaxConcurrent > 0 {
+		h = mw.ConcurrencyLimit(s.cfg, h)
+	}
+	if s.sd != nil {
+		h = statsd.Instrument(s.sd, h)
+	}
 	h = s.met.Instrument(h)
 	return h
 }
