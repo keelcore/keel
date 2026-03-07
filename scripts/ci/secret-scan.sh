@@ -83,10 +83,12 @@ function extract_and_install_gitleaks() {
 function run_scan() {
   # --exit-code 1 causes gitleaks to return 1 when leaks are found.
   # --no-banner suppresses decorative output; CI logs stay clean.
+  # --config .gitleaks.toml applies project allowlists (false-positive suppression).
   gitleaks detect \
     --source . \
     --no-banner \
-    --exit-code 1
+    --exit-code 1 \
+    --config '.gitleaks.toml'
 }
 
 main "${@:-}"

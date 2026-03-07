@@ -1,0 +1,16 @@
+title = "Keel Gitleaks Config"
+
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Allowlists — false positives suppressed here; document the reason clearly.
+# Gitleaks reads this file from the working tree even when scanning history,
+# so entries here suppress both current and historical findings.
+# ---------------------------------------------------------------------------
+
+[[allowlists]]
+id          = "authn-test-fixtures"
+description = "Short literal strings used as HMAC test-fixture keys in authn_test.go; entropy matches generic-api-key but these are not real secrets"
+paths       = ['''tests/unit/authn_test\.go''']
+regexes     = ['''"0123456789abcdef"''', '''"wrong-key-16byte"''']
