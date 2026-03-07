@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 # No concurrency control: release runs must complete; never cancel them.
 
@@ -13,11 +14,10 @@ permissions:
 jobs:
 
   # ---------------------------------------------------------------------------
-  # Build — produce all release artifacts on a single Linux runner.
+  # Build — produce linux/amd64 release artifacts for Docker image delivery.
   # The canonical artifact is built once here and promoted to release.
-  # No per-platform rebuild; cross-compilation handles linux/darwin/windows.
-  # NOTE: darwin and windows cross-compiled targets will be added via a future
-  # scripts/build/ci_cross.sh; only linux artifacts ship in the initial release.
+  # Windows and macOS portability is validated in CI but those binaries are
+  # not released; the Docker image is the distribution vehicle for all platforms.
   # ---------------------------------------------------------------------------
   build:
     name: Build Release Artifacts
@@ -25,6 +25,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    env:
+      GOOS: linux
+      GOARCH: amd64
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
       - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.4.0
