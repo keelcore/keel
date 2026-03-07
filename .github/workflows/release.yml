@@ -37,6 +37,8 @@ jobs:
         run: bash scripts/build/ci_max_no_fips.sh
       - name: Build max (FIPS) + verify symbols
         run: bash scripts/build/ci_max.sh
+      - name: Rename artifacts with platform suffix
+        run: bash scripts/release/rename-assets.sh
       - name: Generate SBOM
         run: bash scripts/release/sbom.sh
       - name: Generate checksums

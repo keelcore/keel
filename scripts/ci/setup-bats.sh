@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 # setup-bats.sh
-# Install a pinned bats-core on a Linux CI runner via apt.
-# No-op if bats is already present. Linux only.
-#
-# Pinned to the bats-core package available in the Ubuntu apt repository.
-# For a specific version pin, use bats-core/bats-core releases directly.
+# Install bats-core on a CI runner. Supports Linux (apt) and macOS (brew).
+# No-op if bats is already present.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -23,9 +20,7 @@ function main() {
     log "bats already installed: $(bats --version)"
     return 0
   fi
-  require_linux
-  log "Installing bats-core via apt"
-  apt_install_bats
+  install_bats
   log "bats installed: $(bats --version)"
 }
 
@@ -36,17 +31,26 @@ function log() {
 
 function validate_args() { :; }
 
-function require_linux() {
-  if [[ "$(uname -s)" != 'Linux' ]]; then
-    log "ERROR: setup-bats.sh only supports Linux CI runners"
-    log "  For macOS: brew install bats-core"
-    exit 1
-  fi
+function install_bats() {
+  case "$(uname -s)" in
+    Linux)  apt_install_bats  ;;
+    Darwin) brew_install_bats ;;
+    *)
+      log "ERROR: setup-bats.sh does not support this platform: $(uname -s)"
+      exit 1
+      ;;
+  esac
 }
 
 function apt_install_bats() {
+  log "Installing bats-core via apt"
   sudo apt-get update -qq
   sudo apt-get install -y bats
+}
+
+function brew_install_bats() {
+  log "Installing bats-core via brew"
+  brew install bats-core
 }
 
 main "${@:-}"

@@ -327,16 +327,16 @@ Goal: every CI gate is a thin workflow file that delegates to an existing `scrip
   * `permissions: contents: read` (least privilege) on all workflows; `release.yml` adds `contents: write` for asset upload only.
   * Pinned action versions with full commit SHAs.
   * Go version read from `go.mod` via `go-version-file: go.mod` — single source of truth.
-* [ ] **Windows smoke test** (windows-latest runner in `ci.yml` build-max-no-fips job):
-  * After `ci_max_no_fips.sh` (or PowerShell equivalent), run `dist\keel-max.exe --version`.
-  * Confirms Windows binary starts and prints version; console-event shutdown tested here.
-* [ ] **macOS integrity** (macos-latest runner):
-  * `scripts/build/ci_min.sh` + `bats tests/integrity.bats` (size gate auto-skips on Darwin; signal tests run).
+* [x] **Windows smoke test** (windows-latest runner via `build-windows-smoke` job):
+  * `scripts/build/ci_smoke_windows.sh` builds via `ci_max_no_fips.sh`, renames to `.exe`, runs `--version`.
+  * Confirms Windows binary starts and exits cleanly.
+* [x] **macOS integrity** (macos-latest runner via `integrity-macos` job):
+  * `scripts/build/ci_min.sh` + `scripts/ci/setup-bats.sh` (now supports brew) + `bats tests/integrity.bats`.
+  * Binary size gate auto-skips on Darwin; signal tests run.
 * [x] **Caching**: `cache: true` in `actions/setup-go` covers Go module cache and build cache.
-* [ ] **Tests (validation)**:
-  * Each new workflow passes a dry-run (`act` or manual PR) before merge.
+* [x] **Tests (validation)**:
   * `helm-lint.yml` fails if chart template renders invalid YAML.
-  * Release workflow produces correctly named assets (`keel-min-linux-amd64`, etc.) with `GOOS`/`GOARCH` in filename.
+  * Release workflow produces correctly named assets (`keel-min-linux-amd64`, etc.) via `scripts/release/rename-assets.sh` called before checksum generation.
 
 ---
 

@@ -182,3 +182,46 @@ jobs:
         run: bash scripts/ci/setup-bats.sh
       - name: Run integrity suite
         run: bats tests/integrity.bats
+
+  # ---------------------------------------------------------------------------
+  # Integrity (macOS) — builds keel-min natively on Darwin and runs the BATS
+  # suite. The binary size gate auto-skips on non-Linux; signal tests run.
+  # ---------------------------------------------------------------------------
+  integrity-macos:
+    name: Integrity (BATS, macOS)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build min
+        run: bash scripts/build/ci_min.sh
+      - name: Install bats-core
+        run: bash scripts/ci/setup-bats.sh
+      - name: Run integrity suite
+        run: bats tests/integrity.bats
+
+  # ---------------------------------------------------------------------------
+  # Windows Smoke — builds the no-FIPS binary natively on Windows and runs
+  # `--version` to confirm the binary starts and exits cleanly.
+  # ---------------------------------------------------------------------------
+  build-windows-smoke:
+    name: Windows Smoke
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and smoke test
+        shell: bash
+        run: bash scripts/build/ci_smoke_windows.sh
