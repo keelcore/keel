@@ -3,10 +3,18 @@
 package sidecar
 
 import (
+	"context"
 	"errors"
 	"net/http"
+
+	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/logging"
+	"github.com/keelcore/keel/pkg/core/probes"
 )
 
-func ReverseProxy(_ string) (http.Handler, error) {
+func New(_ config.Config) (http.Handler, error) {
 	return nil, errors.New("sidecar disabled by build tag")
+}
+
+func StartHealthProbe(_ context.Context, _ config.SidecarConfig, _ http.RoundTripper, _ *probes.Readiness, _ *logging.Logger) {
 }

@@ -185,8 +185,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 	// Sidecar route registration.
 	if s.cfg.Sidecar.Enabled && s.cfg.Sidecar.UpstreamURL != "" {
-		h, err := sidecar.ReverseProxy(s.cfg.Sidecar.UpstreamURL)
+		h, err := sidecar.New(s.cfg)
 		if err == nil {
+			sidecar.StartHealthProbe(ctx, s.cfg.Sidecar, nil, s.readiness, s.logger)
 			mainRT.Handle(s.cfg.Listeners.HTTP.Port, "/", h)
 		} else {
 			s.logger.Warn("sidecar_disabled", map[string]any{"err": err.Error()})
