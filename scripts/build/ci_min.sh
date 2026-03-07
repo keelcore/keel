@@ -12,7 +12,7 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly REQUIRED_GO_VERSION="go1.25"
+readonly REQUIRED_GO_VERSION="go1.2"
 
 function main() {
   exec 5>&1
