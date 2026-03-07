@@ -27,32 +27,42 @@ function main() {
 }
 
 function log() {
-  printf '%s\n' "${1:-}" >&5
+  local -r msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/keel_setup_helm.log' >&5
 }
 
 function validate_args() { :; }
 
 function require_linux() {
   if [[ "$(uname -s)" != 'Linux' ]]; then
-    printf 'ERROR: setup-helm.sh only supports Linux CI runners\n' >&2
-    printf '  For macOS: brew install helm\n' >&2
-    printf '  For Windows: choco install kubernetes-helm\n' >&2
+    log "ERROR: setup-helm.sh only supports Linux CI runners"
+    log "  For macOS: brew install helm"
+    log "  For Windows: choco install kubernetes-helm"
     exit 1
   fi
 }
 
 function install_helm_apt() {
+  add_helm_gpg_key
+  add_helm_apt_repo
+  apt_install_helm
+}
+
+function add_helm_gpg_key() {
   curl -fsSL 'https://baltocdn.com/helm/signing.asc' \
     | gpg --dearmor \
     | sudo tee /usr/share/keyrings/helm.gpg >/dev/null
-
   sudo apt-get install -y apt-transport-https --quiet
+}
 
+function add_helm_apt_repo() {
   printf 'deb [arch=%s signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main\n' \
     "$(dpkg --print-architecture)" \
     | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
-
   sudo apt-get update -qq
+}
+
+function apt_install_helm() {
   sudo apt-get install -y helm
 }
 

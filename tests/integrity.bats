@@ -3,6 +3,7 @@
 # bash configuration per project discipline
 set -o nounset
 set -o errexit
+set -o pipefail
 
 # ---------------------------------------------------------------------------
 # Setup: put dist/ on PATH so tests can invoke keel-min / keel-fips directly.

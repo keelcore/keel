@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ci.sh
-# Executes unit tests and generates coverage reports for Keel.
+# Executes unit tests via gotestsum and generates JUnit XML + coverage reports.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -12,13 +12,16 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+readonly GOTESTSUM_VERSION='v1.12.0'
+
 function main() {
   exec 5>&1
-  local -r log_file='/tmp/keel_test.log'
   validate_args "${@:-}"
-  log "🧪 Initializing test suite"
+  log "Initializing test suite"
+  ensure_gotestsum
   run_unit_tests
-  log "🎉 All tests passed successfully"
+  write_step_summary
+  log "All tests passed"
 }
 
 function log() {
@@ -29,20 +32,40 @@ function log() {
 
 function validate_args() {
   if [ "${#}" -gt 0 ] && [ -z "${1:-}" ]; then
-    log "❌ Error: Unexpected empty argument"
+    log "Error: unexpected empty argument"
     exit 1
   fi
 }
 
-function run_unit_tests() {
-  log "🏃 Running Go tests with race detection"
-  invoke_go_test
+function ensure_gotestsum() {
+  if ! command -v gotestsum >/dev/null 2>&1; then
+    log "gotestsum not found; installing ${GOTESTSUM_VERSION}"
+    go install "gotest.tools/gotestsum@${GOTESTSUM_VERSION}"
+  fi
 }
 
-function invoke_go_test() {
-  go test -v -race \
-    -coverprofile='coverage.txt' \
-    -covermode='atomic' ./...
+function run_unit_tests() {
+  log "Running Go tests with race detection"
+  gotestsum \
+    --junitfile test-results.xml \
+    --format standard-verbose \
+    -- -race -coverprofile='coverage.txt' -covermode='atomic' ./...
+}
+
+function write_step_summary() {
+  [ -z "${GITHUB_STEP_SUMMARY:-}" ] && return 0
+  printf '## Unit Test Results\n\n' >> "${GITHUB_STEP_SUMMARY}"
+  printf '| Result | Count |\n|---|---|\n' >> "${GITHUB_STEP_SUMMARY}"
+  summarise_junit >> "${GITHUB_STEP_SUMMARY}"
+}
+
+function summarise_junit() {
+  local passed failed skipped
+  passed="$(grep -c 'status="passed"' test-results.xml 2>/dev/null || printf '0')"
+  failed="$(grep -c 'status="failed"' test-results.xml 2>/dev/null || printf '0')"
+  skipped="$(grep -c 'status="skipped"' test-results.xml 2>/dev/null || printf '0')"
+  printf '| Passed | %s |\n| Failed | %s |\n| Skipped | %s |\n' \
+    "${passed}" "${failed}" "${skipped}"
 }
 
 main "${@:-}"

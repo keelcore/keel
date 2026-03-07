@@ -29,7 +29,8 @@ function main() {
 }
 
 function log() {
-  printf '%s\n' "${1:-}" >&5
+  local -r msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/keel_sbom.log' >&5
 }
 
 function validate_args() { :; }
@@ -38,8 +39,8 @@ function prepare_dist() { mkdir -p 'dist'; }
 
 function require_syft() {
   if ! command -v syft >/dev/null 2>&1; then
-    printf 'ERROR: syft not found in PATH\n' >&2
-    printf '  Install: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin\n' >&2
+    log "ERROR: syft not found in PATH"
+    log "  Install: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin"
     exit 1
   fi
 }

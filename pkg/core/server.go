@@ -69,8 +69,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	// Remote log sink: attach to logger if configured.
+	var sink *logging.HTTPSink
 	if s.cfg.Logging.RemoteSink.Enabled && s.cfg.Logging.RemoteSink.Endpoint != "" {
-		sink := logging.NewHTTPSink(s.cfg.Logging.RemoteSink.Endpoint, 1000, 5*time.Second)
+		sink = logging.NewHTTPSink(s.cfg.Logging.RemoteSink.Endpoint, 1000, 5*time.Second)
 		go sink.Run(ctx)
 		s.logger = logging.New(logging.Config{
 			JSON: s.cfg.Logging.JSON,
@@ -139,8 +140,8 @@ func (s *Server) Run(ctx context.Context) error {
 		}()
 	}
 
-	// Admin: only if enabled AND dedicated probe listeners are not both enabled.
-	if s.cfg.Listeners.Admin.Enabled && !s.cfg.Listeners.Health.Enabled && !s.cfg.Listeners.Ready.Enabled {
+	// Admin: enabled independently of health/ready listeners.
+	if s.cfg.Listeners.Admin.Enabled {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -217,6 +218,24 @@ func (s *Server) Run(ctx context.Context) error {
 		go func() {
 			defer wg.Done()
 			mw.RunPressureLoop(ctx, s.readiness, s.cfg, s.logger)
+		}()
+	}
+
+	// Cert expiry metric loop: update keel_tls_cert_expiry_seconds while running.
+	if s.cfg.Listeners.HTTPS.Enabled && s.certLoader != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runCertExpiryLoop(ctx, s.cfg.TLS.CertFile, s.met)
+		}()
+	}
+
+	// Log drops metric loop: update keel_log_drops_total while running.
+	if sink != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runLogDropsLoop(ctx, sink, s.met)
 		}()
 	}
 
@@ -332,6 +351,37 @@ func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr stri
 		return nil
 	}
 	return err
+}
+
+func runCertExpiryLoop(ctx context.Context, certFile string, met *metrics.Metrics) {
+	if secs, err := keeltls.CertExpirySeconds(certFile); err == nil {
+		met.SetCertExpiry(secs)
+	}
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if secs, err := keeltls.CertExpirySeconds(certFile); err == nil {
+				met.SetCertExpiry(secs)
+			}
+		}
+	}
+}
+
+func runLogDropsLoop(ctx context.Context, sink *logging.HTTPSink, met *metrics.Metrics) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			met.SetLogDrops(sink.DropsTotal())
+		}
+	}
 }
 
 func serveH3(ctx context.Context, addr string, h http.Handler, cfg config.Config, log *logging.Logger) error {

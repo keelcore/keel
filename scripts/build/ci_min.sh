@@ -16,21 +16,24 @@ readonly REQUIRED_GO_VERSION="go1.2"
 
 function main() {
   exec 5>&1
+  validate_args "${@:-}"
   verify_toolchain
-  log "🚀 Starting Minimalist 'BYOS' build"
+  log "Starting Minimalist 'BYOS' build"
   prepare_dist
   execute_tiny_build
-  log "✅ Authorized Keel Build: Meets Shredded & Hardened Standards"
+  log "Build complete: dist/keel-min"
 }
 
 function log() {
-  local msg="${1:-}"
-  printf '%s\n' "${msg}" >&5
+  local -r msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/keel_ci_min.log' >&5
 }
+
+function validate_args() { :; }
 
 function verify_toolchain() {
   if [[ ! "$(go version)" =~ ${REQUIRED_GO_VERSION} ]]; then
-    log "❌ Error: Requires ${REQUIRED_GO_VERSION}"
+    log "Error: Requires ${REQUIRED_GO_VERSION}"
     exit 1
   fi
 }

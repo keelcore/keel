@@ -310,10 +310,6 @@ func Validate(cfg Config) error {
 	if cfg.Sidecar.Enabled && cfg.Sidecar.UpstreamURL == "" {
 		return fmt.Errorf("sidecar is enabled but upstream_url is not set")
 	}
-	if cfg.Sidecar.UpstreamTLS.InsecureSkipVerify {
-		// Warn but do not block; caller may log this.
-		_ = "insecure_skip_verify is set; do not use in production"
-	}
 	return nil
 }
 

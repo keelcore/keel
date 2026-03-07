@@ -26,15 +26,16 @@ function main() {
 }
 
 function log() {
-  printf '%s\n' "${1:-}" >&5
+  local -r msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/keel_sign.log' >&5
 }
 
 function validate_args() { :; }
 
 function require_cosign() {
   if ! command -v cosign >/dev/null 2>&1; then
-    printf 'ERROR: cosign not found in PATH\n' >&2
-    printf '  Install: https://docs.sigstore.dev/cosign/installation/\n' >&2
+    log "ERROR: cosign not found in PATH"
+    log "  Install via: scripts/release/install-cosign.sh"
     exit 1
   fi
 }
@@ -45,10 +46,10 @@ function sign_artifacts() {
 
   for artifact in dist/keel-*; do
     # Skip bundles, signatures, and the SBOM (signed separately if needed).
-    [[ "${artifact}" == *.bundle ]]   && continue
-    [[ "${artifact}" == *.sig ]]      && continue
+    [[ "${artifact}" == *.bundle ]]    && continue
+    [[ "${artifact}" == *.sig ]]       && continue
     [[ "${artifact}" == *.spdx.json ]] && continue
-    [ -f "${artifact}" ]              || continue
+    [ -f "${artifact}" ]               || continue
 
     log "  Signing ${artifact}"
     # --yes suppresses the interactive prompt in non-TTY environments.
@@ -61,7 +62,7 @@ function sign_artifacts() {
   done
 
   if [ "${found}" -eq 0 ]; then
-    printf 'ERROR: no artifacts found in dist/ to sign\n' >&2
+    log "ERROR: no artifacts found in dist/ to sign"
     exit 1
   fi
 }

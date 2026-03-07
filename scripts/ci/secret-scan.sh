@@ -20,6 +20,7 @@ set -o pipefail
 # Update this value when bumping gitleaks; verify the new release SHA before merging.
 readonly GITLEAKS_VERSION='8.27.2'
 readonly GITLEAKS_LINUX_SHA256='1b0d5c5c9a959ae14e1e41e8e5e7a5db0f5c80f07c898d64e3ec07cd5a929d08'
+readonly GITLEAKS_ARCH='x64'
 
 function main() {
   exec 5>&1
@@ -31,7 +32,8 @@ function main() {
 }
 
 function log() {
-  printf '%s\n' "${1:-}" >&5
+  local -r msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/keel_secret_scan.log' >&5
 }
 
 function validate_args() { :; }
@@ -41,7 +43,7 @@ function ensure_gitleaks() {
     return 0
   fi
   if [[ "$(uname -s)" != 'Linux' ]]; then
-    printf 'ERROR: gitleaks not found. Install from https://github.com/gitleaks/gitleaks/releases\n' >&2
+    log "ERROR: gitleaks not found. Install from https://github.com/gitleaks/gitleaks/releases"
     exit 1
   fi
   log "gitleaks not found; installing on Linux CI runner"
@@ -49,20 +51,33 @@ function ensure_gitleaks() {
 }
 
 function install_gitleaks_linux() {
-  local -r arch='x64'
-  local -r tarball="gitleaks_${GITLEAKS_VERSION}_linux_${arch}.tar.gz"
+  local tmp
+  tmp="$(mktemp -d)"
+  download_gitleaks "${tmp}"
+  verify_gitleaks "${tmp}"
+  extract_and_install_gitleaks "${tmp}"
+  rm -rf "${tmp}"
+}
+
+function download_gitleaks() {
+  local -r tmp="${1}"
+  local -r tarball="gitleaks_${GITLEAKS_VERSION}_linux_${GITLEAKS_ARCH}.tar.gz"
   local -r url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
-  local -r tmp="$(mktemp -d)"
-
   curl -fsSL "${url}" -o "${tmp}/${tarball}"
+}
 
-  # Verify SHA256 before executing anything from the downloaded archive.
+function verify_gitleaks() {
+  local -r tmp="${1}"
+  local -r tarball="gitleaks_${GITLEAKS_VERSION}_linux_${GITLEAKS_ARCH}.tar.gz"
   printf '%s  %s/%s\n' "${GITLEAKS_LINUX_SHA256}" "${tmp}" "${tarball}" \
     | sha256sum --check --quiet
+}
 
+function extract_and_install_gitleaks() {
+  local -r tmp="${1}"
+  local -r tarball="gitleaks_${GITLEAKS_VERSION}_linux_${GITLEAKS_ARCH}.tar.gz"
   tar -xz -C "${tmp}" -f "${tmp}/${tarball}"
   sudo mv "${tmp}/gitleaks" /usr/local/bin/gitleaks
-  rm -rf "${tmp}"
 }
 
 function run_scan() {

@@ -27,16 +27,16 @@ function main() {
 }
 
 function log() {
-  printf '%s\n' "${1:-}" >&5
+  local -r msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/keel_lint_helm.log' >&5
 }
 
 function validate_args() { :; }
 
 function require_helm() {
   if ! command -v helm >/dev/null 2>&1; then
-    printf 'ERROR: helm not found in PATH\n' >&2
-    printf '  Install via: scripts/ci/setup-helm.sh\n' >&2
-    printf '  Or see: https://helm.sh/docs/intro/install/\n' >&2
+    log "ERROR: helm not found in PATH"
+    log "  Install via: scripts/ci/setup-helm.sh"
     exit 1
   fi
 }

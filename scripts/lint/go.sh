@@ -24,7 +24,8 @@ function main() {
 }
 
 function log() {
-  printf '%s\n' "${1:-}" >&5
+  local -r msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/keel_lint_go.log' >&5
 }
 
 function validate_args() { :; }

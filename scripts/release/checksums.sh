@@ -30,7 +30,8 @@ function main() {
 }
 
 function log() {
-  printf '%s\n' "${1:-}" >&5
+  local -r msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/keel_checksums.log' >&5
 }
 
 function validate_args() { :; }
@@ -74,7 +75,7 @@ function generate_checksums() {
   done
 
   if [ "${found}" -eq 0 ]; then
-    printf 'ERROR: no artifacts found in dist/\n' >&2
+    log "ERROR: no artifacts found in dist/"
     exit 1
   fi
 
@@ -83,7 +84,7 @@ function generate_checksums() {
 
 function verify_checksums() {
   if [ ! -f "${SUMS_FILE}" ]; then
-    printf 'ERROR: %s not found — run without --verify to generate\n' "${SUMS_FILE}" >&2
+    log "ERROR: ${SUMS_FILE} not found — run without --verify to generate"
     exit 1
   fi
   log "Verifying ${SUMS_FILE}"

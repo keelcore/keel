@@ -46,8 +46,10 @@ func (g *inflightGauge) get() float64 {
 
 // Metrics holds all instrumentation state.
 type Metrics struct {
-	requests *labelCounter
-	inflight inflightGauge
+	requests         *labelCounter
+	inflight         inflightGauge
+	certExpirySecs   int64 // atomic; seconds until TLS cert expiry
+	logDrops         int64 // atomic; cumulative remote-log drop count
 }
 
 // New creates a zeroed Metrics instance.
@@ -81,6 +83,16 @@ func (m *Metrics) Inflight() float64 { return m.inflight.get() }
 // FIPSActive returns 1 if this is a FIPS build, 0 otherwise.
 func (m *Metrics) FIPSActive() float64 { return fipsActive }
 
+// SetCertExpiry records seconds until TLS certificate expiry (negative = expired).
+func (m *Metrics) SetCertExpiry(secs float64) {
+	atomic.StoreInt64(&m.certExpirySecs, int64(secs))
+}
+
+// SetLogDrops records cumulative remote-log lines dropped due to buffer overflow.
+func (m *Metrics) SetLogDrops(drops int64) {
+	atomic.StoreInt64(&m.logDrops, drops)
+}
+
 func (m *Metrics) writeTo(w io.Writer) {
 	m.requests.writeTo(w, "keel_requests_total", "Total HTTP requests processed.")
 	fmt.Fprintf(w, "# HELP keel_http_inflight_requests Current in-flight HTTP requests.\n")
@@ -89,6 +101,12 @@ func (m *Metrics) writeTo(w io.Writer) {
 	fmt.Fprintf(w, "# HELP keel_fips_active 1 if FIPS mode is active, 0 otherwise.\n")
 	fmt.Fprintf(w, "# TYPE keel_fips_active gauge\n")
 	fmt.Fprintf(w, "keel_fips_active %g\n", fipsActive)
+	fmt.Fprintf(w, "# HELP keel_tls_cert_expiry_seconds Seconds until TLS certificate expiry; negative means expired.\n")
+	fmt.Fprintf(w, "# TYPE keel_tls_cert_expiry_seconds gauge\n")
+	fmt.Fprintf(w, "keel_tls_cert_expiry_seconds %d\n", atomic.LoadInt64(&m.certExpirySecs))
+	fmt.Fprintf(w, "# HELP keel_log_drops_total Cumulative remote-log lines dropped due to buffer overflow.\n")
+	fmt.Fprintf(w, "# TYPE keel_log_drops_total counter\n")
+	fmt.Fprintf(w, "keel_log_drops_total %d\n", atomic.LoadInt64(&m.logDrops))
 }
 
 // statusCapture wraps http.ResponseWriter to capture the written status code.

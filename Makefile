@@ -50,7 +50,7 @@ release-sign:
 
 release-upload:
 	@echo "🚀 Uploading release artifacts..."
-	./scripts/release/upload.sh $(TAG)
+	RELEASE_TAG=$(TAG) ./scripts/release/upload.sh
 
 ## Testing Targets
 test: test-unit test-integrity
@@ -130,7 +130,7 @@ help:
 	@echo "  release-checksums  Generate dist/SHA256SUMS"
 	@echo "  release-sbom       Generate SBOM (requires syft)"
 	@echo "  release-sign       Sign artifacts (requires cosign)"
-	@echo "  release-upload TAG=v1.x.x  Upload to GitHub Release"
+	@echo "  release-upload TAG=v1.x.x  Upload to GitHub Release (sets RELEASE_TAG)"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  gen-certs       Generate self-signed TLS certs for testing"

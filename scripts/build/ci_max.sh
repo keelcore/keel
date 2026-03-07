@@ -18,43 +18,43 @@ function main() {
   exec 5>&1
   validate_args "${@:-}"
   verify_toolchain
-
-  log "🛡️ Starting Corporate FIPS build (Static CGO)"
+  log "Starting Corporate FIPS build (Static CGO)"
   prepare_dist
   execute_fips_build
   verify_fips_symbols
-  log "✅ Authorized Keel Build: Meets Shredded & Hardened Standards"
+  log "Build complete: dist/keel-fips"
 }
 
 function log() {
-  local msg="${1:-}"
-  printf '%s\n' "${msg}" >&5
+  local -r msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/keel_ci_max.log' >&5
 }
 
+function validate_args() { :; }
+
 function verify_toolchain() {
-  log "🔍 Verifying toolchain: ${REQUIRED_GO_VERSION} (native FIPS-capable toolchain)"
+  log "Verifying toolchain: ${REQUIRED_GO_VERSION} (native FIPS-capable toolchain)"
   if [[ ! "$(go version)" =~ ${REQUIRED_GO_VERSION} ]]; then
-    log "❌ Error: Requires ${REQUIRED_GO_VERSION}"
+    log "Error: Requires ${REQUIRED_GO_VERSION}"
     exit 1
   fi
 }
 
 function execute_fips_build() {
-  log "🛠️ Compiling from source with Go native FIPS 140 mode (GOFIPS140)"
+  log "Compiling with Go native FIPS 140 mode (GOFIPS140)"
   # NOTE: HTTP/3 is not compatible with fips140=only; compile it out for FIPS builds.
   GOFIPS140=latest CGO_ENABLED=0 \
-    go build -v -tags "fips,no_h3" \
-    -ldflags='-s -w' \
+    go build -v -trimpath -tags "fips,no_h3" \
+    -ldflags='-s -w -buildid=' \
     -o 'dist/keel-fips' ./cmd/keel
 }
 
 function verify_fips_symbols() {
-  log "🧪 Verifying FIPS enforcement via test run (GODEBUG=fips140=only)"
+  log "Verifying FIPS enforcement via test run (GODEBUG=fips140=only)"
   GOFIPS140=latest GODEBUG=fips140=only \
     go test -v -count=1 -tags "no_h3" ./...
 }
 
-function validate_args() { :; }
 function prepare_dist() { mkdir -p 'dist'; }
 
 main "${@:-}"
