@@ -3,16 +3,16 @@ package core
 
 import (
 	"context"
+	cryptotls "crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"os"
 	"runtime/debug"
 	"sync"
 	"time"
-
-	"io"
-	"os"
 
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/acme"
@@ -26,17 +26,20 @@ import (
 	"github.com/keelcore/keel/pkg/core/router"
 	"github.com/keelcore/keel/pkg/core/sidecar"
 	"github.com/keelcore/keel/pkg/core/statsd"
-	"github.com/keelcore/keel/pkg/core/tls"
+	keeltls "github.com/keelcore/keel/pkg/core/tls"
 )
 
 type Server struct {
-	cfg        config.Config
-	registrars []router.Registrar
+	cfg      config.Config
+	cfgMu    sync.RWMutex
+	cfgPaths [2]string // [configPath, secretsPath] for Reload
 
-	readiness *probes.Readiness
-	logger    *logging.Logger
-	met       *metrics.Metrics
-	sd        *statsd.Client
+	registrars []router.Registrar
+	readiness  *probes.Readiness
+	logger     *logging.Logger
+	met        *metrics.Metrics
+	sd         *statsd.Client
+	certLoader *keeltls.CertLoader
 }
 
 func NewServer(opts ...Option) *Server {
@@ -98,6 +101,7 @@ func (s *Server) Run(ctx context.Context) error {
 	probes.RegisterHealth(adminMux)
 	probes.RegisterReady(adminMux, s.readiness)
 	adminMux.Handle("/metrics", s.met.Handler())
+	adminMux.Handle("/admin/reload", s.ReloadHandler())
 
 	mainHandler := s.wrapMain(mainRT.Handler())
 
@@ -109,6 +113,7 @@ func (s *Server) Run(ctx context.Context) error {
 	defer cancel()
 
 	shutdown := lifecycle.NewShutdownOrchestrator(s.logger)
+	go s.runSignalLoop(ctx)
 
 	// --- Probe / Admin listeners ---
 	if s.cfg.Listeners.Health.Enabled {
@@ -155,10 +160,15 @@ func (s *Server) Run(ctx context.Context) error {
 		if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
 			return errors.New("https enabled but TLS cert/key not configured")
 		}
+		loader, err := keeltls.NewCertLoader(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile)
+		if err != nil {
+			return fmt.Errorf("load TLS cert: %w", err)
+		}
+		s.certLoader = loader
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTPS(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), mainHandler, s.cfg, s.logger)
+			errCh <- serveHTTPS(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), mainHandler, s.cfg, loader, s.logger)
 		}()
 	}
 
@@ -265,8 +275,9 @@ func serveHTTP(ctx context.Context, shutdown *lifecycle.Orchestrator, addr strin
 	return err
 }
 
-func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, log *logging.Logger) error {
-	tlsCfg := tls.BuildTLSConfig(cfg)
+func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, loader *keeltls.CertLoader, log *logging.Logger) error {
+	tlsCfg := keeltls.BuildTLSConfig(cfg)
+	tlsCfg.GetCertificate = loader.Get
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           h,
@@ -294,7 +305,7 @@ func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr stri
 		_ = shutdown.GracefulStop(drain, func(c context.Context) error { return srv.Shutdown(c) })
 	}()
 
-	err = srv.ServeTLS(ln, cfg.TLS.CertFile, cfg.TLS.KeyFile)
+	err = srv.Serve(cryptotls.NewListener(ln, tlsCfg))
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
@@ -302,7 +313,7 @@ func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr stri
 }
 
 func serveH3(ctx context.Context, addr string, h http.Handler, cfg config.Config, log *logging.Logger) error {
-	tlsCfg := tls.BuildTLSConfig(cfg)
+	tlsCfg := keeltls.BuildTLSConfig(cfg)
 	srv := http3.New(addr, h, tlsCfg)
 	log.Info("listener_up", map[string]any{"addr": addr, "tls": true, "proto": "h3"})
 

@@ -17,7 +17,7 @@ type Orchestrator struct {
 
 func NewShutdownOrchestrator(log *logging.Logger) *Orchestrator {
 	ch := make(chan os.Signal, 2)
-	signal.Notify(ch, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	return &Orchestrator{log: log, ch: ch}
 }
 

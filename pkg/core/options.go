@@ -18,3 +18,12 @@ func WithRegistrar(r router.Registrar) Option {
 func WithDefaultRegistrar() Option {
 	return WithRegistrar(router.DefaultRegistrar())
 }
+
+// WithConfigPaths records the config and secrets file paths used by Reload.
+// configPath and secretsPath may be empty strings if unused.
+func WithConfigPaths(configPath, secretsPath string) Option {
+	return func(s *Server) {
+		s.cfgPaths[0] = configPath
+		s.cfgPaths[1] = secretsPath
+	}
+}
