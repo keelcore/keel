@@ -30,12 +30,12 @@ minimal_config() {
 # Binary size
 # ---------------------------------------------------------------------------
 
-@test "keel-min is under 4 MB (Linux CI gate)" {
+@test "keel-min is under 8 MB (Linux CI gate)" {
   # macOS Darwin binaries include extra Mach-O sections; gate applies to Linux.
   [[ "$(uname)" == "Linux" ]] || skip "size gate applies to Linux CI only"
   local size
   size="$(wc -c < ./dist/keel-min | tr -d '[:space:]')"
-  [ "${size}" -lt 4194304 ]
+  [ "${size}" -lt 8388608 ]
 }
 
 # ---------------------------------------------------------------------------

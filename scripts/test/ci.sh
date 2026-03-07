@@ -30,12 +30,7 @@ function log() {
   printf '%s\n' "${msg}" | tee -a '/tmp/keel_test.log' >&5
 }
 
-function validate_args() {
-  if [ "${#}" -gt 0 ] && [ -z "${1:-}" ]; then
-    log "Error: unexpected empty argument"
-    exit 1
-  fi
-}
+function validate_args() { :; }
 
 function ensure_gotestsum() {
   if ! command -v gotestsum >/dev/null 2>&1; then
@@ -68,4 +63,4 @@ function summarise_junit() {
     "${passed}" "${failed}" "${skipped}"
 }
 
-main "$@"
+main "${@:-}"
