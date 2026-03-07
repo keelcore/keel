@@ -1,5 +1,5 @@
+{{- if .Values.ingress.enabled }}
 # charts/keel/templates/ingress.yaml
-{{- if .Values.ingress.enabled -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
