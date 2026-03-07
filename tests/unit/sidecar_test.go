@@ -26,6 +26,20 @@ import (
 	"github.com/keelcore/keel/pkg/core/sidecar"
 )
 
+// isFIPSMode reports whether the test binary is running under FIPS enforcement
+// (GOFIPS140 is set or GODEBUG contains fips140=only).
+func isFIPSMode() bool {
+	if os.Getenv("GOFIPS140") != "" {
+		return true
+	}
+	for _, kv := range strings.Split(os.Getenv("GODEBUG"), ",") {
+		if strings.TrimSpace(kv) == "fips140=only" {
+			return true
+		}
+	}
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -340,6 +354,9 @@ func TestSidecarProxy_UpstreamTLS_BadCert_Returns502(t *testing.T) {
 }
 
 func TestSidecarProxy_UpstreamTLS_InsecureSkipVerify_Returns200(t *testing.T) {
+	if isFIPSMode() {
+		t.Skip("InsecureSkipVerify is prohibited under FIPS mode")
+	}
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))
@@ -367,6 +384,9 @@ func TestSidecarProxy_UpstreamTLS_InsecureSkipVerify_Returns200(t *testing.T) {
 }
 
 func TestSidecarProxy_MTLS_CorrectCert_Returns200(t *testing.T) {
+	if isFIPSMode() {
+		t.Skip("httptest TLS server uses non-FIPS-compliant certificates in mTLS mode")
+	}
 	s := newMTLSTestServer(t)
 	defer s.close()
 

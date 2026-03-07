@@ -68,4 +68,4 @@ function summarise_junit() {
     "${passed}" "${failed}" "${skipped}"
 }
 
-main "${@:-}"
+main "$@"

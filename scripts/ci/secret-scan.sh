@@ -19,7 +19,7 @@ set -o pipefail
 # Pin to a specific gitleaks version for reproducibility.
 # Update this value when bumping gitleaks; verify the new release SHA before merging.
 readonly GITLEAKS_VERSION='8.27.2'
-readonly GITLEAKS_LINUX_SHA256='1b0d5c5c9a959ae14e1e41e8e5e7a5db0f5c80f07c898d64e3ec07cd5a929d08'
+readonly GITLEAKS_LINUX_SHA256='141c3b2dede46d8b3a53b47116da756bd223decc0374797559a6b50ecba5590c'
 readonly GITLEAKS_ARCH='x64'
 
 function main() {

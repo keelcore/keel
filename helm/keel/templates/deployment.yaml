@@ -155,7 +155,7 @@ spec:
           lifecycle:
             preStop:
               exec:
-                command: ["/bin/sh", "-c", "sleep {{ .Values.keel.timeouts.prestopSleep | trimSuffix \"s\" | default \"0\" }}"]
+                command: ["/bin/sh", "-c", "sleep {{ .Values.keel.timeouts.prestopSleep | trimSuffix `s` | default `0` }}"]
 
           volumeMounts:
             - name: keel-config
