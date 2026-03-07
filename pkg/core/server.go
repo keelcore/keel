@@ -16,6 +16,7 @@ import (
 	"github.com/keelcore/keel/pkg/core/httpx"
 	"github.com/keelcore/keel/pkg/core/lifecycle"
 	"github.com/keelcore/keel/pkg/core/logging"
+	"github.com/keelcore/keel/pkg/core/metrics"
 	"github.com/keelcore/keel/pkg/core/mw"
 	"github.com/keelcore/keel/pkg/core/probes"
 	"github.com/keelcore/keel/pkg/core/router"
@@ -29,6 +30,7 @@ type Server struct {
 
 	readiness *probes.Readiness
 	logger    *logging.Logger
+	met       *metrics.Metrics
 }
 
 func NewServer(opts ...Option) *Server {
@@ -36,6 +38,7 @@ func NewServer(opts ...Option) *Server {
 		cfg:       config.Config{},
 		readiness: probes.NewReadiness(),
 		logger:    logging.New(logging.Config{JSON: true}),
+		met:       metrics.New(),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -65,6 +68,7 @@ func (s *Server) Run(ctx context.Context) error {
 	adminMux := http.NewServeMux()
 	probes.RegisterHealth(adminMux)
 	probes.RegisterReady(adminMux, s.readiness)
+	adminMux.Handle("/metrics", s.met.Handler())
 
 	mainHandler := s.wrapMain(mainRT.Handler())
 
@@ -179,6 +183,12 @@ func (s *Server) wrapMain(h http.Handler) http.Handler {
 	if s.cfg.Authn.Enabled {
 		h = mw.AuthnJWT(s.cfg, h, s.logger)
 	}
+	if s.cfg.Logging.AccessLog {
+		h = mw.AccessLog(s.logger, h)
+	}
+	h = mw.RequestID(h)
+	h = mw.TraceContext(h)
+	h = s.met.Instrument(h)
 	return h
 }
 

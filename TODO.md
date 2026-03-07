@@ -155,7 +155,7 @@ Goal: a one-command local Kubernetes environment for testing the Helm chart end-
   * `keel_fips_active` is 1 in FIPS build, 0 otherwise.
 
 ---
-
+w mut
 ## P7 — Access Log + Request Correlation
 
 * [ ] **`X-Request-ID` middleware**: read inbound header; generate ULID if absent; set on response; propagate to upstream (sidecar).

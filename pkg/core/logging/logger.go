@@ -3,6 +3,7 @@ package logging
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -10,15 +11,21 @@ import (
 
 type Config struct {
 	JSON bool
+	Out  io.Writer // nil → os.Stdout
 }
 
 type Logger struct {
 	mu   sync.Mutex
 	json bool
+	out  io.Writer
 }
 
 func New(cfg Config) *Logger {
-	return &Logger{json: cfg.JSON}
+	out := cfg.Out
+	if out == nil {
+		out = os.Stdout
+	}
+	return &Logger{json: cfg.JSON, out: out}
 }
 
 func (l *Logger) Info(msg string, fields map[string]any) { l.log("info", msg, fields) }
@@ -37,8 +44,8 @@ func (l *Logger) log(level, msg string, fields map[string]any) {
 
 	if l.json {
 		b, _ := json.Marshal(fields)
-		_, _ = fmt.Fprintln(os.Stdout, string(b))
+		_, _ = fmt.Fprintln(l.out, string(b))
 		return
 	}
-	_, _ = fmt.Fprintf(os.Stdout, "%s [%s] %s %v\n", fields["ts"], level, msg, fields)
+	_, _ = fmt.Fprintf(l.out, "%s [%s] %s %v\n", fields["ts"], level, msg, fields)
 }
