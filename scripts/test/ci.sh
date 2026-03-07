@@ -12,7 +12,7 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly GOTESTSUM_VERSION='v1.12.0'
+readonly GOTESTSUM_VERSION='v1.13.0'
 
 function main() {
   exec 5>&1
