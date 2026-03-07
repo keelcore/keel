@@ -1,0 +1,35 @@
+name: Helm Lint
+
+on:
+  push:
+    branches: [main]
+    paths: ['helm/**']
+  pull_request:
+    branches: [main]
+    paths: ['helm/**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Helm Lint — validates chart syntax and renders the template.
+  # Triggered only when helm/** changes to avoid unnecessary runs.
+  # IMPORTANT: do not make this the only required status check for PRs that
+  # also change non-helm files; path filters can inadvertently skip it.
+  # ---------------------------------------------------------------------------
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Install Helm
+        run: bash scripts/ci/setup-helm.sh
+      - name: Lint chart
+        run: bash scripts/lint/helm.sh

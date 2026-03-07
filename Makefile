@@ -3,6 +3,8 @@
 
 .PHONY: all clean min max max-no-fips \
         test test-unit test-integrity test-compose \
+        lint lint-go lint-helm \
+        release-checksums release-sbom release-sign release-upload \
         colima-setup colima-deploy colima-test colima-teardown \
         gen-certs help
 
@@ -21,6 +23,34 @@ max:
 max-no-fips:
 	@echo "⚓ Building Ripped (Full Feature/No-FIPS)..."
 	./scripts/build/ci_max_no_fips.sh
+
+## Lint Targets
+lint: lint-go
+
+lint-go:
+	@echo "🔍 Running Go lint..."
+	./scripts/lint/go.sh
+
+lint-helm:
+	@echo "🔍 Running Helm lint..."
+	./scripts/lint/helm.sh
+
+## Release Targets
+release-checksums:
+	@echo "🔐 Generating SHA256SUMS..."
+	./scripts/release/checksums.sh
+
+release-sbom:
+	@echo "📋 Generating SBOM..."
+	./scripts/release/sbom.sh
+
+release-sign:
+	@echo "✍️  Signing artifacts..."
+	./scripts/release/sign.sh
+
+release-upload:
+	@echo "🚀 Uploading release artifacts..."
+	./scripts/release/upload.sh $(TAG)
 
 ## Testing Targets
 test: test-unit test-integrity
@@ -90,6 +120,17 @@ help:
 	@echo "  colima-deploy   Build keel:test + helm install to Colima"
 	@echo "  colima-test     Run k8s integration tests"
 	@echo "  colima-teardown Uninstall + stop Colima cluster"
+	@echo ""
+	@echo "Lint:"
+	@echo "  lint            go vet + staticcheck"
+	@echo "  lint-go         Go lint only"
+	@echo "  lint-helm       Helm chart lint only"
+	@echo ""
+	@echo "Release:"
+	@echo "  release-checksums  Generate dist/SHA256SUMS"
+	@echo "  release-sbom       Generate SBOM (requires syft)"
+	@echo "  release-sign       Sign artifacts (requires cosign)"
+	@echo "  release-upload TAG=v1.x.x  Upload to GitHub Release"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  gen-certs       Generate self-signed TLS certs for testing"

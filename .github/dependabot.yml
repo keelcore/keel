@@ -1,0 +1,29 @@
+version: 2
+
+updates:
+  # Keep GitHub Actions SHA pins current.
+  # Dependabot will open PRs to update pinned SHAs when new versions release.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "ci(deps)"
+
+  # Keep Go module dependencies current.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - go
+    commit-message:
+      prefix: "chore(deps)"
+    # vendor/ is committed; Dependabot must update it too.
+    vendor: true

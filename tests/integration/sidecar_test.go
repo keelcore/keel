@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/sidecar"
 )
 
@@ -16,7 +17,11 @@ func TestSidecar_ReverseProxy(t *testing.T) {
 	}))
 	defer up.Close()
 
-	h, err := sidecar.ReverseProxy(up.URL)
+	cfg := config.Config{}
+	cfg.Sidecar.Enabled = true
+	cfg.Sidecar.UpstreamURL = up.URL
+
+	h, err := sidecar.New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

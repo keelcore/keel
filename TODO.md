@@ -304,6 +304,42 @@ Goal: a one-command local Kubernetes environment for testing the Helm chart end-
 
 ---
 
+## P19 — GitHub Actions CI Workflows
+
+Goal: every CI gate is a thin workflow file that delegates to an existing `scripts/` entrypoint. No build logic lives in YAML — workflows are pure orchestration (checkout → setup-go → call script).
+
+* [ ] **`ci.yml`** — triggered on push and pull_request to `main`:
+  * **unit** job (ubuntu-latest, macos-latest, windows-latest matrix): `make test-unit` → `scripts/test/ci.sh`.
+  * **build-min** job (ubuntu-latest): `scripts/build/ci_min.sh` (produces `dist/keel-min`).
+  * **integrity** job (ubuntu-latest, depends on build-min): install `bats-core`; run `bats tests/integrity.bats`.
+  * **build-max-no-fips** job (ubuntu-latest, macos-latest, windows-latest matrix): `scripts/build/ci_max_no_fips.sh`.
+  * **build-max-fips** job (ubuntu-latest): `scripts/build/ci_max.sh` (FIPS + symbol verification).
+  * **lint** job (ubuntu-latest): `go vet ./...` + `staticcheck ./...` (or `golangci-lint`).
+* [ ] **`release.yml`** — triggered on `v*` tag push:
+  * Build `keel-min`, `keel-max`, `keel-fips` on ubuntu-latest using their respective `scripts/build/ci_*.sh` scripts.
+  * Upload binaries as GitHub Release assets via `gh release upload`.
+  * Minimal YAML: checkout → setup-go → call script → upload artifact.
+* [ ] **`helm-lint.yml`** — triggered on changes to `charts/**`:
+  * `helm lint charts/keel` and `helm template charts/keel | kubectl apply --dry-run=client -f -`.
+* [ ] **Workflow conventions** (enforced by PR review):
+  * All Go logic stays in `scripts/`; workflow YAML contains no `go build` / `go test` invocations directly.
+  * `timeout-minutes` set on every job (unit: 10, build: 15, integrity: 5, FIPS: 20).
+  * `permissions: contents: read` (least privilege) on all workflows; `release.yml` adds `contents: write` for asset upload only.
+  * Pinned action versions (e.g. `actions/checkout@v4`, `actions/setup-go@v5`).
+  * Go version read from `go.mod` via `go-version-file: go.mod` — single source of truth.
+* [ ] **Windows smoke test** (windows-latest runner in `ci.yml` build-max-no-fips job):
+  * After `ci_max_no_fips.sh` (or PowerShell equivalent), run `dist\keel-max.exe --version`.
+  * Confirms Windows binary starts and prints version; console-event shutdown tested here.
+* [ ] **macOS integrity** (macos-latest runner):
+  * `scripts/build/ci_min.sh` + `bats tests/integrity.bats` (size gate auto-skips on Darwin; signal tests run).
+* [ ] **Caching**: `actions/cache` for Go module cache and build cache keyed on `go.sum` hash.
+* [ ] **Tests (validation)**:
+  * Each new workflow passes a dry-run (`act` or manual PR) before merge.
+  * `helm-lint.yml` fails if chart template renders invalid YAML.
+  * Release workflow produces correctly named assets (`keel-min-linux-amd64`, etc.) with `GOOS`/`GOARCH` in filename.
+
+---
+
 ## P18 — GTM / DX (Post-Core)
 
 * [ ] **"Keel-Haul" CLI**: standalone TUI companion to wrap local processes with Keel's security posture.
