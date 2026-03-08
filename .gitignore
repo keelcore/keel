@@ -79,3 +79,8 @@ pnpm-debug.log*
 # ---- AI models ----
 .claude
 .claude/*
+
+# ---- test artifacts ----
+coverage.txt
+test-results.xml
+

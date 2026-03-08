@@ -7,11 +7,14 @@
 package compose
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"os"
 	"testing"
 	"time"
+
+	qhttp3 "github.com/quic-go/quic-go/http3"
 )
 
 // skip returns true (and calls t.Skip) if the compose harness is not running.
@@ -161,4 +164,38 @@ func TestCompose_UpstreamDirectlyReachable(t *testing.T) {
 func TestCompose_PrometheusReachable(t *testing.T) {
 	skip(t)
 	waitHTTP(t, fmt.Sprintf("http://127.0.0.1:%d/-/healthy", Prometheus), http.StatusOK, 30*time.Second)
+}
+
+// ── HTTP/3 (QUIC) reachability ────────────────────────────────────────────────
+
+// TestCompose_H3Root verifies that keel responds over HTTP/3 (QUIC/UDP) on
+// port 8443. The fixture cert is self-signed so InsecureSkipVerify is required.
+// The test is skipped when KEEL_COMPOSE_TESTS is unset.
+func TestCompose_H3Root(t *testing.T) {
+	skip(t)
+	// Wait for the plain HTTP listener first (signals keel is fully up).
+	waitHTTP(t, keelURL(KeelHealth, "/healthz"), http.StatusOK, 30*time.Second)
+
+	tlsCfg := &tls.Config{InsecureSkipVerify: true} //nolint:gosec // self-signed fixture cert
+	h3client := &http.Client{
+		Transport: &qhttp3.Transport{TLSClientConfig: tlsCfg},
+		Timeout:   5 * time.Second,
+	}
+	defer h3client.Transport.(*qhttp3.Transport).Close() //nolint:forcetypeassert
+
+	url := fmt.Sprintf("https://127.0.0.1:%d/", KeelHTTPS)
+	deadline := time.Now().Add(10 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		resp, err := h3client.Get(url) //nolint:gosec
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		lastErr = err
+		time.Sleep(300 * time.Millisecond)
+	}
+	t.Fatalf("H3 GET %s did not return 200 within 10s (last error: %v)", url, lastErr)
 }

@@ -6,6 +6,7 @@ package compose
 const (
 	// Keel listeners (docker-compose.test.yaml host-side ports).
 	KeelHTTP    = 8080
+	KeelHTTPS   = 8443 // TCP; also the H3 QUIC UDP port
 	KeelHealth  = 9091
 	KeelReady   = 9092
 	KeelStartup = 9093

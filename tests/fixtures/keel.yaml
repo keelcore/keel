@@ -7,10 +7,10 @@ listeners:
     enabled: true
     port: 8080
   https:
-    enabled: false
+    enabled: true
     port: 8443
   h3:
-    enabled: false
+    enabled: true
     port: 8443
   health:
     enabled: true
@@ -26,8 +26,8 @@ listeners:
     port: 9999
 
 tls:
-  cert_file: ""
-  key_file: ""
+  cert_file: "/etc/keel/certs/server.crt"
+  key_file:  "/etc/keel/certs/server.key"
   acme:
     enabled: false
     domains: []

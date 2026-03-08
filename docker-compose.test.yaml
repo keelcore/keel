@@ -26,23 +26,25 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        FLAVOR: min
+        FLAVOR: max   # max includes H3/QUIC; min has no_h3
     image: keel:test
     depends_on:
       - upstream
     networks:
       - keel-test
     volumes:
-      - ./tests/fixtures:/etc/keel:ro
+      - ./tests/fixtures:/etc/keel:ro   # certs land at /etc/keel/certs/ via gen-certs.sh
     environment:
       KEEL_CONFIG: /etc/keel/keel.yaml
       KEEL_SECRETS: /etc/keel/keel-secrets.yaml
     ports:
-      - "8080:8080"   # HTTP main
-      - "9091:9091"   # /healthz
-      - "9092:9092"   # /readyz
-      - "9093:9093"   # /startupz
-      - "9999:9999"   # admin (/metrics, /debug/pprof)
+      - "8080:8080"         # HTTP main
+      - "8443:8443"         # HTTPS
+      - "8443:8443/udp"     # H3 (QUIC)
+      - "9091:9091"         # /healthz
+      - "9092:9092"         # /readyz
+      - "9093:9093"         # /startupz
+      - "9999:9999"         # admin (/metrics, /debug/pprof)
 
   # ── Jaeger (tracing backend) ──────────────────────────────────────────────────
   jaeger:

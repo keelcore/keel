@@ -128,12 +128,17 @@ func TestPressureLoop_HighWatermarkTrigger(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go mw.RunPressureLoop(ctx, r, cfg, log)
 
-	// Wait for at least one 250 ms tick plus margin.
-	time.Sleep(400 * time.Millisecond)
+	// Poll until the pressure latch fires (readiness → false) or 5 s deadline.
+	// Fixed sleeps are unreliable under -race on slow CI runners; polling is not.
+	deadline := time.Now().Add(5 * time.Second)
+	for r.Get() && time.Now().Before(deadline) {
+		time.Sleep(25 * time.Millisecond)
+	}
 	cancel()
-	time.Sleep(50 * time.Millisecond) // allow goroutine to exit before reading sb
+	time.Sleep(100 * time.Millisecond) // let goroutine exit before reading sb
 
 	if r.Get() {
 		t.Error("expected readiness false after high-pressure latch")
