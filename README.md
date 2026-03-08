@@ -26,6 +26,8 @@ A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops
 | [docs/operations.md](docs/operations.md) | Graceful shutdown, signals, Kubernetes pre-stop, circuit breaker, hot reload |
 | [docs/deployment.md](docs/deployment.md) | Helm chart (full values reference), Docker Compose test harness, library mode walkthrough |
 | [docs/FIPS.md](docs/FIPS.md) | FIPS compliance: BoringCrypto, build instructions, runtime verification, constraints |
+| [docs/governance.md](docs/governance.md) | Engineering governance standards submodule — what it is, why, and how to update it |
+| [docs/ai-tooling.md](docs/ai-tooling.md) | AI coding assistant integration — Claude Code, Cursor, GitHub Copilot adapter symlinks |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Planned future capabilities |
 | [SECURITY.md](SECURITY.md) | CVE policy, private reporting, triage timeline, coordinated disclosure |
 | [TRADEMARK.md](TRADEMARK.md) | Trademark policy and permitted use |
@@ -312,6 +314,19 @@ See [docs/deployment.md](docs/deployment.md) for the complete library mode walkt
 - Vulnerability reporting and CVE policy: [SECURITY.md](SECURITY.md)
 - SBOM and provenance attached to each GitHub Release.
 - FIPS compliance guide: [docs/FIPS.md](docs/FIPS.md)
+
+## Engineering Governance
+
+Keel follows the [keelcore/standards](https://github.com/keelcore/standards) engineering governance framework, pinned as a git submodule at `.standards/`. The standards cover coding discipline, CI supply-chain rules, bash script portability, observability requirements, security posture, and runtime/deployment requirements.
+
+The submodule is consumed by AI coding tools (Claude Code, Cursor, GitHub Copilot) and human contributors alike — the same rules apply to both. To update the pinned standards version:
+
+```bash
+git submodule update --remote .standards
+git add .standards && git commit -m "chore: update standards"
+```
+
+See [docs/governance.md](docs/governance.md) for the full explanation: what the submodule contains, why the submodule pattern was chosen over copy-paste, how to initialize it after a fresh clone, and how to propose changes upstream.
 
 ---
 

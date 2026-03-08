@@ -1,0 +1,1 @@
+../.standards/adapters/copilot/copilot-instructions.md

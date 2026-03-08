@@ -1,0 +1,1 @@
+.standards/adapters/claude/CLAUDE.md
