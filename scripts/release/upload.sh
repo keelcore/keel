@@ -58,21 +58,10 @@ function resolve_tag() {
   printf '%s' "${tag}"
 }
 
-# synthesize_tag produces a pre-release tag from git describe, or a constant
-# fallback when no ancestor tag exists.
+# synthesize_tag produces a tag from git describe --tags --dirty --always.
+# Always includes a commit reference; appends -dirty if the tree is unclean.
 function synthesize_tag() {
-  local described
-  described="$(git describe --tags --long 2>/dev/null || true)"
-  if [ -z "${described}" ]; then
-    printf 'v0.0.0-manual'
-    return
-  fi
-  # git describe format: v1.2.3-N-gSHA → v1.2.3-dev.N+SHA
-  local base offset sha
-  base="$(printf '%s' "${described}" | sed 's/-[0-9]*-g[0-9a-f]*$//')"
-  offset="$(printf '%s' "${described}" | sed 's/.*-\([0-9]*\)-g[0-9a-f]*/\1/')"
-  sha="$(printf '%s' "${described}" | sed 's/.*-g\([0-9a-f]*\)/\1/')"
-  printf '%s-dev.%s+%s' "${base}" "${offset}" "${sha}"
+  git describe --tags --dirty --always
 }
 
 function require_gh() {
