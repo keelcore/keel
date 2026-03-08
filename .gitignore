@@ -81,6 +81,5 @@ pnpm-debug.log*
 .claude/*
 
 # ---- test artifacts ----
-coverage.txt
 test-results.xml
 
