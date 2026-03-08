@@ -12,5 +12,5 @@ useDefault = true
 [[allowlists]]
 id          = "authn-test-fixtures"
 description = "Short literal strings used as HMAC test-fixture keys in authn_test.go; entropy matches generic-api-key but these are not real secrets"
-paths       = ['''tests/unit/authn_test\.go''']
+paths       = ['''tests/unit/authn_test\.go''', '''tests/unit/authn_gaps_test\.go''']
 regexes     = ['''"0123456789abcdef"''', '''"wrong-key-16byte"''']
