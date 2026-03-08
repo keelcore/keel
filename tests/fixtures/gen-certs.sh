@@ -107,6 +107,9 @@ function cleanup_temp() {
   local -r dir="${1}"
   log 'Removing temporary CSR and extension files...'
   rm -f "${dir}/server.csr" "${dir}/client.csr" "${dir}/server-ext.cnf"
+  # Keys are test fixtures mounted into containers running as a different UID.
+  # chmod 644 ensures the container user can read them on Linux bind mounts.
+  chmod 644 "${dir}/server.key" "${dir}/client.key" "${dir}/ca.key"
 }
 
 function list_certs() {

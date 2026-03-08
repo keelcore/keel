@@ -20,7 +20,7 @@ COMPOSE_FILE=''
 KEEP_UP=''
 readonly LOG_FILE='/tmp/keel_compose_test.log'
 readonly KEEL_HEALTH_URL='http://127.0.0.1:9091/healthz'
-readonly KEEL_HTTPS_URL='https://127.0.0.1:8443/healthz'
+readonly KEEL_HTTPS_URL='https://127.0.0.1:8443/'
 readonly UPSTREAM_URL='http://127.0.0.1:9000/'
 
 function main() {
