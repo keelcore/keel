@@ -51,7 +51,7 @@ func TestServer_HealthAndDefaultRoot(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() { _ = srv.Run(ctx) }()
+	go srv.Run(ctx)
 
 	mainBase := "http://127.0.0.1:" + itoa(ports.HTTP)
 	healthBase := "http://127.0.0.1:" + itoa(ports.HEALTH)

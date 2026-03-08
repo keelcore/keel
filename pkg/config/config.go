@@ -262,8 +262,45 @@ func defaults() Config {
 // Load — merge order: defaults → config YAML → secrets YAML → ENV vars.
 // ---------------------------------------------------------------------------
 
-// Load is the primary entry point. configPath and secretsPath may be empty.
+// Default loads config using the standard pipeline:
+// defaults → $KEEL_CONFIG file → $KEEL_SECRETS file → env vars → validate.
+// On any error it writes to stderr and exits; it never returns an error.
+func Default() Config {
+	cfg, err := Load(os.Getenv("KEEL_CONFIG"), os.Getenv("KEEL_SECRETS"))
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "config error: %v\n", err)
+		os.Exit(2)
+	}
+	return cfg
+}
+
+// Load runs the merge pipeline (defaults → configPath file → secretsPath file →
+// env vars → validate) and returns any error to the caller.
+// Either path may be empty. Use Default for CLI entry points.
 func Load(configPath, secretsPath string) (Config, error) {
+	cfg, err := load(configPath, secretsPath)
+	if err != nil {
+		return cfg, err
+	}
+	if err := Validate(cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+// From applies environment variable overrides onto c, validates the result,
+// and returns it. Intended for library users who supply their own Config.
+func From(c *Config) (Config, error) {
+	cfg := *c
+	applyEnv(&cfg)
+	if err := Validate(cfg); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+// load is the internal merge pipeline: defaults → config YAML → secrets YAML → env vars.
+func load(configPath, secretsPath string) (Config, error) {
 	cfg := defaults()
 
 	if configPath != "" {
@@ -281,11 +318,6 @@ func Load(configPath, secretsPath string) (Config, error) {
 	applyEnv(&cfg)
 
 	return cfg, nil
-}
-
-// LoadFromEnvAndOptionalFile is a convenience alias for backwards compatibility.
-func LoadFromEnvAndOptionalFile(configPath string) (Config, error) {
-	return Load(configPath, os.Getenv("KEEL_SECRETS"))
 }
 
 // Validate returns an error if the config contains an invalid combination.

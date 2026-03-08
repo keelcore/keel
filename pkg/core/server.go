@@ -59,9 +59,10 @@ func NewServer(opts ...Option) *Server {
 	return s
 }
 
-func (s *Server) Run(ctx context.Context) error {
+func (s *Server) Run(ctx context.Context) {
 	if err := acme.Validate(s.cfg); err != nil {
-		return err
+		_, _ = fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+		os.Exit(1)
 	}
 
 	if s.cfg.Backpressure.HeapMaxBytes > 0 {
@@ -177,11 +178,13 @@ func (s *Server) Run(ctx context.Context) error {
 
 	if s.cfg.Listeners.HTTPS.Enabled {
 		if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
-			return errors.New("https enabled but TLS cert/key not configured")
+			_, _ = fmt.Fprintf(os.Stderr, "server error: https enabled but TLS cert/key not configured\n")
+			os.Exit(1)
 		}
 		loader, err := keeltls.NewCertLoader(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile)
 		if err != nil {
-			return fmt.Errorf("load TLS cert: %w", err)
+			_, _ = fmt.Fprintf(os.Stderr, "server error: load TLS cert: %v\n", err)
+			os.Exit(1)
 		}
 		s.certLoader = loader
 		wg.Add(1)
@@ -193,7 +196,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 	if s.cfg.Listeners.H3.Enabled {
 		if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
-			return errors.New("http3 enabled but TLS cert/key not configured")
+			_, _ = fmt.Fprintf(os.Stderr, "server error: http3 enabled but TLS cert/key not configured\n")
+			os.Exit(1)
 		}
 		wg.Add(1)
 		go func() {
@@ -251,11 +255,17 @@ func (s *Server) Run(ctx context.Context) error {
 	case err := <-errCh:
 		cancel()
 		wg.Wait()
-		return err
+		if err != nil && !errors.Is(err, context.Canceled) {
+			_, _ = fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		cancel()
 		wg.Wait()
-		return sigErr
+		if sigErr != nil && !errors.Is(sigErr, context.Canceled) {
+			_, _ = fmt.Fprintf(os.Stderr, "server error: %v\n", sigErr)
+			os.Exit(1)
+		}
 	}
 }
 
