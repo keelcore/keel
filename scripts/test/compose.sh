@@ -44,7 +44,7 @@ function log() {
 }
 
 function validate_args() {
-  if [ "${#}" -gt 0 ] && [ -z "${1:-}" ]; then
+  if [ "${#}" -gt 1 ] && [ -z "${1:-}" ]; then
     log '❌ Error: Unexpected empty argument'
     exit 1
   fi
