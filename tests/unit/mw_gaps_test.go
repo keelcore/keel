@@ -117,8 +117,8 @@ func TestPressureLoop_LowGreaterThanHighAdjusted(t *testing.T) {
 // exercises the t.C case and the latch=true branch.
 func TestPressureLoop_HighWatermarkTrigger(t *testing.T) {
 	r := probes.NewReadiness()
-	var buf bytes.Buffer
-	log := logging.New(logging.Config{Out: &buf})
+	sb := &safeBuf{}
+	log := logging.New(logging.Config{Out: sb})
 	cfg := config.Config{
 		Backpressure: config.BackpressureConfig{
 			HeapMaxBytes:  1,   // 1 byte; HeapAlloc >> 1 → pressure > any threshold
@@ -128,19 +128,18 @@ func TestPressureLoop_HighWatermarkTrigger(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	go mw.RunPressureLoop(ctx, r, cfg, log)
 
 	// Wait for at least one 250 ms tick plus margin.
 	time.Sleep(400 * time.Millisecond)
 	cancel()
-	time.Sleep(50 * time.Millisecond) // allow goroutine to exit
+	time.Sleep(50 * time.Millisecond) // allow goroutine to exit before reading sb
 
 	if r.Get() {
 		t.Error("expected readiness false after high-pressure latch")
 	}
-	if !strings.Contains(buf.String(), "pressure_high") {
-		t.Errorf("expected pressure_high log entry, got: %s", buf.String())
+	if !strings.Contains(sb.String(), "pressure_high") {
+		t.Errorf("expected pressure_high log entry, got: %s", sb.String())
 	}
 }
 
