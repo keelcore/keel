@@ -19,4 +19,4 @@ You **must** rename your project and may not use "Keel" as the primary brand if:
 * **Commercialization**: You offer "Keel-as-a-Service" or "Keel Enterprise Support" without an agreement.
 
 ## 4. The Shred-Check Requirement
-If your version of the software does not pass the official `./scripts/ci_test_binary.sh` suite, it is not "Keel." It is a derivative work and must be labeled as such (e.g., "Generic-Server, based on Keel code").
+If your version of the software does not pass the official build and binary size verification in `./scripts/build/`, it is not "Keel." It is a derivative work and must be labeled as such (e.g., "Generic-Server, based on Keel code").
