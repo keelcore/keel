@@ -4,8 +4,8 @@
 # Downloads the binary and verifies its SHA256 checksum before installing.
 # No-op if cosign is already present at the pinned version.
 #
-# Pinned version: v2.4.3
-# Update COSIGN_VERSION and COSIGN_SHA256 together when bumping.
+# Pinned version: v3.0.5
+# Update COSIGN_VERSION when bumping; checksum is fetched from cosign_checksums.txt.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -17,9 +17,10 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly COSIGN_VERSION='2.4.3'
-readonly COSIGN_BINARY_URL="https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
-readonly COSIGN_SHA256_URL="${COSIGN_BINARY_URL}.sha256"
+readonly COSIGN_VERSION='3.0.5'
+readonly COSIGN_BASE_URL="https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}"
+readonly COSIGN_BINARY_URL="${COSIGN_BASE_URL}/cosign-linux-amd64"
+readonly COSIGN_SHA256_URL="${COSIGN_BASE_URL}/cosign_checksums.txt"
 readonly COSIGN_INSTALL_PATH='/usr/local/bin/cosign'
 
 function main() {
@@ -73,8 +74,8 @@ function download_binary() {
 
 function verify_checksum() {
   local -r tmp="${1}"
-  local -r expected
-  expected="$(awk '{print $1}' "${tmp}/cosign.sha256")"
+  local expected
+  expected="$(grep ' cosign-linux-amd64$' "${tmp}/cosign.sha256" | awk '{print $1}')"
   printf '%s  %s/cosign\n' "${expected}" "${tmp}" | sha256sum --check --quiet
 }
 
