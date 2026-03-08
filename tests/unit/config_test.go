@@ -2,6 +2,7 @@
 package unit
 
 import (
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/ports"
 )
 
@@ -504,5 +506,16 @@ func TestLoad_BadSecretsPath(t *testing.T) {
 func TestAddrFromPort(t *testing.T) {
 	if got := config.AddrFromPort(8080); got != ":8080" {
 		t.Errorf("got %q, want %q", got, ":8080")
+	}
+}
+
+// Default: happy path — KEEL_CONFIG and KEEL_SECRETS unset, returns defaults-based config.
+func TestConfigDefault_ReturnsValidConfig(t *testing.T) {
+	t.Setenv("KEEL_CONFIG", "")
+	t.Setenv("KEEL_SECRETS", "")
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Default(log)
+	if cfg.Listeners.HTTP.Port != ports.HTTP {
+		t.Errorf("expected HTTP port %d from Default, got %d", ports.HTTP, cfg.Listeners.HTTP.Port)
 	}
 }
