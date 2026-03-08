@@ -110,7 +110,7 @@ function ensure_release() {
     return
   fi
   log "  Release ${tag} not found; creating"
-  gh release create "${tag}" --generate-notes --verify-tag
+  gh release create "${tag}" --generate-notes
   log "  Release ${tag} created"
 }
 
