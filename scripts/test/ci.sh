@@ -44,7 +44,7 @@ function run_unit_tests() {
   gotestsum \
     --junitfile test-results.xml \
     --format standard-verbose \
-    -- -race -coverprofile='coverage.txt' -covermode='atomic' ./...
+    -- -race -coverprofile='coverage.txt' -covermode='atomic' -coverpkg='./...' ./...
 }
 
 function write_step_summary() {
