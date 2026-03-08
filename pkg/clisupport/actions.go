@@ -50,6 +50,16 @@ func TryValidateConfig(log *logging.Logger) keelconfig.Config {
 	return cfg
 }
 
+// TryValidateApp exits with "config ok" if --validate was supplied.
+// Call after application config has been validated successfully.
+func TryValidateApp() {
+	if !*flagValidate {
+		return
+	}
+	fmt.Println("config ok")
+	os.Exit(0)
+}
+
 // RunServer runs srv until ctx is cancelled.
 // Fatal errors are handled internally by the server via its logger.
 func RunServer(srv *core.Server, ctx context.Context) {

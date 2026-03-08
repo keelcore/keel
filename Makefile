@@ -63,6 +63,11 @@ test-integrity:
 	@echo "🧪 Running BATS integrity suite..."
 	./scripts/build/ci_test_binary.sh
 
+test-example:
+	@echo "🧪 Running examples/myapp tests..."
+	./scripts/build/ci_example.sh
+	bats examples/myapp/myapp.bats
+
 test-compose:
 	@echo "🐳 Running Docker Compose integration tests (P3)..."
 	./scripts/test/compose.sh

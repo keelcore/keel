@@ -35,8 +35,9 @@ type Server struct {
 	cfgMu    sync.RWMutex
 	cfgPaths [2]string // [configPath, secretsPath] for Reload
 
-	registrars []router.Registrar
-	readiness  *probes.Readiness
+	registrars          []router.Registrar
+	useDefaultRegistrar bool
+	readiness           *probes.Readiness
 	startup    *probes.Startup
 	logger     *logging.Logger
 	met        *metrics.Metrics
@@ -56,6 +57,14 @@ func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
 		opt(s)
 	}
 	return s
+}
+
+// AddRoute registers a handler on the given port and URL pattern.
+// Must be called before Run.
+func (s *Server) AddRoute(port int, pattern string, h http.Handler) {
+	s.registrars = append(s.registrars, router.RegistrarFunc(func(r *router.Router) {
+		r.Handle(port, pattern, h)
+	}))
 }
 
 func (s *Server) Run(ctx context.Context) {
@@ -91,6 +100,25 @@ func (s *Server) Run(ctx context.Context) {
 	mainRT := router.New()
 	for _, r := range s.registrars {
 		r.Register(mainRT)
+	}
+	if s.useDefaultRegistrar {
+		defaultH := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.URL == nil || req.URL.Path != "/" {
+				http.NotFound(w, req)
+				return
+			}
+			w.Header().Set("content-type", "text/plain; charset=utf-8")
+			_, _ = w.Write([]byte("keel: ok\n"))
+		})
+		if s.cfg.Listeners.HTTP.Enabled {
+			mainRT.Handle(s.cfg.Listeners.HTTP.Port, "/", defaultH)
+		}
+		if s.cfg.Listeners.HTTPS.Enabled {
+			mainRT.Handle(s.cfg.Listeners.HTTPS.Port, "/", defaultH)
+		}
+		if s.cfg.Listeners.H3.Enabled {
+			mainRT.Handle(s.cfg.Listeners.H3.Port, "/", defaultH)
+		}
 	}
 
 	// Probes: separate muxes, served ONLY on probe/admin listeners.

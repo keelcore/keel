@@ -199,6 +199,11 @@ type Config struct {
 // Defaults
 // ---------------------------------------------------------------------------
 
+// Defaults returns a Config pre-populated with all library defaults.
+// Downstream callers should use this to initialise their own config structs
+// before unmarshaling their YAML so absent keys retain library defaults.
+func Defaults() Config { return defaults() }
+
 func defaults() Config {
 	return Config{
 		Listeners: ListenersConfig{

@@ -668,7 +668,84 @@ h := mw.RequestID(         // inject/propagate X-Request-ID
 
 ---
 
-## 6. Canonical Helm chart
+## 6. Using keel as your core server (library mode walkthrough)
+
+A working example lives at [`examples/myapp/`](examples/myapp/).
+
+### 6.1 Wrap the keel config under your own top-level key
+
+Pre-populate the embedded `Keel` field with library defaults before unmarshaling your YAML so absent keys retain their documented defaults:
+
+```go
+import keelconfig "github.com/keelcore/keel/pkg/config"
+
+type AppConfig struct {
+    App  AppSettings       `yaml:"app"`
+    Keel keelconfig.Config `yaml:"keel"`
+}
+
+cfg := AppConfig{Keel: keelconfig.Defaults()}
+// unmarshal your YAML on top → only keys present in YAML are overwritten
+```
+
+After loading, call `keelconfig.From(&cfg.Keel)` to apply `KEEL_*` environment variable overrides and validate:
+
+```go
+keel, err := keelconfig.From(&cfg.Keel)
+// handle err
+cfg.Keel = keel
+```
+
+### 6.2 Create the server, then add routes
+
+```go
+import (
+    keelcore "github.com/keelcore/keel/pkg/core"
+    "github.com/keelcore/keel/pkg/core/logging"
+    "github.com/keelcore/keel/pkg/core/ports"
+)
+
+log := logging.New(logging.Config{JSON: true})
+srv := keelcore.NewServer(log, cfg.Keel)
+
+// Register handlers on the port(s) you want.
+// Keel's full middleware chain (TLS, OWASP, authn, access log) wraps
+// every handler automatically — register a plain http.Handler.
+srv.AddRoute(ports.HTTPS, "GET /hello", http.HandlerFunc(hello))
+
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+srv.Run(ctx)
+```
+
+### 6.3 Your keel.yaml nests under the `keel:` key
+
+```yaml
+app:
+  name: myapp
+
+keel:
+  listeners:
+    https: { enabled: true, port: 8443 }
+    health: { enabled: true, port: 9091 }
+    ready:  { enabled: true, port: 9092 }
+  tls:
+    cert_file: /etc/myapp/tls.crt
+    key_file:  /etc/myapp/tls.key
+  authn:
+    enabled: true
+    my_id: myapp
+  logging:
+    json: true
+    level: info
+```
+
+Set `APP_CONFIG=/path/to/keel.yaml` (or whatever env var your app reads) before starting. See [`examples/myapp/keel.yaml`](examples/myapp/keel.yaml) for the full annotated reference.
+
+---
+
+## 7. Canonical Helm chart
 
 This repo ships a canonical Helm chart (`helm/keel/`) as the reference deployment for "works in Kubernetes".
 

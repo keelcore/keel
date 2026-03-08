@@ -104,6 +104,78 @@ minimal_config() {
 }
 
 # ---------------------------------------------------------------------------
+# Runtime port sanity
+# ---------------------------------------------------------------------------
+
+cert_dir() {
+  printf '%s' "${BATS_TEST_DIRNAME}/fixtures/certs"
+}
+
+@test "HTTP listener: GET / returns 'keel: ok'" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local body
+  body="$(curl -s --max-time 2 http://127.0.0.1:8080/)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [[ "${body}" =~ "keel: ok" ]]
+}
+
+@test "health listener: GET /healthz returns 'ok'" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: true\n  ready:\n    enabled: false\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local body
+  body="$(curl -s --max-time 2 http://127.0.0.1:9091/healthz)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [[ "${body}" =~ "ok" ]]
+}
+
+@test "ready listener: GET /readyz returns 'ready'" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: true\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local body
+  body="$(curl -s --max-time 2 http://127.0.0.1:9092/readyz)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [[ "${body}" =~ "ready" ]]
+}
+
+@test "HTTPS listener: GET / returns 'keel: ok'" {
+  local cert_dir
+  cert_dir="$(cert_dir)"
+  [ -f "${cert_dir}/server.crt" ] || skip "TLS certs not found; run 'make gen-certs' first"
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n' \
+    "${cert_dir}/server.crt" "${cert_dir}/server.key" > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local body
+  body="$(curl -s --max-time 2 --cacert "${cert_dir}/ca.crt" https://127.0.0.1:8443/)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [[ "${body}" =~ "keel: ok" ]]
+}
+
+# ---------------------------------------------------------------------------
 # FIPS build (skipped when keel-fips binary is absent)
 # ---------------------------------------------------------------------------
 
