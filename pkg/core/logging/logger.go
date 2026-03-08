@@ -28,8 +28,15 @@ func New(cfg Config) *Logger {
 	return &Logger{json: cfg.JSON, out: out}
 }
 
-func (l *Logger) Info(msg string, fields map[string]any) { l.log("info", msg, fields) }
-func (l *Logger) Warn(msg string, fields map[string]any) { l.log("warn", msg, fields) }
+func (l *Logger) Info(msg string, fields map[string]any)  { l.log("info", msg, fields) }
+func (l *Logger) Warn(msg string, fields map[string]any)  { l.log("warn", msg, fields) }
+func (l *Logger) Error(msg string, fields map[string]any) { l.log("error", msg, fields) }
+
+// Fatal logs at error level and terminates the process.
+func (l *Logger) Fatal(msg string, fields map[string]any) {
+	l.log("error", msg, fields)
+	os.Exit(1)
+}
 
 func (l *Logger) log(level, msg string, fields map[string]any) {
 	l.mu.Lock()

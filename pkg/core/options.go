@@ -2,6 +2,7 @@ package core
 
 import (
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/router"
 )
 
@@ -9,6 +10,10 @@ type Option func(*Server)
 
 func WithConfig(cfg config.Config) Option {
 	return func(s *Server) { s.cfg = cfg }
+}
+
+func WithLogger(log *logging.Logger) Option {
+	return func(s *Server) { s.logger = log }
 }
 
 func WithRegistrar(r router.Registrar) Option {

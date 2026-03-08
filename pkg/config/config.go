@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/ports"
 )
 
@@ -264,12 +265,11 @@ func defaults() Config {
 
 // Default loads config using the standard pipeline:
 // defaults → $KEEL_CONFIG file → $KEEL_SECRETS file → env vars → validate.
-// On any error it writes to stderr and exits; it never returns an error.
-func Default() Config {
+// On error it calls log.Fatal; it never returns an error.
+func Default(log *logging.Logger) Config {
 	cfg, err := Load(os.Getenv("KEEL_CONFIG"), os.Getenv("KEEL_SECRETS"))
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "config error: %v\n", err)
-		os.Exit(2)
+		log.Fatal("config_load_failed", map[string]any{"err": err.Error()})
 	}
 	return cfg
 }

@@ -44,25 +44,23 @@ type Server struct {
 	certLoader *keeltls.CertLoader
 }
 
-func NewServer(opts ...Option) *Server {
+func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
 	s := &Server{
-		cfg:       config.Config{},
+		cfg:       cfg,
+		logger:    log,
 		readiness: probes.NewReadiness(),
 		startup:   probes.NewStartup(),
-		logger:    logging.New(logging.Config{JSON: true}),
 		met:       metrics.New(),
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
-	s.logger = logging.New(logging.Config{JSON: s.cfg.Logging.JSON})
 	return s
 }
 
 func (s *Server) Run(ctx context.Context) {
 	if err := acme.Validate(s.cfg); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "server error: %v\n", err)
-		os.Exit(1)
+		s.logger.Fatal("acme_config_invalid", map[string]any{"err": err.Error()})
 	}
 
 	if s.cfg.Backpressure.HeapMaxBytes > 0 {
@@ -178,13 +176,11 @@ func (s *Server) Run(ctx context.Context) {
 
 	if s.cfg.Listeners.HTTPS.Enabled {
 		if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
-			_, _ = fmt.Fprintf(os.Stderr, "server error: https enabled but TLS cert/key not configured\n")
-			os.Exit(1)
+			s.logger.Fatal("https_no_tls_cert", map[string]any{"err": "cert_file and key_file required"})
 		}
 		loader, err := keeltls.NewCertLoader(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile)
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "server error: load TLS cert: %v\n", err)
-			os.Exit(1)
+			s.logger.Fatal("tls_cert_load_failed", map[string]any{"err": err.Error()})
 		}
 		s.certLoader = loader
 		wg.Add(1)
@@ -196,8 +192,7 @@ func (s *Server) Run(ctx context.Context) {
 
 	if s.cfg.Listeners.H3.Enabled {
 		if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
-			_, _ = fmt.Fprintf(os.Stderr, "server error: http3 enabled but TLS cert/key not configured\n")
-			os.Exit(1)
+			s.logger.Fatal("h3_no_tls_cert", map[string]any{"err": "cert_file and key_file required"})
 		}
 		wg.Add(1)
 		go func() {
@@ -255,16 +250,14 @@ func (s *Server) Run(ctx context.Context) {
 	case err := <-errCh:
 		cancel()
 		wg.Wait()
-		if err != nil && !errors.Is(err, context.Canceled) {
-			_, _ = fmt.Fprintf(os.Stderr, "server error: %v\n", err)
-			os.Exit(1)
+		if err != nil {
+			s.logger.Fatal("listener_error", map[string]any{"err": err.Error()})
 		}
 	default:
 		cancel()
 		wg.Wait()
 		if sigErr != nil && !errors.Is(sigErr, context.Canceled) {
-			_, _ = fmt.Fprintf(os.Stderr, "server error: %v\n", sigErr)
-			os.Exit(1)
+			s.logger.Fatal("shutdown_error", map[string]any{"err": sigErr.Error()})
 		}
 	}
 }

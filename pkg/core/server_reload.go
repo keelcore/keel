@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 	"net/http"
-	"os"
 
 	"github.com/keelcore/keel/pkg/config"
 )
@@ -13,7 +12,7 @@ import (
 // (stored config, TLS certificate). On any error the running
 // configuration is left unchanged.
 func (s *Server) Reload() error {
-	cfg, err := config.Load(os.Getenv("KEEL_CONFIG"), os.Getenv("KEEL_SECRETS"))
+	cfg, err := config.Load(s.cfgPaths[0], s.cfgPaths[1])
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}

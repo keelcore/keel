@@ -58,7 +58,7 @@ minimal_config() {
   local bad_config
   bad_config="$(mktemp)"
   printf 'listeners:\n  https:\n    enabled: true\n' > "${bad_config}"
-  run keel-min --validate --config "${bad_config}"
+  run env KEEL_CONFIG="${bad_config}" keel-min --validate
   rm -f "${bad_config}"
   [ "${status}" -ne 0 ]
 }
@@ -76,7 +76,7 @@ minimal_config() {
 @test "SIGTERM causes clean shutdown (exit 0)" {
   local config_file pid
   config_file="$(minimal_config)"
-  keel-min --config "${config_file}" &
+  KEEL_CONFIG="${config_file}" keel-min &
   pid="${!}"
   sleep 0.3
   kill -TERM "${pid}"
@@ -89,7 +89,7 @@ minimal_config() {
 @test "SIGHUP reloads without crashing; SIGTERM then exits 0" {
   local config_file pid
   config_file="$(minimal_config)"
-  keel-min --config "${config_file}" &
+  KEEL_CONFIG="${config_file}" keel-min &
   pid="${!}"
   sleep 0.3
   kill -HUP "${pid}"

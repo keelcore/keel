@@ -3,12 +3,15 @@
 package clisupport
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 
 	keelconfig "github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core"
+	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/version"
 )
 
@@ -33,15 +36,22 @@ func TryVersion() {
 	os.Exit(0)
 }
 
-// TryValidateConfig exits with the config validation result if --validate was supplied.
-func TryValidateConfig(cfg keelconfig.Config) {
-	if !*flagValidate {
-		return
-	}
+// TryValidateConfig loads config via Default, validates it, then exits if
+// --validate was supplied. Returns the loaded config for normal startup.
+func TryValidateConfig(log *logging.Logger) keelconfig.Config {
+	cfg := keelconfig.Default(log)
 	if err := keelconfig.Validate(cfg); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "config invalid: %v\n", err)
-		os.Exit(2)
+		log.Fatal("config_invalid", map[string]any{"err": err.Error()})
 	}
-	fmt.Println("config ok")
-	os.Exit(0)
+	if *flagValidate {
+		fmt.Println("config ok")
+		os.Exit(0)
+	}
+	return cfg
+}
+
+// RunServer runs srv until ctx is cancelled.
+// Fatal errors are handled internally by the server via its logger.
+func RunServer(srv *core.Server, ctx context.Context) {
+	srv.Run(ctx)
 }

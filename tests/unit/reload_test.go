@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	core "github.com/keelcore/keel/pkg/core"
+	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/logging"
 )
 
 func TestReload_ValidConfig_UpdatesFields(t *testing.T) {
@@ -17,7 +19,7 @@ func TestReload_ValidConfig_UpdatesFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := core.NewServer(core.WithConfigPaths(cfgPath, ""))
+	s := core.NewServer(logging.New(logging.Config{}), config.Config{}, core.WithConfigPaths(cfgPath, ""))
 	if err := s.Reload(); err != nil {
 		t.Fatalf("Reload() error: %v", err)
 	}
@@ -33,7 +35,7 @@ func TestReload_InvalidConfig_KeepsOldConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := core.NewServer(core.WithConfigPaths(cfgPath, ""))
+	s := core.NewServer(logging.New(logging.Config{}), config.Config{}, core.WithConfigPaths(cfgPath, ""))
 	if err := s.Reload(); err != nil {
 		t.Fatalf("initial Reload() error: %v", err)
 	}
@@ -60,7 +62,7 @@ func TestAdminReload_ValidConfig_Returns200(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := core.NewServer(core.WithConfigPaths(cfgPath, ""))
+	s := core.NewServer(logging.New(logging.Config{}), config.Config{}, core.WithConfigPaths(cfgPath, ""))
 	rr := httptest.NewRecorder()
 	s.ReloadHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/admin/reload", nil))
 
@@ -76,7 +78,7 @@ func TestAdminReload_InvalidConfig_Returns422(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := core.NewServer(core.WithConfigPaths(cfgPath, ""))
+	s := core.NewServer(logging.New(logging.Config{}), config.Config{}, core.WithConfigPaths(cfgPath, ""))
 	rr := httptest.NewRecorder()
 	s.ReloadHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/admin/reload", nil))
 
@@ -86,7 +88,7 @@ func TestAdminReload_InvalidConfig_Returns422(t *testing.T) {
 }
 
 func TestAdminReload_WrongMethod_Returns405(t *testing.T) {
-	s := core.NewServer()
+	s := core.NewServer(logging.New(logging.Config{}), config.Config{})
 	rr := httptest.NewRecorder()
 	s.ReloadHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/admin/reload", nil))
 

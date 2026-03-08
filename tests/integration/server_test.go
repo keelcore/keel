@@ -9,6 +9,7 @@ import (
 
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core"
+	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/ports"
 )
 
@@ -47,7 +48,8 @@ func TestServer_HealthAndDefaultRoot(t *testing.T) {
 		Logging: config.LoggingConfig{JSON: true},
 	}
 
-	srv := core.NewServer(core.WithConfig(cfg), core.WithDefaultRegistrar())
+	log := logging.New(logging.Config{JSON: true})
+	srv := core.NewServer(log, cfg, core.WithDefaultRegistrar())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
