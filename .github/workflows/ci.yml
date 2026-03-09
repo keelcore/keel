@@ -130,6 +130,7 @@ jobs:
         with:
           files: coverage.txt
           fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   # ---------------------------------------------------------------------------
   # Coverage Delta — PR-only gate. Measures coverage at the merge-target commit
