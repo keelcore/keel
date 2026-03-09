@@ -28,7 +28,7 @@ set -o pipefail
 
 readonly REGISTRY='ghcr.io'
 readonly IMAGE="${REGISTRY}/keelcore/keel"
-readonly DOCKERFILE='build/docker/Dockerfile.release'
+readonly DOCKERFILE='scripts/deploy/docker/Dockerfile.release'
 readonly DIST='dist'
 
 function main() {

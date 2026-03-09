@@ -558,7 +558,7 @@ services:
   keel:
     build:
       context: ../..
-      dockerfile: build/docker/Dockerfile
+      dockerfile: scripts/deploy/docker/Dockerfile
     environment:
       KEEL_CONFIG: /etc/keel/keel.yaml
       KEEL_SECRETS: /etc/keel/secrets/keel-secrets.yaml

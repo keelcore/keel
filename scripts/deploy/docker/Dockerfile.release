@@ -1,0 +1,27 @@
+# scripts/deploy/docker/Dockerfile.release
+# Packages a pre-built keel binary into a minimal scratch image.
+# Used by scripts/release/docker.sh; the binary is copied into the
+# context before invoking docker build.
+#
+# Build arg:
+#   FLAVOR   — label embedded in the image (min | max | fips); cosmetic only.
+#              The binary is always supplied externally as ./keel in the context.
+
+ARG FLAVOR=max
+
+# ── Runtime: scratch, numeric non-root ────────────────────────────────────────
+FROM scratch
+
+ARG FLAVOR
+LABEL org.opencontainers.image.vendor="keelcore" \
+      org.opencontainers.image.source="https://github.com/keelcore/keel" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      com.keelcore.flavor="${FLAVOR}"
+
+COPY keel /keel
+
+# Run as numeric non-root (no /etc/passwd needed in scratch)
+USER 65532:65532
+
+EXPOSE 8080 9091 9092
+ENTRYPOINT ["/keel"]

@@ -24,7 +24,7 @@ services:
   keel:
     build:
       context: .
-      dockerfile: build/docker/Dockerfile
+      dockerfile: scripts/deploy/docker/Dockerfile
       args:
         FLAVOR: max   # max includes H3/QUIC; min has no_h3
     image: keel:test
