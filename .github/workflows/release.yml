@@ -100,11 +100,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: bash scripts/release/docker.sh
       - name: Package and push Helm chart
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: bash scripts/release/helm-push.sh

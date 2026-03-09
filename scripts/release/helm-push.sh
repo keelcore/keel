@@ -6,13 +6,12 @@
 # Required environment variables:
 #   GITHUB_TOKEN   — GHCR write token (GITHUB_TOKEN in Actions)
 #   GITHUB_ACTOR   — registry username (github.actor in Actions)
-#   RELEASE_TAG    — version tag, e.g. v1.2.3
 #
 # OCI target:
 #   oci://ghcr.io/keelcore/charts/keel:<version>
 #
 # The chart version stored in Chart.yaml is overridden at package time
-# with the release tag so chart version == app version always.
+# with the semver tag so chart version == app version always.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -33,7 +32,7 @@ function main() {
   exec 5>&1
   validate_args "${@:-}"
   local tag
-  tag="$(resolve_tag "${RELEASE_TAG:-}")"
+  tag="$(resolve_tag)"
   # Strip leading 'v' — Helm semver does not include the 'v' prefix.
   local version="${tag#v}"
   log "Publishing Helm chart version ${version} (tag=${tag})"
@@ -57,7 +56,7 @@ function validate_args() { :; }
 
 function require_env() {
   local missing=0
-  for var in GITHUB_TOKEN GITHUB_ACTOR RELEASE_TAG; do
+  for var in GITHUB_TOKEN GITHUB_ACTOR; do
     if [ -z "${!var:-}" ]; then
       log "ERROR: ${var} is required"
       missing=1
@@ -90,12 +89,6 @@ function registry_login() {
 
 # resolve_tag echoes a v* tag or synthesizes one from git describe.
 function resolve_tag() {
-  local -r raw="${1:-}"
-  if [[ "${raw}" =~ ^v[0-9] ]]; then
-    printf '%s' "${raw}"
-    return
-  fi
-  log "  '${raw}' is not a version tag; synthesizing from git describe"
   git describe --tags --dirty --always
 }
 
