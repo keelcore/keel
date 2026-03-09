@@ -38,11 +38,11 @@ type Server struct {
 	registrars          []router.Registrar
 	useDefaultRegistrar bool
 	readiness           *probes.Readiness
-	startup    *probes.Startup
-	logger     *logging.Logger
-	met        *metrics.Metrics
-	sd         *statsd.Client
-	certLoader *keeltls.CertLoader
+	startup             *probes.Startup
+	logger              *logging.Logger
+	met                 *metrics.Metrics
+	sd                  *statsd.Client
+	certLoader          *keeltls.CertLoader
 }
 
 func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {

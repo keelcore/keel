@@ -16,8 +16,8 @@ const (
 	Upstream = 9000
 
 	// Observability stack.
-	Prometheus    = 9090
-	OTLPgRPC      = 4317
-	OTLPhttp      = 4318
-	JaegerUI      = 16686
+	Prometheus = 9090
+	OTLPgRPC   = 4317
+	OTLPhttp   = 4318
+	JaegerUI   = 16686
 )

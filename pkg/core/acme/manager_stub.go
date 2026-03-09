@@ -13,10 +13,10 @@ import (
 // Manager is a no-op stub used when the no_acme build tag is active.
 type Manager struct{}
 
-func New() *Manager                                         { return &Manager{} }
-func (m *Manager) SetToken(_, _ string)                    {}
-func (m *Manager) DeleteToken(_ string)                    {}
-func (m *Manager) HTTPHandler(_ int) http.Handler          { return http.NotFoundHandler() }
+func New() *Manager                                                   { return &Manager{} }
+func (m *Manager) SetToken(_, _ string)                               {}
+func (m *Manager) DeleteToken(_ string)                               {}
+func (m *Manager) HTTPHandler(_ int) http.Handler                     { return http.NotFoundHandler() }
 func (m *Manager) Start(_ context.Context, _ config.ACMEConfig) error { return nil }
 
 // Validate returns an error if ACME is configured but not compiled in.

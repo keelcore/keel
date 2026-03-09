@@ -46,10 +46,10 @@ func (g *inflightGauge) get() float64 {
 
 // Metrics holds all instrumentation state.
 type Metrics struct {
-	requests         *labelCounter
-	inflight         inflightGauge
-	certExpirySecs   int64 // atomic; seconds until TLS cert expiry
-	logDrops         int64 // atomic; cumulative remote-log drop count
+	requests       *labelCounter
+	inflight       inflightGauge
+	certExpirySecs int64 // atomic; seconds until TLS cert expiry
+	logDrops       int64 // atomic; cumulative remote-log drop count
 }
 
 // New creates a zeroed Metrics instance.

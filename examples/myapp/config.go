@@ -14,8 +14,8 @@ import (
 // The "keel" key maps directly to the keel library's Config type;
 // absent keys in the YAML retain library defaults.
 type AppConfig struct {
-	App  AppSettings        `yaml:"app"`
-	Keel keelconfig.Config  `yaml:"keel"`
+	App  AppSettings       `yaml:"app"`
+	Keel keelconfig.Config `yaml:"keel"`
 }
 
 type AppSettings struct {

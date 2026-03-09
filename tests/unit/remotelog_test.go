@@ -171,6 +171,6 @@ func TestRemoteLog_Run_DrainLoopProcessesRemaining(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // already cancelled
+	cancel()      // already cancelled
 	sink.Run(ctx) // must return; does not block
 }

@@ -72,7 +72,7 @@ func TestTLS12ConnectionRejected(t *testing.T) {
 	}()
 
 	clientCfg := &tls.Config{
-		InsecureSkipVerify: true,    //nolint:gosec // test only
+		InsecureSkipVerify: true, //nolint:gosec // test only
 		MaxVersion:         tls.VersionTLS12,
 	}
 	conn, err := tls.Dial("tcp", ln.Addr().String(), clientCfg)

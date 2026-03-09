@@ -3,7 +3,8 @@
 //
 // These tests are skipped when KEEL_COMPOSE_TESTS is unset.
 // Run via: scripts/test/compose.sh  OR
-//          KEEL_COMPOSE_TESTS=1 go test ./tests/compose/...
+//
+//	KEEL_COMPOSE_TESTS=1 go test ./tests/compose/...
 package compose
 
 import (

@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	core "github.com/keelcore/keel/pkg/core"
 	"github.com/keelcore/keel/pkg/config"
+	core "github.com/keelcore/keel/pkg/core"
 	"github.com/keelcore/keel/pkg/core/logging"
 )
 

@@ -231,7 +231,7 @@ func TestAuthnJWT_ES256Accepted(t *testing.T) {
 }
 
 func TestAuthnJWT_SecondSignerAccepted(t *testing.T) {
-	const firstKey = "wrong-key-16byte" // 16 bytes — wrong key, tried first
+	const firstKey = "wrong-key-16byte"  // 16 bytes — wrong key, tried first
 	const secondKey = "0123456789abcdef" // 16 bytes — correct key, tried second
 
 	cfg := config.Config{Authn: config.AuthnConfig{

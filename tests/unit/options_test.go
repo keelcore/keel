@@ -5,8 +5,8 @@ import (
 	"io"
 	"testing"
 
-	core "github.com/keelcore/keel/pkg/core"
 	"github.com/keelcore/keel/pkg/config"
+	core "github.com/keelcore/keel/pkg/core"
 	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/router"
 )
