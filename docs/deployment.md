@@ -542,7 +542,7 @@ Unit tests verify individual functions in isolation. Integration tests verify th
 ### 3.2 Full Compose File
 
 ```yaml
-# docker-compose.test.yaml
+# tests/compose/docker-compose.test.yaml
 
 services:
   # The upstream service that Keel proxies to.
@@ -557,8 +557,8 @@ services:
   # Keel itself.
   keel:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: build/docker/Dockerfile
     environment:
       KEEL_CONFIG: /etc/keel/keel.yaml
       KEEL_SECRETS: /etc/keel/secrets/keel-secrets.yaml

@@ -28,7 +28,7 @@ function main() {
   validate_args "${@:-}"
   KEEP_UP="${1:-}"
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  COMPOSE_FILE="${REPO_ROOT}/docker-compose.test.yaml"
+  COMPOSE_FILE="${REPO_ROOT}/tests/compose/docker-compose.test.yaml"
   trap teardown EXIT
   generate_certs
   build_and_start

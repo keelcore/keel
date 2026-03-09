@@ -269,7 +269,7 @@ jobs:
   # no-op signal stub compiles and the binary starts cleanly. Not a release artifact.
   # ---------------------------------------------------------------------------
   # ---------------------------------------------------------------------------
-  # Compose Integration — spins up the full docker-compose.test.yaml topology
+  # Compose Integration — spins up the tests/compose/docker-compose.test.yaml topology
   # (keel max-flavor + upstream + observability stack), runs all compose tests
   # including the HTTP/3 QUIC probe, then tears down.
   # Runs on ubuntu-latest only (Docker Compose not available on macOS/Windows

@@ -1,11 +1,11 @@
-# docker-compose.test.yaml
+# tests/compose/docker-compose.test.yaml
 # Keel P3 integration test harness.
 # Topology: upstream ← keel → prometheus / otel-collector → jaeger
 #
 # Usage:
 #   scripts/test/compose.sh            # full run
-#   docker compose -f docker-compose.test.yaml up -d --build
-#   docker compose -f docker-compose.test.yaml down --volumes
+#   docker compose -f tests/compose/docker-compose.test.yaml up -d --build
+#   docker compose -f tests/compose/docker-compose.test.yaml down --volumes
 
 services:
 
@@ -23,8 +23,8 @@ services:
   # ── Keel ─────────────────────────────────────────────────────────────────────
   keel:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: build/docker/Dockerfile
       args:
         FLAVOR: max   # max includes H3/QUIC; min has no_h3
     image: keel:test
@@ -33,7 +33,7 @@ services:
     networks:
       - keel-test
     volumes:
-      - ./tests/fixtures:/etc/keel:ro   # certs land at /etc/keel/certs/ via gen-certs.sh
+      - ../../tests/fixtures:/etc/keel:ro   # certs land at /etc/keel/certs/ via gen-certs.sh
     environment:
       KEEL_CONFIG: /etc/keel/keel.yaml
       KEEL_SECRETS: /etc/keel/keel-secrets.yaml
@@ -66,7 +66,7 @@ services:
     networks:
       - keel-test
     volumes:
-      - ./tests/fixtures/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ../../tests/fixtures/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     ports:
       - "4317:4317"   # OTLP gRPC  (keel → collector)
@@ -78,7 +78,7 @@ services:
     networks:
       - keel-test
     volumes:
-      - ./tests/fixtures/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../tests/fixtures/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
