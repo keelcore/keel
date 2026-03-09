@@ -142,8 +142,9 @@ function build_and_push_flavor() {
   log "  Pushing ${primary_tag}"
   docker push "${primary_tag}"
 
-  # Push additional semver aliases for the default (max) flavor only.
-  if [ "${flavor}" = 'max' ]; then
+  # Push additional semver aliases for the default (max) flavor only,
+  # and only when the tag is a proper semver version (starts with v+digit).
+  if [ "${flavor}" = 'max' ] && [[ "${tag}" =~ ^v[0-9] ]]; then
     local minor major
     minor="$(semver_minor "${tag}")"
     major="$(semver_major "${tag}")"
