@@ -1,0 +1,8 @@
+blank_issues_enabled: false          # ← set to true if you want to allow completely empty issues
+contact_links:
+  - name: 💬 Questions or discussions
+    url: https://github.com/YOUR-USERNAME/YOUR-REPO/discussions
+    about: Use Discussions for questions, ideas, or general chat
+  - name: ⚡ Already have code / a PR ready?
+    url: https://github.com/YOUR-USERNAME/YOUR-REPO/blob/main/docs/LAZY.md
+    about: Read LAZY.md — we strongly prefer PRs over pure discussion issues!

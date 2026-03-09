@@ -1,0 +1,60 @@
+name: 💡 Feature Request
+description: Suggest an idea or new feature for the project
+title: "[FEATURE] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚡ **Already started working on a fix / feature / PoC?**
+
+        → We **love** that! Please consider sending a **Pull Request** instead of (or together with) opening an issue.
+
+        Quick path:
+        1. Fork the repo
+        2. Create a branch & push your changes to **your fork**
+        3. Open a PR to this repo (see [LAZY.md](./docs/LAZY.md) for the happy flow)
+
+        We review code **much faster** than discussion threads.  
+        Even rough drafts / experiments are welcome — just mark the PR as draft!
+
+        (If you're not ready to PR yet, no worries — open the issue normally.)
+
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem?
+      description: A clear and concise description of what the problem is.
+      placeholder: "I'm always frustrated when [...]"
+    validations:
+      required: false
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Describe the solution you'd like
+      description: A clear and concise description of what you want to happen.
+      placeholder: "It would be great if [...]"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Describe alternatives you've considered
+      description: Any other solutions or workarounds you've thought about?
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Add any other context, mockups, or examples here (screenshots welcome).
+    validations:
+      required: false
