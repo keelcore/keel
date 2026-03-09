@@ -6,6 +6,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/keelcore/keel)](https://goreportcard.com/report/github.com/keelcore/keel)
 [![Coverage](https://img.shields.io/codecov/c/github/keelcore/keel)](https://codecov.io/gh/keelcore/keel)
 [![Security](https://img.shields.io/badge/security-SECURITY.md-blue)](./SECURITY.md)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12121/badge)](https://www.bestpractices.dev/projects/12121)
 [![SBOM](https://img.shields.io/badge/SBOM-available-brightgreen)](#security-governance)
 [![License](https://img.shields.io/github/license/keelcore/keel)](./LICENSE)
 [![Container](https://img.shields.io/badge/container-5--8MB-success)](#2-stated-objective-10-year-durability)

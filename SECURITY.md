@@ -4,6 +4,16 @@ This document describes the security policy for the Keel project, including how 
 
 ---
 
+## Security Contacts
+
+| Name | GitHub | Email |
+|---|---|---|
+| JP Charlton Jr. | [@PaulCharlton](https://github.com/PaulCharlton) | security@byiq.com |
+
+For all vulnerability reports, use one of the channels described in the next section. Email is available for reporters who require it or who need to send encrypted content.
+
+---
+
 ## Reporting a Vulnerability
 
 **Please do not open a public GitHub issue for security vulnerabilities.** Public issues are visible to everyone, including potential attackers, before the vulnerability has been fixed.
@@ -22,7 +32,7 @@ Your report is visible only to repository maintainers. GitHub keeps the report c
 
 ### Option 2: Email
 
-If you prefer email: send your report to the maintainers via the contact listed in the repository's GitHub profile. Encrypt your email with the project's PGP key if the vulnerability is particularly sensitive (key available on the GitHub security page).
+Send your report to **security@byiq.com**. If the vulnerability is particularly sensitive, request a PGP key exchange in your initial message and we will respond with a public key before you send details.
 
 ### What to Include in Your Report
 

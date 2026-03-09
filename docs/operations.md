@@ -266,3 +266,55 @@ kubectl exec -it <pod-name> -- kill -HUP 1
 # Or via admin port (if accessible)
 curl -X POST http://<pod-ip>:9999/admin/reload
 ```
+
+---
+
+## 9. Release Process
+
+Releases are triggered by pushing a `v*` tag to `main`. The `release.yml` CI workflow builds artifacts, signs them with cosign keyless signing, uploads them to the GitHub Release, and publishes container images and Helm chart to GHCR.
+
+### 9.1 Release Notes Policy
+
+Every release MUST include human-readable release notes describing what changed and whether users should upgrade. GitHub auto-generates notes from merged PR titles; maintainers should ensure PR titles follow [Conventional Commits](https://www.conventionalcommits.org/) so the generated notes are meaningful.
+
+**Security releases:** Any release that fixes a vulnerability MUST include a `### Security` section in the GitHub Release body explicitly identifying:
+
+- The vulnerability (CVE if assigned, or a brief description)
+- Affected versions
+- The fix (what was changed)
+- Whether users must upgrade immediately or can defer
+
+Example:
+
+```
+### Security
+
+- Fixed improper validation of the `X-Forwarded-For` header that could allow
+  a client to spoof its remote address when `xff_mode` is set to `trusted`.
+  Affected versions: v0.3.0–v0.4.1. All users should upgrade.
+  CVE-2025-XXXXX (if assigned).
+```
+
+This ensures downstream users and security scanners can determine whether a release is security-relevant without reading the full diff.
+
+### 9.2 Versioning
+
+Keel follows [Semantic Versioning](https://semver.org/):
+
+- **PATCH** (`v1.2.3`): backward-compatible bug fixes, dependency bumps, documentation updates.
+- **MINOR** (`v1.3.0`): backward-compatible new features or configuration fields.
+- **MAJOR** (`v2.0.0`): breaking changes to the library API, config schema, or CLI flags.
+
+Security fixes may be released as PATCH regardless of scope.
+
+### 9.3 Running a Release
+
+```sh
+# 1. Ensure main is clean and all CI passes.
+# 2. Tag and push.
+git tag v1.2.3
+git push origin v1.2.3
+# 3. The release.yml workflow fires automatically.
+# 4. After the first ever release, make GHCR packages public (one-time):
+bash scripts/release/setup-ghcr.sh
+```

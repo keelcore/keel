@@ -53,7 +53,7 @@ function validate_args() {
 function teardown() {
   [[ "${KEEP_UP}" == '--keep-up' ]] && { log 'ℹ️  --keep-up set; compose stack left running'; return; }
   log '🧹 Tearing down compose stack...'
-  docker compose -f "${COMPOSE_FILE}" down --volumes --remove-orphans \
+  docker compose --project-directory "${REPO_ROOT}" -f "${COMPOSE_FILE}" down --volumes --remove-orphans \
     2>&1 | tee -a "${LOG_FILE}" >&5 || true
   log '✅ Compose stack removed'
 }
@@ -66,7 +66,7 @@ function generate_certs() {
 
 function build_and_start() {
   log '🐳 Building keel:test image and starting compose stack...'
-  docker compose -f "${COMPOSE_FILE}" up -d --build \
+  docker compose --project-directory "${REPO_ROOT}" -f "${COMPOSE_FILE}" up -d --build \
     2>&1 | tee -a "${LOG_FILE}" >&5
   log '✅ Compose stack started'
 }
