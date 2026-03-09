@@ -73,12 +73,26 @@ keel:
     enabled: false
     trustedIDs: []
     trustedSigners: []
+    trustedSignersFile: ""
     myID: ""
+    mySignatureKeyFile: ""
+
+  extAuthz:
+    enabled: false
+    endpoint: ""
+    path: ""
+    timeout: "500ms"
+    transport: "http"
+    failOpen: false
 
   logging:
     json: true
     level: debug
     accessLog: true
+    remoteSink:
+      enabled: false
+      endpoint: ""
+      protocol: ""
 
   metrics:
     prometheus: true
@@ -100,6 +114,18 @@ keel:
     url: ""
     tlsSecret: ""
     tlsInsecureSkipVerify: false
+    healthPath: "/health"
+    healthInterval: "10s"
+    healthTimeout: "2s"
+    circuitBreaker:
+      enabled: true
+      failureThreshold: 5
+      resetTimeout: "30s"
+    headerPolicy:
+      forward: []
+      strip: []
+    xffMode: "append"
+    xffTrustedHops: 0
 
 service:
   type: ClusterIP

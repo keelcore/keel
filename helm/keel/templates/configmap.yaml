@@ -51,9 +51,9 @@ data:
     sidecar:
       enabled: {{ eq .Values.mode "sidecar" }}
       upstream_url: {{ $v.upstream.url | quote }}
-      upstream_health_path: /health
-      upstream_health_interval: 10s
-      upstream_health_timeout: 2s
+      upstream_health_path: {{ $v.upstream.healthPath | quote }}
+      upstream_health_interval: {{ $v.upstream.healthInterval | quote }}
+      upstream_health_timeout: {{ $v.upstream.healthTimeout | quote }}
       upstream_tls:
         enabled: {{ and (eq .Values.mode "sidecar") (ne $v.upstream.tlsSecret "") }}
         {{- if $v.upstream.tlsSecret }}
@@ -63,11 +63,14 @@ data:
         {{- end }}
         insecure_skip_verify: {{ $v.upstream.tlsInsecureSkipVerify }}
       circuit_breaker:
-        enabled: true
-        failure_threshold: 5
-        reset_timeout: 30s
-      xff_mode: append
-      xff_trusted_hops: 0
+        enabled: {{ $v.upstream.circuitBreaker.enabled }}
+        failure_threshold: {{ $v.upstream.circuitBreaker.failureThreshold }}
+        reset_timeout: {{ $v.upstream.circuitBreaker.resetTimeout | quote }}
+      header_policy:
+        forward: {{ toJson $v.upstream.headerPolicy.forward }}
+        strip: {{ toJson $v.upstream.headerPolicy.strip }}
+      xff_mode: {{ $v.upstream.xffMode | quote }}
+      xff_trusted_hops: {{ $v.upstream.xffTrustedHops }}
 
     security:
       owasp_headers: {{ $v.security.owaspHeaders }}
@@ -98,12 +101,26 @@ data:
       enabled: {{ $v.authn.enabled }}
       trusted_ids: {{ toJson $v.authn.trustedIDs }}
       trusted_signers: {{ toJson $v.authn.trustedSigners }}
+      trusted_signers_file: {{ $v.authn.trustedSignersFile | quote }}
       my_id: {{ $v.authn.myID | quote }}
+      my_signature_key_file: {{ $v.authn.mySignatureKeyFile | quote }}
+
+    ext_authz:
+      enabled: {{ $v.extAuthz.enabled }}
+      endpoint: {{ $v.extAuthz.endpoint | quote }}
+      path: {{ $v.extAuthz.path | quote }}
+      timeout: {{ $v.extAuthz.timeout | quote }}
+      transport: {{ $v.extAuthz.transport | quote }}
+      fail_open: {{ $v.extAuthz.failOpen }}
 
     logging:
       json: {{ $v.logging.json }}
       level: {{ $v.logging.level | quote }}
       access_log: {{ $v.logging.accessLog }}
+      remote_sink:
+        enabled: {{ $v.logging.remoteSink.enabled }}
+        endpoint: {{ $v.logging.remoteSink.endpoint | quote }}
+        protocol: {{ $v.logging.remoteSink.protocol | quote }}
 
     metrics:
       prometheus: {{ $v.metrics.prometheus }}

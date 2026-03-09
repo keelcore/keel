@@ -264,6 +264,28 @@ authn:
                       # key so the upstream can verify Keel's identity.
 
 # -----------------------------------------------------------------------
+# External Authz: delegate authorization decisions to an external policy engine
+# -----------------------------------------------------------------------
+ext_authz:
+  enabled: false
+
+  endpoint: ""        # Decision endpoint: "http(s)://host/path" or "unix:///socket/path"
+                      # OPA HTTP example:   "http://localhost:8181/v1/data/authz/allow"
+                      # Unix socket example: "unix:///run/opa/opa.sock"
+
+  path: ""            # Request path used when endpoint is a unix socket.
+                      # Ignored for HTTP(S) endpoints (path is part of the URL).
+
+  timeout: "500ms"    # Per-request timeout. Authz decisions should be fast.
+                      # On timeout, fail_open governs the outcome.
+
+  transport: "http"   # "http"  — send JSON envelope; allow on 200, deny otherwise.
+                      # "opa"   — wrap in {"input":...}; parse {"result":true/false}.
+
+  fail_open: false    # false (default): deny on error/timeout — safest.
+                      # true: allow on error/timeout — use only when authz is advisory.
+
+# -----------------------------------------------------------------------
 # Logging: output format and remote sink
 # -----------------------------------------------------------------------
 logging:
@@ -348,6 +370,12 @@ Every scalar config value has a corresponding `KEEL_*` environment variable. ENV
 | `KEEL_TRUSTED_IDS` | `authn.trusted_ids` | `""` | Comma-separated list |
 | `KEEL_TRUSTED_SIGNERS` | `authn.trusted_signers` | `""` | Comma-separated list |
 | `KEEL_MY_ID` | `authn.my_id` | `""` | |
+| `KEEL_AUTHZ` | `ext_authz.enabled` | `false` | |
+| `KEEL_AUTHZ_ENDPOINT` | `ext_authz.endpoint` | `""` | |
+| `KEEL_AUTHZ_PATH` | `ext_authz.path` | `""` | Unix socket request path |
+| `KEEL_AUTHZ_TIMEOUT` | `ext_authz.timeout` | `500ms` | Duration string |
+| `KEEL_AUTHZ_TRANSPORT` | `ext_authz.transport` | `"http"` | `"http"` or `"opa"` |
+| `KEEL_AUTHZ_FAIL_OPEN` | `ext_authz.fail_open` | `false` | |
 | `KEEL_LOG_JSON` | `logging.json` | `true` | |
 | `KEEL_SHEDDING` | `backpressure.shedding_enabled` | `true` | |
 | `KEEL_HEAP_MAX_BYTES` | `backpressure.heap_max_bytes` | `0` | |

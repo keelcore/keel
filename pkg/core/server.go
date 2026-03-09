@@ -300,6 +300,9 @@ func (s *Server) wrapMain(h http.Handler) http.Handler {
 	if s.cfg.Authn.Enabled {
 		h = mw.AuthnJWT(s.cfg, h, s.logger)
 	}
+	if s.cfg.ExtAuthz.Enabled {
+		h = mw.ExtAuthz(s.cfg, h, s.logger)
+	}
 	if s.cfg.Logging.AccessLog {
 		h = mw.AccessLog(s.logger, h)
 	}

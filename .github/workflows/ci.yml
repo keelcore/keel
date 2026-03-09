@@ -60,6 +60,27 @@ jobs:
         run: bash scripts/ci/secret-scan.sh
 
   # ---------------------------------------------------------------------------
+  # Consistency — verifies Go config struct, Helm values, configmap template,
+  # and config-reference.md are globally in sync.
+  # ---------------------------------------------------------------------------
+  consistency:
+    name: Consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          submodules: recursive
+      - name: Install Helm
+        run: bash scripts/ci/setup-helm.sh
+      - name: Install bats-core
+        run: bash scripts/ci/setup-bats.sh
+      - name: Run consistency suite
+        run: bash scripts/test/consistency.sh
+
+  # ---------------------------------------------------------------------------
   # Lint — go vet + staticcheck.
   # ---------------------------------------------------------------------------
   lint:

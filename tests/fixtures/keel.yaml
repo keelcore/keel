@@ -78,6 +78,9 @@ backpressure:
 authn:
   enabled: false       # disabled — secrets file enables for authn tests
 
+ext_authz:
+  enabled: false       # disabled — enable in values override to test external authz
+
 logging:
   json: true
   level: debug

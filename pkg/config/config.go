@@ -138,6 +138,15 @@ type AuthnConfig struct {
 	MySignatureKeyFile string   `yaml:"my_signature_key_file"`
 }
 
+type ExtAuthzConfig struct {
+	Enabled   bool     `yaml:"enabled"`
+	Endpoint  string   `yaml:"endpoint"`  // http(s)://host/path  or  unix:///path/to/socket
+	Path      string   `yaml:"path"`      // request path when endpoint is a unix socket
+	Timeout   Duration `yaml:"timeout"`
+	Transport string   `yaml:"transport"` // "http" (default) or "opa"
+	FailOpen  bool     `yaml:"fail_open"` // true = allow on error; false = deny (default)
+}
+
 type RemoteSinkConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 	Endpoint string `yaml:"endpoint"`
@@ -189,6 +198,7 @@ type Config struct {
 	Limits       LimitsConfig       `yaml:"limits"`
 	Backpressure BackpressureConfig `yaml:"backpressure"`
 	Authn        AuthnConfig        `yaml:"authn"`
+	ExtAuthz     ExtAuthzConfig     `yaml:"ext_authz"`
 	Logging      LoggingConfig      `yaml:"logging"`
 	Metrics      MetricsConfig      `yaml:"metrics"`
 	Tracing      TracingConfig      `yaml:"tracing"`
@@ -237,6 +247,10 @@ func defaults() Config {
 		},
 		Authn: AuthnConfig{
 			Enabled: true,
+		},
+		ExtAuthz: ExtAuthzConfig{
+			Timeout:   DurationOf(500 * time.Millisecond),
+			Transport: "http",
 		},
 		Logging: LoggingConfig{
 			JSON:      true,
@@ -427,6 +441,14 @@ func applyEnv(cfg *Config) {
 	applyString("KEEL_MY_ID", &cfg.Authn.MyID)
 	applyCSV("KEEL_TRUSTED_IDS", &cfg.Authn.TrustedIDs)
 	applyCSV("KEEL_TRUSTED_SIGNERS", &cfg.Authn.TrustedSigners)
+
+	// ExtAuthz
+	applyBool("KEEL_AUTHZ", &cfg.ExtAuthz.Enabled)
+	applyString("KEEL_AUTHZ_ENDPOINT", &cfg.ExtAuthz.Endpoint)
+	applyString("KEEL_AUTHZ_PATH", &cfg.ExtAuthz.Path)
+	applyDuration("KEEL_AUTHZ_TIMEOUT", &cfg.ExtAuthz.Timeout)
+	applyString("KEEL_AUTHZ_TRANSPORT", &cfg.ExtAuthz.Transport)
+	applyBool("KEEL_AUTHZ_FAIL_OPEN", &cfg.ExtAuthz.FailOpen)
 
 	// Logging
 	applyBool("KEEL_LOG_JSON", &cfg.Logging.JSON)

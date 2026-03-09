@@ -1,0 +1,26 @@
+# External Authorization — OPA over HTTP
+#
+# Keel sends every inbound request to OPA for a policy decision before
+# forwarding to the upstream service. OPA evaluates your Rego policy and
+# returns {"result": true/false}. Keel allows (200) or denies (403).
+#
+# OPA must be running as a sidecar or service accessible from the pod.
+# Start OPA with: opa run --server --addr :8181 policy.rego
+#
+# Example Rego policy (policy.rego):
+#   package authz
+#   default allow = false
+#   allow {
+#     input.method == "GET"
+#     startswith(input.path, "/public/")
+#   }
+#   allow {
+#     input.headers["x-api-key"] == "secret"
+#   }
+
+ext_authz:
+  enabled: true
+  endpoint: "http://localhost:8181/v1/data/authz/allow"
+  transport: "opa"
+  timeout: "500ms"
+  fail_open: false  # deny on OPA unavailability — safest default

@@ -1,0 +1,17 @@
+# External Authorization — OPA over Unix Socket
+#
+# For lowest-latency local authz decisions: OPA running in the same pod,
+# communicating over a shared unix socket (no loopback TCP overhead).
+#
+# Start OPA with: opa run --server --addr unix:///run/opa/opa.sock policy.rego
+#
+# The endpoint field carries the socket path; the path field is the HTTP
+# request path sent over that socket.
+
+ext_authz:
+  enabled: true
+  endpoint: "unix:///run/opa/opa.sock"
+  path: "/v1/data/authz/allow"
+  transport: "opa"
+  timeout: "100ms"
+  fail_open: false

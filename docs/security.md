@@ -369,3 +369,88 @@ sidecar:
 - Explicit per-upstream trust pinning that you want independent of the mesh.
 
 **`insecure_skip_verify`:** Never set this to true in production. It disables all upstream certificate verification — Keel will connect to any server claiming to be your upstream, including an attacker performing a man-in-the-middle attack. The only legitimate use is local development against a self-signed cert when you cannot install the CA.
+
+---
+
+## 6. External Authorization
+
+Keel can delegate authorization decisions to an external policy engine via `ext_authz`. When enabled, every inbound request is forwarded to the configured endpoint before reaching the upstream service. The endpoint returns allow or deny; Keel enforces the decision with no application code changes required.
+
+This is distinct from the authn layer (§2). Authn establishes *who* the caller is (JWT validation, mTLS identity). ExtAuthz asks an external system *whether that caller may perform this action* — a question that may require policy context Keel does not have locally.
+
+### 6.1 How It Works
+
+1. Keel receives an inbound request and runs the authn layer (if enabled).
+2. Keel POSTs a JSON envelope to `ext_authz.endpoint` containing method, path, query string, flattened headers, and remote address.
+3. The decision endpoint returns allow or deny.
+4. On allow, the request proceeds to the upstream. On deny, Keel returns 403.
+5. On network error or timeout, behaviour is governed by `fail_open`.
+
+### 6.2 Transport Modes
+
+**`transport: "http"` (default)**
+
+Keel sends the request envelope as a flat JSON object. A 200 response allows the request; any other status denies it. Use this for custom authz services, Envoy ext_authz HTTP API, and any policy engine with a simple HTTP interface.
+
+Request body:
+```json
+{
+  "method":  "GET",
+  "path":    "/api/resource",
+  "query":   "page=1",
+  "headers": { "authorization": "Bearer ...", "x-request-id": "abc" },
+  "remote":  "10.0.0.5:54321"
+}
+```
+
+**`transport: "opa"`**
+
+Keel wraps the envelope in `{"input": ...}` per OPA convention and POSTs to the OPA policy evaluation endpoint (e.g. `/v1/data/authz/allow`). The response is parsed for `{"result": true/false}`. A `true` result allows the request.
+
+### 6.3 Unix Socket Endpoints
+
+For lowest-latency in-pod decisions (e.g., OPA running as a sidecar), use a unix socket:
+
+```yaml
+ext_authz:
+  endpoint: "unix:///run/opa/opa.sock"
+  path: "/v1/data/authz/allow"
+  transport: "opa"
+```
+
+The `endpoint` field carries the socket path. The `path` field is the HTTP request path sent over the socket. There is no TCP overhead.
+
+### 6.4 Configuration Reference
+
+```yaml
+ext_authz:
+  enabled: false                              # off by default
+  endpoint: "http://authz-service:8080/check" # or unix:///path/to/socket
+  path: ""                                    # request path for unix socket endpoints
+  transport: "http"                           # "http" or "opa"
+  timeout: "500ms"
+  fail_open: false                            # deny on error (safest default)
+```
+
+ENV var overrides: `KEEL_AUTHZ`, `KEEL_AUTHZ_ENDPOINT`, `KEEL_AUTHZ_PATH`, `KEEL_AUTHZ_TIMEOUT`, `KEEL_AUTHZ_TRANSPORT`, `KEEL_AUTHZ_FAIL_OPEN`.
+
+### 6.5 Binary Footprint
+
+When the `no_authz` build tag is set, the entire ext_authz package is excluded at compile time. Binary size is unaffected. This mirrors the `no_authn`, `no_h3`, and other opt-out tags.
+
+```sh
+go build -tags no_authz ./cmd/keel
+```
+
+### 6.6 Fail-Open vs Fail-Closed
+
+`fail_open: false` (default) — deny the request if the authz endpoint is unreachable or times out. Safe default: a misconfigured or crashed policy engine blocks access rather than granting it.
+
+`fail_open: true` — allow the request on error. Use only when the authz endpoint is advisory and availability is more important than strict enforcement.
+
+### 6.7 Examples
+
+See [`examples/authz/`](../examples/authz/) for ready-to-use configurations:
+- `opa-http.yaml` — OPA sidecar over HTTP
+- `opa-unix-socket.yaml` — OPA sidecar over unix socket (lowest latency)
+- `custom-http.yaml` — Custom authz service or Envoy ext_authz HTTP API

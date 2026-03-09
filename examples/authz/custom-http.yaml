@@ -1,0 +1,29 @@
+# External Authorization — Custom HTTP Endpoint
+#
+# Keel POSTs a JSON envelope to your authz service for every inbound request.
+# A 200 response allows the request; any other status yields 403.
+#
+# Request body sent to the authz endpoint:
+#   {
+#     "method":  "GET",
+#     "path":    "/api/resource",
+#     "query":   "page=1",
+#     "headers": { "authorization": "Bearer ...", "x-request-id": "..." },
+#     "remote":  "10.0.0.5:54321"
+#   }
+#
+# This pattern covers:
+#   - Legacy session-cookie or OAuth1 authz services
+#   - SPIFFE-aware authz sidecars (Envoy ext_authz HTTP API)
+#   - Custom policy engines with a simple HTTP interface
+#
+# For SPIFFE/Envoy ext_authz compatibility, point endpoint at the
+# Envoy ext_authz HTTP service (typically port 9001 in-pod):
+#   endpoint: "http://localhost:9001/authz"
+
+ext_authz:
+  enabled: true
+  endpoint: "http://authz-service.internal:8080/v1/check"
+  transport: "http"
+  timeout: "300ms"
+  fail_open: false
