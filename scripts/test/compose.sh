@@ -50,6 +50,12 @@ function validate_args() {
   fi
 }
 
+function dump_container_logs() {
+  log '📋 Container logs at failure:'
+  docker compose --project-directory "${REPO_ROOT}" -f "${COMPOSE_FILE}" logs --no-log-prefix --tail=200 \
+    2>&1 | tee -a "${LOG_FILE}" >&5 || true
+}
+
 function teardown() {
   [[ "${KEEP_UP}" == '--keep-up' ]] && { log 'ℹ️  --keep-up set; compose stack left running'; return; }
   log '🧹 Tearing down compose stack...'
@@ -96,7 +102,7 @@ function wait_http() {
     sleep 1
     i=$(( i + 1 ))
   done
-  is_up "${url}" || { log "❌ Timeout waiting for ${label}"; exit 1; }
+  is_up "${url}" || { dump_container_logs; log "❌ Timeout waiting for ${label}"; exit 1; }
   log "✅ ${label} is ready"
 }
 
@@ -109,7 +115,7 @@ function wait_https() {
     sleep 1
     i=$(( i + 1 ))
   done
-  is_up_https "${url}" || { log "❌ Timeout waiting for ${label}"; exit 1; }
+  is_up_https "${url}" || { dump_container_logs; log "❌ Timeout waiting for ${label}"; exit 1; }
   log "✅ ${label} is ready"
 }
 
