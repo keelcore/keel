@@ -96,9 +96,17 @@ A trace has a globally unique `trace_id`. Every span within the trace shares tha
 
 ### 2.2 Trace Context Propagation
 
-Keel propagates trace context using the W3C Trace Context standard (`traceparent` and `tracestate` headers). When Keel receives a request with a `traceparent` header, it continues the existing trace. When Keel receives a request without one, it starts a new trace.
+Keel propagates trace context using the W3C Trace Context standard (`traceparent` header). This runs unconditionally — it does not require `no_otel` to be absent and has no config toggle.
 
-**In sidecar mode:** Keel forwards the `traceparent` and `tracestate` headers to the upstream. This means the upstream's spans join the same trace as Keel's spans, giving you end-to-end visibility across the proxy boundary.
+**On every inbound request:**
+1. If a valid `traceparent` header is present, Keel extracts the `trace_id` and preserves it for the lifetime of the request.
+2. Keel generates a fresh `span_id` for this hop (16 hex chars, random).
+3. Keel sets a `traceparent` response header: `00-<trace_id>-<new_span_id>-01`, so callers can continue the trace on their side.
+4. Both values are stored in the request context (see §2.5).
+
+If no inbound `traceparent` is present, both `trace_id` and `span_id` are freshly generated.
+
+**In sidecar mode:** Keel forwards the `traceparent` header to the upstream so the upstream's spans join the same trace, giving end-to-end visibility across the proxy boundary.
 
 **In library mode:** Your application code can access the current span via the OpenTelemetry SDK and add its own child spans.
 
@@ -270,6 +278,8 @@ metrics:
     prefix: keel
 ```
 
+Keel emits in **DogStatsD format** — tags are appended as `|#key:value,key:value`. This is compatible with Datadog, InfluxDB (via Telegraf), and any StatsD server that understands the DogStatsD extension. Tag keys within each metric are sorted alphabetically for deterministic output.
+
 StatsD is a "fire and forget" UDP protocol — Keel does not wait for acknowledgement. If the StatsD server is unavailable, metric datagrams are silently dropped. This is intentional: observability should never cause the primary service to fail.
 
 ---
@@ -315,7 +325,7 @@ Every inbound HTTP request produces one access log entry:
 | `ts` | RFC3339 timestamp with millisecond precision (UTC) |
 | `level` | Always `info` for access log entries |
 | `msg` | Always `access` for access log entries |
-| `request_id` | Unique ID for this request (UUID v7). Also sent to client as `X-Request-ID` response header |
+| `request_id` | Unique ID for this request (ULID — 26-character Crockford base32, timestamp-prefixed). Also sent to client as `X-Request-ID` response header |
 | `trace_id` | W3C trace ID from `traceparent` header (or generated if none) |
 | `span_id` | W3C span ID for this request's span |
 | `method` | HTTP method |
@@ -354,6 +364,8 @@ logging:
 **Build-time opt-out:** `no_remotelog`
 
 When enabled, Keel ships log entries to the specified endpoint. This is for environments that do not run a log aggregator as a sidecar (e.g., those that prefer push-based log ingestion over a DaemonSet-based approach).
+
+Log entries are buffered in memory (capacity: 1000 entries) and flushed to the endpoint via HTTP POST with a 5-second per-flush timeout. When the buffer is full, the oldest entries are dropped to make room for new ones — log entries are never allowed to block request handling. On clean shutdown, Keel flushes the buffer before exiting. Log output is tee'd to stdout regardless of whether the remote sink is enabled.
 
 ---
 

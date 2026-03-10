@@ -45,18 +45,6 @@ GOEXPERIMENT=boringcrypto go build \
 
 ---
 
-### Build-Time Embedded Default Certificate
-
-**What it is:** Support for selecting one TLS certificate at build time and embedding it into the Keel binary.
-
-**Why it matters:** Scratch-style container images have no filesystem. Currently, Keel requires either a cert mounted at runtime (Kubernetes Secret, PVC) or ACME. An embedded default certificate would allow a scratch-image Keel to start serving HTTPS with zero runtime filesystem dependencies — important for air-gapped environments and "does it boot" smoke tests.
-
-**Constraint:** The embedded cert is for development and testing only. The private key would be embedded in the binary (and therefore in the container image layer), making it not a secret. Production deployments must always use runtime-delivered certificates.
-
-**Implementation:** A `go generate` step that encodes a certificate as a Go `[]byte` literal, included conditionally when `build_default_cert` tag is set.
-
----
-
 ### OIDC / OAuth2 Proxying
 
 **What it is:** Full OIDC redirect flow support — Okta, Azure AD, Google, Keycloak — so Keel can act as an authentication proxy for services that do not implement authn themselves.

@@ -26,9 +26,9 @@ A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops
 | Document | Contents |
 |---|---|
 | [docs/config-reference.md](docs/config-reference.md) | Complete YAML schema, ENV vars, secrets file pattern, validation rules, hot reload |
-| [docs/security.md](docs/security.md) | OWASP middleware, authn (JWT + mTLS), TLS policy, limits, upstream security |
-| [docs/observability.md](docs/observability.md) | Health probes, distributed tracing, Prometheus metrics, StatsD, structured logging, SLO signals |
-| [docs/operations.md](docs/operations.md) | Graceful shutdown, signals, Kubernetes pre-stop, circuit breaker, hot reload |
+| [docs/security.md](docs/security.md) | OWASP middleware, authn (JWT + mTLS), external authz (OPA / custom HTTP), memory backpressure, concurrency limits, TLS policy, upstream security |
+| [docs/observability.md](docs/observability.md) | Health probes, distributed tracing, Prometheus metrics, StatsD, structured logging, access log schema, admin endpoints, SLO signals |
+| [docs/operations.md](docs/operations.md) | Graceful shutdown, signals, Kubernetes pre-stop, circuit breaker, sidecar health probing, hot reload |
 | [docs/deployment.md](docs/deployment.md) | Helm chart (full values reference), Docker Compose test harness, library mode walkthrough |
 | [docs/FIPS.md](docs/FIPS.md) | FIPS compliance: BoringCrypto, build instructions, runtime verification, constraints |
 | [docs/governance.md](docs/governance.md) | Engineering governance standards submodule — what it is, why, and how to update it |
@@ -45,6 +45,8 @@ A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops
 
 - **Minimal size, maximal performance + functionality**: scratch-style images in the **~5–8 MB** range while still being a good Kubernetes/observability citizen.
 - **Keel-haul legacy services into compliance**: run Keel as a sidecar envelope around legacy HTTP/HTTPS apps to force modern security posture without rewriting the app.
+- **AuthZ for every legacy service via OPA or any HTTP policy engine**: delegate authorization decisions to an external policy engine — no application code changes required.
+- **Memory backpressure prevents OOM and signals the load balancer**: Keel monitors heap usage and flips `/readyz` before the process is OOM-killed, forcing the LB to drain traffic gracefully.
 - **Maximum flexibility without feature sprawl**: defaults are built-in and on; you opt out at build time to reach a smaller/stricter subset.
 - **Build on top, not alongside**: use Keel as a Go library to build your own service with production-grade TLS, authn, observability, and lifecycle already wired in.
 
@@ -107,6 +109,7 @@ Build tags are **negative** ("remove X"), so defaults stay on:
 | `no_remotelog` | Remote log sink support |
 | `no_owasp` | OWASP hardening middleware layer |
 | `no_authn` | Authn middleware layer |
+| `no_authz` | External authorization middleware layer |
 | `no_sidecar` | Sidecar reverse-proxy envelope mode |
 | `no_h2` | HTTP/2 support |
 | `no_h3` | HTTP/3 support |

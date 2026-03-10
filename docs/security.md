@@ -101,6 +101,18 @@ authn:
     - https://auth.example.com/.well-known/jwks.json   # JWKs URL → fetched + cached
 ```
 
+**JWKs URL behavior:** When an entry starts with `https://`, Keel fetches the JWK Set from that URL and caches it with a **5-minute TTL**. On each request, if the cache is still fresh the fetch is skipped. After the TTL, a background fetch refreshes the keys.
+
+Key matching within the fetched set:
+1. If the incoming JWT has a `kid` (Key ID) header, Keel selects only keys where `kid` matches.
+2. If no `kid` is present, Keel tries all keys whose type matches the JWT algorithm.
+
+Supported key types and algorithms from JWKs:
+- `kty: RSA` — RS256, RS384, RS512
+- `kty: EC` with `crv: P-256` — ES256; with `crv: P-384` — ES384
+
+Keel tries each configured `trusted_signers` entry in order and accepts the first one that validates the token.
+
 `trusted_ids` is an allowlist of `sub` claim values. Empty means any validly-signed token is accepted. Non-empty means only tokens whose `sub` claim appears in the list are accepted — even if the signature is valid.
 
 ```yaml
@@ -140,7 +152,9 @@ Some paths must be exempt from authentication by design:
 
 ---
 
-## 3. Limits and Guardrails
+## 3. Rate Limiting, Backpressure, and Guardrails
+
+Keel does not implement a token-bucket per-client rate limiter. Instead it provides two complementary mechanisms that together achieve the same practical outcome: the concurrency cap enforces an explicit ceiling on simultaneous in-flight work and returns 429 to callers when that ceiling is reached; the memory backpressure loop monitors heap usage and flips `/readyz` to 503 when the process is under pressure, causing the load balancer to stop routing new traffic entirely. At normal load, the concurrency cap absorbs bursts. Under sustained overload or memory pressure, the backpressure system signals the LB to redistribute traffic to other pods or to trigger autoscaling. Together they protect both the process and the upstream service without requiring per-client state.
 
 ### 3.1 Memory Backpressure
 
@@ -221,16 +235,13 @@ BoringCrypto provides:
 
 See [docs/FIPS.md](FIPS.md) for the complete FIPS guide.
 
-### 4.3 Build-Time Embedded Default Certificate
+### 4.3 Certificate Delivery
 
-For scratch-style images that need to start without any filesystem dependencies, Keel supports embedding a default certificate at build time. This certificate is used only when no `cert_file`/`key_file` is configured and ACME is not enabled.
+TLS certificates are delivered at runtime — never embedded in the binary. Supported mechanisms:
 
-**Intended for:** development and "does it boot" testing. Never use a build-time embedded cert in production — the private key would be in the binary and therefore in the container image, where it is not secret.
-
-**Production certificate delivery options:**
-- Kubernetes Secret bind mount (recommended — see [config reference](config-reference.md) secrets section).
-- ACME automatic certificate management (see YAML schema `tls.acme.*`).
-- Platform-provided cert injection (cert-manager, Vault PKI).
+- **Kubernetes Secret bind mount** (recommended) — mount the cert and key as a Secret volume; set `tls.cert_file` and `tls.key_file` to the mounted paths. cert-manager, Vault PKI, or SPIFFE/SPIRE can write and rotate the Secret automatically.
+- **ACME / Let's Encrypt** — set `tls.acme.enabled: true`; Keel manages the full certificate lifecycle. See §4.4.
+- **Docker Compose / local dev** — use `tests/fixtures/gen-certs.sh` to generate self-signed certs; bind-mount them into the container.
 
 ### 4.4 ACME / Let's Encrypt Automatic Certificates
 
