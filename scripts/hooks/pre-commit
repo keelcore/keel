@@ -20,6 +20,7 @@ function main() {
   exec 5>&1
   validate_args "${@:-}"
   check_fmt
+  check_schema
 }
 
 function log() {
@@ -43,6 +44,22 @@ function check_fmt() {
   while IFS= read -r f; do log "  ${f}"; done <<< "${unformatted}"
   log 'Run scripts/lint/fmt.sh, review, and re-stage.'
   exit 1
+}
+
+function staged_config_go() {
+  git diff --cached --name-only --diff-filter=ACMR | grep '^pkg/config/.*\.go$' || true
+}
+
+function check_schema() {
+  [ -n "$(staged_config_go)" ] || return 0
+  log 'pkg/config/*.go changed — regenerating schema.yaml'
+  bash scripts/release/gen-schema.sh
+  if ! git diff --quiet pkg/config/schema.yaml; then
+    git add pkg/config/schema.yaml
+    log '✅ schema.yaml updated and staged'
+  else
+    log '✅ schema.yaml already up to date'
+  fi
 }
 
 main "${@:-}"

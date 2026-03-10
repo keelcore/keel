@@ -92,6 +92,18 @@ function collect_and_upload() {
   gh release upload "${tag}" "${files[@]}" --clobber
 }
 
+# release_notes_flag returns --notes-from-tag for real vX.Y.Z tags so the
+# GitHub Release body is populated from the annotated tag message, and
+# --generate-notes for synthesized tags produced by workflow_dispatch runs.
+function release_notes_flag() {
+  local -r tag="${1}"
+  if [[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    printf '%s' '--notes-from-tag'
+  else
+    printf '%s' '--generate-notes'
+  fi
+}
+
 # ensure_release creates the GitHub Release for tag if it does not yet exist.
 function ensure_release() {
   local -r tag="${1}"
@@ -99,7 +111,9 @@ function ensure_release() {
     return
   fi
   log "  Release ${tag} not found; creating"
-  gh release create "${tag}" --generate-notes
+  local flag
+  flag="$(release_notes_flag "${tag}")"
+  gh release create "${tag}" "${flag}"
   log "  Release ${tag} created"
 }
 

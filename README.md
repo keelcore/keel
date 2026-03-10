@@ -31,6 +31,7 @@ A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops
 | [docs/operations.md](docs/operations.md) | Graceful shutdown, signals, Kubernetes pre-stop, circuit breaker, sidecar health probing, hot reload |
 | [docs/deployment.md](docs/deployment.md) | Helm chart (full values reference), Docker Compose test harness, library mode walkthrough |
 | [docs/FIPS.md](docs/FIPS.md) | FIPS compliance: BoringCrypto, build instructions, runtime verification, constraints |
+| [docs/release-policy.md](docs/release-policy.md) | Release tagging policy, semver versioning rules, schema-driven version computation |
 | [docs/governance.md](docs/governance.md) | Engineering governance standards submodule — what it is, why, and how to update it |
 | [docs/ai-tooling.md](docs/ai-tooling.md) | AI coding assistant integration — Claude Code, Cursor, GitHub Copilot adapter symlinks |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Planned future capabilities |

@@ -73,6 +73,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           submodules: recursive
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Install Helm
         run: bash scripts/ci/setup-helm.sh
       - name: Install bats-core

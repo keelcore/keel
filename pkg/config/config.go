@@ -2,11 +2,17 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/santhosh-tekuri/jsonschema/v5"
 
 	"gopkg.in/yaml.v3"
 
@@ -339,7 +345,8 @@ func load(configPath, secretsPath string) (Config, error) {
 	return cfg, nil
 }
 
-// Validate returns an error if the config contains an invalid combination.
+// Validate returns an error if the config contains an invalid combination
+// or violates the constraints declared in pkg/config/schema.yaml.
 func Validate(cfg Config) error {
 	httpsWantsCert := cfg.Listeners.HTTPS.Enabled || cfg.Listeners.H3.Enabled
 	acme := cfg.TLS.ACME.Enabled
@@ -373,12 +380,70 @@ func applyYAMLFile(path string, cfg *Config) error {
 	if err != nil {
 		return fmt.Errorf("read %q: %w", path, err)
 	}
-	// yaml.Unmarshal into an already-populated struct only overwrites fields
-	// present in the YAML document; absent fields retain their current values.
-	if err := yaml.Unmarshal(b, cfg); err != nil {
+	if err := validateAgainstSchema(b); err != nil {
+		return fmt.Errorf("schema %q: %w", path, err)
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(b))
+	dec.KnownFields(true)
+	if err := dec.Decode(cfg); err != nil {
+		if err == io.EOF {
+			return nil // empty file is valid: no overrides
+		}
 		return fmt.Errorf("parse %q: %w", path, err)
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// JSON Schema validation — compiled once from the embedded schema.yaml.
+// ---------------------------------------------------------------------------
+
+var (
+	compiledSchema     *jsonschema.Schema
+	compiledSchemaErr  error
+	compiledSchemaOnce sync.Once
+)
+
+func getSchema() (*jsonschema.Schema, error) {
+	compiledSchemaOnce.Do(func() {
+		var raw interface{}
+		if err := yaml.Unmarshal(SchemaYAML, &raw); err != nil {
+			compiledSchemaErr = fmt.Errorf("parse embedded schema: %w", err)
+			return
+		}
+		b, err := json.Marshal(raw)
+		if err != nil {
+			compiledSchemaErr = fmt.Errorf("convert schema to JSON: %w", err)
+			return
+		}
+		c := jsonschema.NewCompiler()
+		if err := c.AddResource("keel:config", bytes.NewReader(b)); err != nil {
+			compiledSchemaErr = fmt.Errorf("load schema: %w", err)
+			return
+		}
+		compiledSchema, compiledSchemaErr = c.Compile("keel:config")
+	})
+	return compiledSchema, compiledSchemaErr
+}
+
+// validateAgainstSchema validates raw YAML bytes against the embedded JSON
+// Schema.  Empty or whitespace-only input is accepted (no overrides).
+func validateAgainstSchema(b []byte) error {
+	if len(bytes.TrimSpace(b)) == 0 {
+		return nil
+	}
+	sc, err := getSchema()
+	if err != nil {
+		return err
+	}
+	var doc interface{}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return err
+	}
+	if doc == nil {
+		return nil
+	}
+	return sc.Validate(doc)
 }
 
 // applyEnv overlays environment variables onto cfg. Only vars that are

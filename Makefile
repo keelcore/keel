@@ -6,7 +6,7 @@
         lint lint-go lint-helm lint-fmt \
         release-checksums release-sbom release-sign release-upload \
         colima-setup colima-deploy colima-test colima-teardown \
-        gen-certs install-hooks fresh-repo help
+        gen-certs gen-schema create-release install-hooks fresh-repo help
 
 # Default target: build the shredded minimalist binary
 all: min
@@ -102,6 +102,14 @@ gen-certs:
 	@echo "🔑 Generating self-signed test certificates..."
 	./tests/fixtures/gen-certs.sh
 
+gen-schema:
+	@echo "📐 Regenerating config field schema..."
+	./scripts/release/gen-schema.sh
+
+create-release:
+	@echo "🏷️  Creating release tag..."
+	./scripts/release/create-release.sh $(if $(FORCE),--force $(FORCE),)
+
 ## Repo Setup Targets
 install-hooks:
 	@echo "🪝 Installing git hooks..."
@@ -153,6 +161,9 @@ help:
 	@echo "  release-sbom       Generate SBOM (requires syft)"
 	@echo "  release-sign       Sign artifacts (requires cosign)"
 	@echo "  release-upload TAG=v1.x.x  Upload to GitHub Release (sets RELEASE_TAG)"
+	@echo "  gen-schema         Regenerate pkg/config/schema.yaml from config.Config"
+	@echo "  create-release     Compute and tag next semver release"
+	@echo "  create-release FORCE=v1.0.0  Force a specific version"
 	@echo ""
 	@echo "Repo Setup:"
 	@echo "  fresh-repo      First-time setup: download deps + install hooks"

@@ -5,6 +5,7 @@
 /bin/
 /dist/
 /build/
+/config-schema
 out/
 *.exe
 *.dll

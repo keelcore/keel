@@ -4,6 +4,7 @@ package unit
 import (
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -506,6 +507,189 @@ func TestLoad_BadSecretsPath(t *testing.T) {
 func TestAddrFromPort(t *testing.T) {
 	if got := config.AddrFromPort(8080); got != ":8080" {
 		t.Errorf("got %q, want %q", got, ":8080")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Schema embed
+// ---------------------------------------------------------------------------
+
+func TestSchemaYAML_IsParseable(t *testing.T) {
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(config.SchemaYAML, &doc); err != nil {
+		t.Fatalf("SchemaYAML is not valid YAML: %v", err)
+	}
+}
+
+func TestSchemaYAML_IsJSONSchemaDraft07(t *testing.T) {
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(config.SchemaYAML, &doc); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	schema, ok := doc["$schema"].(string)
+	if !ok || schema == "" {
+		t.Fatal("SchemaYAML missing $schema key")
+	}
+	if !strings.Contains(schema, "draft-07") {
+		t.Errorf("expected draft-07 schema, got %q", schema)
+	}
+}
+
+func TestSchemaYAML_HasExpectedTopLevelFields(t *testing.T) {
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(config.SchemaYAML, &doc); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	props, ok := doc["properties"].(map[string]interface{})
+	if !ok {
+		t.Fatal("SchemaYAML missing top-level properties")
+	}
+	for _, field := range []string{"listeners", "tls", "sidecar", "security", "authn", "logging"} {
+		if _, found := props[field]; !found {
+			t.Errorf("top-level field %q missing from schema", field)
+		}
+	}
+}
+
+func TestSchemaYAML_HasConstraints(t *testing.T) {
+	raw := string(config.SchemaYAML)
+	for _, want := range []string{"minimum", "maximum", "enum", "format"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("SchemaYAML missing %q constraint keyword", want)
+		}
+	}
+}
+
+func TestSchemaYAML_AdditionalPropertiesFalse(t *testing.T) {
+	raw := string(config.SchemaYAML)
+	if !strings.Contains(raw, "additionalProperties: false") {
+		t.Error("SchemaYAML missing additionalProperties: false")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// KnownFields enforcement
+// ---------------------------------------------------------------------------
+
+func TestLoad_UnknownFieldRejected(t *testing.T) {
+	f, err := os.CreateTemp("", "keel-unknown-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp: %v", err)
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString("not_a_real_field: true\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	f.Close()
+
+	_, err = config.Load(f.Name(), "")
+	if err == nil {
+		t.Fatal("expected error for unknown field, got nil")
+	}
+}
+
+func TestLoad_NestedUnknownFieldRejected(t *testing.T) {
+	f, err := os.CreateTemp("", "keel-unknown-nested-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp: %v", err)
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString("listeners:\n  http:\n    typo_port: 8080\n"); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	f.Close()
+
+	_, err = config.Load(f.Name(), "")
+	if err == nil {
+		t.Fatal("expected error for unknown nested field, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// JSON Schema validation via applyYAMLFile (santhosh-tekuri/jsonschema/v5)
+// ---------------------------------------------------------------------------
+
+func writeConfig(t *testing.T, content string) string {
+	t.Helper()
+	f, err := os.CreateTemp("", "keel-schema-*.yaml")
+	if err != nil {
+		t.Fatalf("create temp: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(f.Name()) })
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	f.Close()
+	return f.Name()
+}
+
+func TestLoad_SchemaPortOutOfRange(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "listeners:\n  http:\n    port: 0\n"), "")
+	if err == nil {
+		t.Fatal("expected error for port 0, got nil")
+	}
+}
+
+func TestLoad_SchemaPortUpperBound(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "listeners:\n  http:\n    port: 65536\n"), "")
+	if err == nil {
+		t.Fatal("expected error for port 65536, got nil")
+	}
+}
+
+func TestLoad_SchemaWatermarkOutOfRange(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "backpressure:\n  high_watermark: 1.5\n"), "")
+	if err == nil {
+		t.Fatal("expected error for watermark > 1.0, got nil")
+	}
+}
+
+func TestLoad_SchemaNegativeMaxConcurrent(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "limits:\n  max_concurrent: -1\n"), "")
+	if err == nil {
+		t.Fatal("expected error for negative max_concurrent, got nil")
+	}
+}
+
+func TestLoad_SchemaInvalidXFFMode(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "sidecar:\n  xff_mode: passthrough\n"), "")
+	if err == nil {
+		t.Fatal("expected error for unknown xff_mode, got nil")
+	}
+}
+
+func TestLoad_SchemaInvalidLoggingLevel(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "logging:\n  level: trace\n"), "")
+	if err == nil {
+		t.Fatal("expected error for unknown logging.level, got nil")
+	}
+}
+
+func TestLoad_SchemaInvalidExtAuthzTransport(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "ext_authz:\n  transport: grpc\n"), "")
+	if err == nil {
+		t.Fatal("expected error for unknown ext_authz.transport, got nil")
+	}
+}
+
+func TestLoad_SchemaInvalidRemoteSinkProtocol(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "logging:\n  remote_sink:\n    protocol: grpc\n"), "")
+	if err == nil {
+		t.Fatal("expected error for unknown remote_sink.protocol, got nil")
+	}
+}
+
+func TestLoad_SchemaFailureThresholdZero(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "sidecar:\n  circuit_breaker:\n    failure_threshold: 0\n"), "")
+	if err == nil {
+		t.Fatal("expected error for failure_threshold 0, got nil")
+	}
+}
+
+func TestLoad_SchemaValidConfigPassesValidation(t *testing.T) {
+	_, err := config.Load(writeConfig(t, "logging:\n  level: debug\n"), "")
+	if err != nil {
+		t.Fatalf("valid config should pass schema validation, got: %v", err)
 	}
 }
 

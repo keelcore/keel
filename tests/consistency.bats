@@ -22,6 +22,7 @@ setup_file() {
   export COLIMA_VALUES="${REPO_ROOT}/tests/fixtures/colima/values.yaml"
   export CONFIGMAP_TMPL="${REPO_ROOT}/helm/keel/templates/configmap.yaml"
   export CONFIG_REF="${REPO_ROOT}/docs/config-reference.md"
+  export SCHEMA_FILE="${REPO_ROOT}/pkg/config/schema.yaml"
 
   # Render the chart once; expose the keel.yaml block from the ConfigMap.
   export RENDERED
@@ -50,11 +51,11 @@ setup_file() {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Every yaml tag in config.go appears in the rendered Helm configmap
+# 2. Every yaml tag in schema.yaml appears in the rendered Helm configmap
 # ---------------------------------------------------------------------------
-@test "all config.go yaml tags are rendered in the Helm configmap" {
+@test "all schema.yaml leaf tags are rendered in the Helm configmap" {
   local tags failed=0
-  tags="$(grep -oE 'yaml:"[^,"]+' "${CONFIG_GO}" | sed 's/yaml:"//' | sort -u)"
+  tags="$(cd "${REPO_ROOT}" && go run ./cmd/config-schema/ --fields < "${SCHEMA_FILE}" | awk -F. '{print $NF}' | sort -u)"
 
   while IFS= read -r tag; do
     # Skip generic single-word tags that are structurally guaranteed (enabled, port, etc.)
@@ -74,11 +75,11 @@ setup_file() {
 }
 
 # ---------------------------------------------------------------------------
-# 3. Every yaml tag in config.go appears in config-reference.md
+# 3. Every yaml tag in schema.yaml appears in config-reference.md
 # ---------------------------------------------------------------------------
-@test "all config.go yaml tags are documented in config-reference.md" {
+@test "all schema.yaml leaf tags are documented in config-reference.md" {
   local tags failed=0
-  tags="$(grep -oE 'yaml:"[^,"]+' "${CONFIG_GO}" | sed 's/yaml:"//' | sort -u)"
+  tags="$(cd "${REPO_ROOT}" && go run ./cmd/config-schema/ --fields < "${SCHEMA_FILE}" | awk -F. '{print $NF}' | sort -u)"
 
   while IFS= read -r tag; do
     case "${tag}" in
@@ -133,4 +134,35 @@ setup_file() {
   done <<< "${keys}"
 
   [ "${failed}" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# 6. pkg/config/schema.yaml is up to date with config.go
+# ---------------------------------------------------------------------------
+@test "pkg/config/schema.yaml is up to date with config.go" {
+  local generated
+  generated="$(cd "${REPO_ROOT}" && go run ./cmd/config-schema/)"
+  local committed
+  committed="$(cat "${SCHEMA_FILE}")"
+  [ "${generated}" = "${committed}" ]
+}
+
+# ---------------------------------------------------------------------------
+# 7. gen-schema.sh writes valid JSON Schema YAML with the expected header
+# ---------------------------------------------------------------------------
+@test "gen-schema.sh produces valid YAML with json-schema.org draft-07 header" {
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  local out="${tmpdir}/schema.yaml"
+
+  # Run gen-schema.sh, capture output to a temp file.
+  (cd "${REPO_ROOT}" && bash scripts/release/gen-schema.sh)
+
+  # Verify the committed file now contains the expected $schema keyword.
+  grep -q 'https://json-schema.org/draft-07/schema' "${SCHEMA_FILE}"
+
+  # Verify it is parseable YAML (go run --fields exits 0 when input is valid).
+  cd "${REPO_ROOT}" && go run ./cmd/config-schema/ --fields < "${SCHEMA_FILE}" > /dev/null
+
+  rm -rf "${tmpdir}"
 }

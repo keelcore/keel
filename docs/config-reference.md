@@ -434,6 +434,9 @@ secrets:
 
 Keel validates configuration at startup and **fails fast** with a clear error message if the configuration is invalid. The philosophy is: a misconfigured server that silently starts is more dangerous than one that refuses to start with an actionable error.
 
+**Strict YAML parsing — unknown fields are rejected:**
+Keel uses `KnownFields(true)` when parsing every YAML file. Any key in your `keel.yaml` or `keel-secrets.yaml` that does not correspond to a recognized config field causes an immediate parse error. This catches typos and copy-paste mistakes before they silently have no effect. For example, `listners:` (misspelled) or `sidecar.upstrem_url:` (wrong key) will fail with a clear error at startup rather than being silently ignored.
+
 Validation checks include:
 
 - **HTTPS/H3 enabled without TLS material:** If `listeners.https.enabled: true` or `listeners.h3.enabled: true`, then either `tls.cert_file` + `tls.key_file` must be set, or `tls.acme.enabled: true` must be set. Otherwise Keel cannot serve HTTPS.
