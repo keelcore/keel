@@ -150,7 +150,7 @@ setup_file() {
 # ---------------------------------------------------------------------------
 # 7. gen-schema.sh writes valid JSON Schema YAML with the expected header
 # ---------------------------------------------------------------------------
-@test "gen-schema.sh produces valid YAML with json-schema.org draft-07 header" {
+@test "gen-schema.sh produces valid YAML with json-schema.org 2019-09 header" {
   local tmpdir
   tmpdir="$(mktemp -d)"
   local out="${tmpdir}/schema.yaml"
@@ -159,7 +159,7 @@ setup_file() {
   (cd "${REPO_ROOT}" && bash scripts/release/gen-schema.sh)
 
   # Verify the committed file now contains the expected $schema keyword.
-  grep -q 'https://json-schema.org/draft-07/schema' "${SCHEMA_FILE}"
+  grep -q 'https://json-schema.org/draft/2019-09/schema' "${SCHEMA_FILE}"
 
   # Verify it is parseable YAML (go run --fields exits 0 when input is valid).
   cd "${REPO_ROOT}" && go run ./cmd/config-schema/ --fields < "${SCHEMA_FILE}" > /dev/null

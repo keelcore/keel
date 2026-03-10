@@ -521,7 +521,7 @@ func TestSchemaYAML_IsParseable(t *testing.T) {
 	}
 }
 
-func TestSchemaYAML_IsJSONSchemaDraft07(t *testing.T) {
+func TestSchemaYAML_IsJSONSchema2019_09(t *testing.T) {
 	var doc map[string]interface{}
 	if err := yaml.Unmarshal(config.SchemaYAML, &doc); err != nil {
 		t.Fatalf("parse: %v", err)
@@ -530,8 +530,8 @@ func TestSchemaYAML_IsJSONSchemaDraft07(t *testing.T) {
 	if !ok || schema == "" {
 		t.Fatal("SchemaYAML missing $schema key")
 	}
-	if !strings.Contains(schema, "draft-07") {
-		t.Errorf("expected draft-07 schema, got %q", schema)
+	if !strings.Contains(schema, "2019-09") {
+		t.Errorf("expected 2019-09 schema, got %q", schema)
 	}
 }
 
