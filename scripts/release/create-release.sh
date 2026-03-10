@@ -83,22 +83,23 @@ function check_branch() {
   fi
 }
 
-function check_remote_ref() {
-  if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
-    log "ERROR: origin/main not found after fetch — is 'main' pushed to origin?"
+function check_upstream_set() {
+  if ! git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
+    log "ERROR: no upstream configured for this branch"
+    log "       Run: git branch --set-upstream-to=<remote>/main main"
     exit 1
   fi
 }
 
 function fetch_and_verify_head() {
-  git fetch origin
-  check_remote_ref
-  local local_sha remote_sha
+  check_upstream_set
+  git fetch
+  local local_sha upstream_sha
   local_sha="$(git rev-parse HEAD)"
-  remote_sha="$(git rev-parse origin/main)"
-  if [ "${local_sha}" != "${remote_sha}" ]; then
-    log "ERROR: local HEAD (${local_sha:0:7}) differs from origin/main (${remote_sha:0:7})"
-    log "       Run: git pull --ff-only origin main"
+  upstream_sha="$(git rev-parse '@{upstream}')"
+  if [ "${local_sha}" != "${upstream_sha}" ]; then
+    log "ERROR: local HEAD (${local_sha:0:7}) differs from upstream (${upstream_sha:0:7})"
+    log "       Run: git pull --ff-only"
     exit 1
   fi
 }
@@ -396,9 +397,10 @@ function create_tag() {
 }
 
 function push_tag() {
-  local version="${1}"
-  git push origin "v${version}"
-  log "Pushed v${version} to origin"
+  local version="${1}" remote
+  remote="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' | cut -d/ -f1)"
+  git push "${remote}" "v${version}"
+  log "Pushed v${version} to ${remote}"
 }
 
 # run_release is the main orchestration function; longer than 10 lines is
