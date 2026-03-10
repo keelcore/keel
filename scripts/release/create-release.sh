@@ -129,7 +129,7 @@ function current_git_tag() {
 }
 
 function strip_v() {
-  printf '%s' "${1}" | sed 's/^v//'
+  printf '%s' "${1}" | sed 's/^v//; s/[-+].*//'
 }
 
 function extract_fields() {

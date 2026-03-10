@@ -7,6 +7,34 @@ complements that policy.
 
 ---
 
+## Versioning Specification
+
+Keel follows **Semantic Versioning 2.0.0** — [https://semver.org](https://semver.org).
+That document is the canonical reference; the rules below are derived from it and
+must not contradict it.
+
+Key semver.org rules in force here:
+
+- Version numbers take the form `MAJOR.MINOR.PATCH` where each component is a
+  non-negative integer with no leading zeroes.
+- MAJOR is incremented for incompatible API changes; MINOR and PATCH reset to 0.
+- MINOR is incremented for new backward-compatible functionality; PATCH resets to 0.
+- PATCH is incremented for backward-compatible bug fixes only.
+- Major version zero (`0.y.z`) is for initial development. The public API is not
+  yet stable and anything may change at any time.
+- `1.0.0` defines the first stable public API.
+- Pre-release identifiers (`-alpha.1`, `-rc.2`, etc.) and build metadata (`+sha`)
+  are valid semver extensions but are **not supported by `create-release.sh`** at
+  this time. `--force` only accepts bare `MAJOR.MINOR.PATCH` versions.
+
+**Scope of automated detection:** The script detects breaking changes by diffing
+the config YAML field surface (`pkg/config/schema.yaml`). Other API-breaking
+changes — Go type signatures, HTTP API shape, security policy, behavior semantics
+— are not automatically detected. Use `--force` with the appropriate bump level
+for those cases.
+
+---
+
 ## Core Rule: Tags Are Developer-Created, Never CI-Created
 
 CI reacts to pushed tags to run the release pipeline. CI never creates tags.
@@ -34,11 +62,11 @@ The script diffs `pkg/config/schema.yaml` at the previous tag against the file
 at `HEAD`. The schema lists every fully-flattened dotted YAML field path in
 `config.Config` (e.g. `sidecar.circuit_breaker.reset_timeout`).
 
-| Schema change | Bump level |
-|---|---|
-| One or more fields **removed** | **major** — breaking change |
-| One or more fields **added**, none removed | **minor** — new feature |
-| No field surface changes | **patch** — internal improvements |
+| Schema change | Bump level | semver.org rationale |
+|---|---|---|
+| One or more fields **removed** | **major** — breaking change | Removing a field is an incompatible API change |
+| One or more fields **added**, none removed | **minor** — new feature | New fields are backward-compatible additions |
+| No field surface changes | **patch** — internal improvements | No public API surface change |
 
 ---
 
@@ -52,11 +80,11 @@ git checkout main && git pull --ff-only
 
 The script will:
 
-1. Verify you are on `main` at `HEAD` of `origin/main` with a clean tree.
+1. Verify you are on `main`, your branch's configured upstream is in sync, and the working tree is clean.
 2. Compute the field diff and determine the bump level.
 3. Print the summary (fields added/removed, bump level, proposed tag message).
 4. Prompt for `y/N` approval.
-5. On approval: create the annotated tag and push it to `origin`.
+5. On approval: create a signed annotated tag and push it to the upstream remote.
 
 CI picks up the pushed tag and runs the release pipeline (build, sign, SBOM,
 publish).
@@ -65,7 +93,9 @@ publish).
 
 ## Forcing a Specific Version
 
-Use `--force vX.Y.Z` to override the computed version:
+Use `--force vX.Y.Z` to override the computed version. Only bare `MAJOR.MINOR.PATCH`
+versions are accepted — pre-release extensions (`-alpha.1`) and build metadata
+(`+sha`) are not supported.
 
 ```bash
 ./scripts/release/create-release.sh --force v1.0.0
@@ -73,23 +103,25 @@ Use `--force vX.Y.Z` to override the computed version:
 
 ### Pre-1.0 rules (current major = 0)
 
+Per semver.org, `0.y.z` is for initial development where the API is not yet stable.
 Only the following targets are accepted:
 
-- Any `0.x.y` where `0.x.y > current` — normal pre-release progression.
-- Exactly `v1.0.0` — the 1.0 promotion, regardless of detected bump level.
+- Any `0.x.y` where `0.x.y > current` — normal initial-development progression.
+- Exactly `v1.0.0` — the stable API promotion, regardless of detected bump level.
 
 Forcing `v1.1.0`, `v2.0.0`, or any other version outside this range is rejected.
 
 ### Post-1.0 rules (current major ≥ 1)
 
-`--force` is restricted to exact single-step increments:
+Once `1.0.0` is released the public API is stable. `--force` is restricted to
+exact single-step increments per semver.org's ordering rules:
 
 | `--force` target | Condition | Result |
 |---|---|---|
 | `cur_maj.cur_min.(cur_pat+1)` | any | **Allowed** — single patch step |
-| `cur_maj.(cur_min+1).0` | any | **Allowed** — single minor step (e.g. internal improvements) |
+| `cur_maj.(cur_min+1).0` | any | **Allowed** — single minor step (e.g. internal improvements not reflected in schema diff) |
 | `(cur_maj+1).0.0` | breaking changes detected AND matches computed version | **Allowed** |
-| `(cur_maj+1).0.0` | no breaking changes, or doesn't match computed | **Rejected** |
+| `(cur_maj+1).0.0` | no breaking changes, or doesn't match computed | **Rejected** — major bump requires a detected breaking change |
 | anything else | — | **Rejected** — must be a single-step increment |
 
 ---
@@ -115,11 +147,14 @@ mismatch between the committed file and the reflection output fails CI.
 
 ## What Goes in the Tag Message
 
-The script auto-generates the annotated tag message from the diff:
+The script auto-generates a signed annotated tag with a structured message:
 
-- **major:** `major: removed N config field(s): field.a field.b …`
-- **minor:** `minor: added N config field(s): field.a field.b …`
-- **patch:** `patch: internal improvements; no config surface changes`
+- **Subject line:** `{bump}: {short summary}` (e.g. `minor: added 2 config field(s)`)
+- **Body:** full field list, bump level, previous/new version, commit SHA, and
+  provenance trailers (`Generated-by:`, `Schema:`)
+
+The GitHub Release body is populated directly from the tag message via
+`gh release create --notes-from-tag`.
 
 ---
 
