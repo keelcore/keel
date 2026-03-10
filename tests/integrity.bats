@@ -176,6 +176,89 @@ cert_dir() {
 }
 
 # ---------------------------------------------------------------------------
+# Request ID and trace context headers
+# ---------------------------------------------------------------------------
+
+@test "HTTP response includes X-Request-ID header" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local headers
+  headers="$(curl -sI --max-time 2 http://127.0.0.1:8080/ 2>&1)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  echo "${headers}" | grep -qi "x-request-id"
+}
+
+@test "HTTP response includes traceparent header" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local headers
+  headers="$(curl -sI --max-time 2 http://127.0.0.1:8080/ 2>&1)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  echo "${headers}" | grep -qi "traceparent"
+}
+
+# ---------------------------------------------------------------------------
+# Admin port endpoints
+# ---------------------------------------------------------------------------
+
+@test "admin /version returns 200 with JSON version field" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local body
+  body="$(curl -s --max-time 2 http://127.0.0.1:9999/version)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  echo "${body}" | grep -q '"version"'
+}
+
+@test "admin /debug/pprof/ returns 200" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local status
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:9999/debug/pprof/)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [ "${status}" -eq 200 ]
+}
+
+@test "POST /admin/reload returns 200" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local status
+  status="$(curl -s -o /dev/null -w '%{http_code}' -X POST --max-time 2 http://127.0.0.1:9999/admin/reload)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [ "${status}" -eq 200 ]
+}
+
+# ---------------------------------------------------------------------------
 # FIPS build (skipped when keel-fips binary is absent)
 # ---------------------------------------------------------------------------
 

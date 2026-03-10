@@ -1077,3 +1077,72 @@ func TestSidecarProxy_XFF_Append_NoIncomingXFF(t *testing.T) {
 		t.Errorf("expected only client IP in XFF, got %q", gotXFF)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// X-Real-IP
+// ---------------------------------------------------------------------------
+
+// X-Real-IP must always be set on the upstream request, regardless of XFF mode.
+func TestSidecarProxy_XRealIP_AlwaysSet(t *testing.T) {
+	var gotRealIP string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRealIP = r.Header.Get("x-real-ip")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	h, _ := sidecar.New(config.Config{
+		Sidecar:  config.SidecarConfig{Enabled: true, UpstreamURL: upstream.URL, XFFMode: "append"},
+		Security: config.SecurityConfig{MaxResponseBodyBytes: 1 << 20},
+	})
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "192.168.1.1:1234"
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if gotRealIP == "" {
+		t.Error("expected X-Real-IP to be set, got empty")
+	}
+	if gotRealIP != "192.168.1.1" {
+		t.Errorf("X-Real-IP: got %q, want %q", gotRealIP, "192.168.1.1")
+	}
+}
+
+// With xff_trusted_hops=1, X-Real-IP should reflect the trusted-hops-adjusted
+// client IP, not the socket peer. Per docs/security.md §5.2:
+//
+//	XFF: "203.0.113.1, 10.0.0.1"  (attacker-forged, real-client)
+//	socket peer: 10.1.2.3          (trusted LB — 1 hop)
+//	xff_trusted_hops: 1
+//	→ X-Real-IP = "10.0.0.1"      (rightmost non-trusted entry)
+//
+// NOTE: this test documents the required behaviour. It will be RED until
+// the trusted-hops extraction is implemented in pkg/core/sidecar/xff.go.
+func TestSidecarProxy_XFF_TrustedHops_ExtractsRealClientIP(t *testing.T) {
+	var gotRealIP string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRealIP = r.Header.Get("x-real-ip")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	h, _ := sidecar.New(config.Config{
+		Sidecar: config.SidecarConfig{
+			Enabled:        true,
+			UpstreamURL:    upstream.URL,
+			XFFMode:        "append",
+			XFFTrustedHops: 1,
+		},
+		Security: config.SecurityConfig{MaxResponseBodyBytes: 1 << 20},
+	})
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("x-forwarded-for", "203.0.113.1, 10.0.0.1")
+	req.RemoteAddr = "10.1.2.3:1234" // trusted LB — 1 hop
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	const wantRealIP = "10.0.0.1"
+	if gotRealIP != wantRealIP {
+		t.Errorf("X-Real-IP with xff_trusted_hops=1: got %q, want %q", gotRealIP, wantRealIP)
+	}
+}

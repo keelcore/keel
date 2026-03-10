@@ -3,6 +3,7 @@ package unit
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/keelcore/keel/pkg/core/mw"
@@ -58,5 +59,22 @@ func TestShedding_PressureDropReturns200(t *testing.T) {
 	h.ServeHTTP(rr, httptest.NewRequest("GET", "/", nil))
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200 after pressure drop, got %d", rr.Code)
+	}
+}
+
+// Per docs/security.md §3.1: when shedding, clients receive a 503 with body
+// indicating the service is overloaded (not a generic error page).
+func TestShedding_ResponseBody_Overloaded(t *testing.T) {
+	r := probes.NewReadiness()
+	r.Set(false)
+	h := mw.Shedding(r, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/", nil))
+
+	if !strings.Contains(rr.Body.String(), "overloaded") {
+		t.Errorf("expected shedding response body to contain %q, got %q", "overloaded", rr.Body.String())
 	}
 }

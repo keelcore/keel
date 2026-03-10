@@ -3,7 +3,9 @@
 package unit
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -129,6 +131,73 @@ func TestExtAuthz_OPA_MalformedResponse(t *testing.T) {
 
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for malformed OPA response, got %d", rr.Code)
+	}
+}
+
+func TestExtAuthz_PayloadStructure_HTTP(t *testing.T) {
+	// Per docs/security.md §6.2: the HTTP transport sends a flat JSON object
+	// with method, path, query, headers, and remote fields.
+	var captured []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resource?page=1", nil)
+	req.Header.Set("x-custom", "testval")
+	req.RemoteAddr = "10.0.0.5:54321"
+	authzMiddleware(srv.URL, "http", false).ServeHTTP(httptest.NewRecorder(), req)
+
+	var payload map[string]any
+	if err := json.Unmarshal(captured, &payload); err != nil {
+		t.Fatalf("authz payload not valid JSON: %v — body: %s", err, captured)
+	}
+	for _, key := range []string{"method", "path", "query", "headers", "remote"} {
+		if _, ok := payload[key]; !ok {
+			t.Errorf("authz payload missing required field %q", key)
+		}
+	}
+	if got := payload["method"]; got != "GET" {
+		t.Errorf("method: got %v, want GET", got)
+	}
+	if got := payload["path"]; got != "/api/resource" {
+		t.Errorf("path: got %v, want /api/resource", got)
+	}
+	if got := payload["query"]; got != "page=1" {
+		t.Errorf("query: got %v, want page=1", got)
+	}
+}
+
+func TestExtAuthz_OPA_PayloadWrapped(t *testing.T) {
+	// Per docs/security.md §6.2: the OPA transport wraps the envelope in
+	// {"input": ...} per OPA convention.
+	var captured []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"result":true}`)
+	}))
+	defer srv.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/resource", nil)
+	authzMiddleware(srv.URL, "opa", false).ServeHTTP(httptest.NewRecorder(), req)
+
+	var payload map[string]any
+	if err := json.Unmarshal(captured, &payload); err != nil {
+		t.Fatalf("OPA payload not valid JSON: %v — body: %s", err, captured)
+	}
+	if _, ok := payload["input"]; !ok {
+		t.Error("OPA payload missing top-level 'input' wrapper per OPA convention")
+	}
+	inner, ok := payload["input"].(map[string]any)
+	if !ok {
+		t.Fatal("OPA 'input' field is not a JSON object")
+	}
+	for _, key := range []string{"method", "path", "query", "headers", "remote"} {
+		if _, ok := inner[key]; !ok {
+			t.Errorf("OPA input missing required field %q", key)
+		}
 	}
 }
 

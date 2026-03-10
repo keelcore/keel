@@ -49,6 +49,30 @@ func TestTraceContext_PropagatesExistingTraceID(t *testing.T) {
 	}
 }
 
+// Per docs/observability.md §2.2: Keel generates a fresh span_id for this hop.
+// The response traceparent must carry a different span_id than the inbound one.
+func TestTraceContext_FreshSpanIDPerHop(t *testing.T) {
+	const incomingSpanID = "00f067aa0ba902b7"
+	const incoming = "00-4bf92f3577b34da6a3ce929d0e0e4736-" + incomingSpanID + "-01"
+
+	h := mw.TraceContext(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("traceparent", incoming)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	tp := rr.Header().Get("traceparent")
+	parts := strings.Split(tp, "-")
+	if len(parts) != 4 {
+		t.Fatalf("expected 4-part traceparent response header, got %q", tp)
+	}
+	if parts[2] == incomingSpanID {
+		t.Errorf("response span_id %q is identical to inbound span_id — expected a freshly generated span_id per hop", incomingSpanID)
+	}
+}
+
 func TestTraceContext_SetsSpanIDInContext(t *testing.T) {
 	var ctxSpanID string
 	h := mw.TraceContext(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
