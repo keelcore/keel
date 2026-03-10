@@ -83,8 +83,16 @@ function check_branch() {
   fi
 }
 
+function check_remote_ref() {
+  if ! git rev-parse --verify origin/main >/dev/null 2>&1; then
+    log "ERROR: origin/main not found after fetch — is 'main' pushed to origin?"
+    exit 1
+  fi
+}
+
 function fetch_and_verify_head() {
   git fetch origin
+  check_remote_ref
   local local_sha remote_sha
   local_sha="$(git rev-parse HEAD)"
   remote_sha="$(git rev-parse origin/main)"
