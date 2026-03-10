@@ -148,16 +148,27 @@ function build_and_push_flavor() {
     done
   fi
 
-  sign_image "${primary_tag}"
+  sign_and_attest "${primary_tag}"
 }
 
-function sign_image() {
+function sign_and_attest() {
   local -r ref="${1}"
-  log "  Signing ${ref} (cosign keyless)"
-  # Resolve to digest to sign the immutable content address, not the mutable tag.
+  # Resolve to digest to operate on the immutable content address, not the mutable tag.
   local digest
   digest="$(docker inspect --format='{{index .RepoDigests 0}}' "${ref}")"
+  log "  Signing ${digest} (cosign keyless)"
   cosign sign --yes "${digest}"
+  attest_sbom "${digest}"
+}
+
+function attest_sbom() {
+  local -r digest="${1}"
+  log "  Attesting SBOM to ${digest}"
+  cosign attest \
+    --yes \
+    --predicate 'dist/keel-sbom.spdx.json' \
+    --type spdx \
+    "${digest}"
 }
 
 main "${@:-}"

@@ -317,7 +317,7 @@ See [docs/deployment.md](docs/deployment.md) for the complete library mode walkt
 ## Security Governance
 
 - Vulnerability reporting and CVE policy: [SECURITY.md](SECURITY.md)
-- SBOM and provenance attached to each GitHub Release.
+- SBOM and provenance attached to each GitHub Release — see [Supply Chain Verification](docs/security.md#7-supply-chain-verification) for consumer verification instructions.
 - FIPS compliance guide: [docs/FIPS.md](docs/FIPS.md)
 
 ## Engineering Governance
