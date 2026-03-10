@@ -438,3 +438,9 @@ func serveH3(ctx context.Context, addr string, h http.Handler, cfg config.Config
 		return err
 	}
 }
+
+// RunServer runs srv until ctx is cancelled.
+// Fatal errors are handled internally by the server via its logger.
+func RunServer(srv *Server, ctx context.Context) {
+	srv.Run(ctx)
+}

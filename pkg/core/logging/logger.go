@@ -32,6 +32,12 @@ func (l *Logger) Info(msg string, fields map[string]any)  { l.log("info", msg, f
 func (l *Logger) Warn(msg string, fields map[string]any)  { l.log("warn", msg, fields) }
 func (l *Logger) Error(msg string, fields map[string]any) { l.log("error", msg, fields) }
 
+// Exit logs at info level and terminates the process cleanly
+func (l *Logger) Exit(msg string, fields map[string]any) {
+	l.log("info", msg, fields)
+	os.Exit(0)
+}
+
 // Fatal logs at error level and terminates the process.
 func (l *Logger) Fatal(msg string, fields map[string]any) {
 	l.log("error", msg, fields)

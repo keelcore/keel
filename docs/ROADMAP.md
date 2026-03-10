@@ -104,49 +104,8 @@ This fills the gap between Keel's current service-to-service authn (JWT) and use
 
 ---
 
-### Logo Acquisition — "Anchor" Visual Identity
-
-**What it is:** Finalize the Keel visual identity: an anchor-themed logo for use in documentation, the website, conference slides, and the badge service.
-
-**Why it matters:** Visual identity is not vanity — it makes a project recognizable and signals maturity. The "Anchor" concept reflects the keel-as-anchor metaphor: stability, security, and keeping the ship from drifting.
-
----
-
 ### TRADEMARK.md Periodic Review
 
 **What it is:** A scheduled periodic review (annually) of TRADEMARK.md to ensure the trademark policy is current and reflects actual usage in the ecosystem.
 
 **Why it matters:** As the project grows and downstream users build on Keel, the trademark policy needs to evolve. What constitutes "permitted use" and "restricted use" should reflect real-world patterns, not assumptions made at project inception.
-
----
-
-### `--check-integrity` Flag
-
-**What it is:** A flag that prints the Trademark & License notice embedded in the binary and verifies that the binary has not been modified.
-
-**Why it matters:** For compliance environments that require verifying the origin and integrity of the binaries they run. `keel --check-integrity` would print the full license text, trademark notice, build provenance, and a hash of the binary, allowing operators to verify they are running an unmodified official build.
-
----
-
-### `--check-shred` Flag
-
-**What it is:** A self-verification flag that prints the binary's security profile: build tags, FIPS mode status, binary size, and which features are included.
-
-**Why it matters:** Operators and auditors need a quick way to verify that the running binary meets their security requirements. `keel --check-shred` would output a machine-readable JSON report:
-
-```json
-{
-  "fips_active": true,
-  "build_tags": ["no_h3", "no_statsd"],
-  "binary_size_bytes": 4200000,
-  "features": {
-    "owasp": true,
-    "authn": true,
-    "h3": false,
-    "statsd": false,
-    "otel": true
-  }
-}
-```
-
-This output can be consumed by the "Verified Secure" Badge Service or by CI pipelines that enforce a required security posture.

@@ -3,10 +3,10 @@
 
 .PHONY: all clean min max max-no-fips \
         test test-unit test-integrity test-compose \
-        lint lint-go lint-helm \
+        lint lint-go lint-helm lint-fmt \
         release-checksums release-sbom release-sign release-upload \
         colima-setup colima-deploy colima-test colima-teardown \
-        gen-certs help
+        gen-certs install-hooks fresh-repo help
 
 # Default target: build the shredded minimalist binary
 all: min
@@ -25,7 +25,11 @@ max-no-fips:
 	./scripts/build/ci_max_no_fips.sh
 
 ## Lint Targets
-lint: lint-go
+lint: lint-fmt lint-go
+
+lint-fmt:
+	@echo "🔍 Running gofmt check..."
+	./scripts/lint/fmt.sh
 
 lint-go:
 	@echo "🔍 Running Go lint..."
@@ -98,6 +102,18 @@ gen-certs:
 	@echo "🔑 Generating self-signed test certificates..."
 	./tests/fixtures/gen-certs.sh
 
+## Repo Setup Targets
+install-hooks:
+	@echo "🪝 Installing git hooks..."
+	cp scripts/hooks/pre-commit .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
+	@echo "✅ Hooks installed"
+
+fresh-repo: install-hooks
+	@echo "📦 Installing Go tools..."
+	go mod download
+	@echo "✅ Repo ready"
+
 ## Utility Targets
 clean:
 	@echo "🧹 Cleaning dist/ and build artifacts..."
@@ -127,8 +143,9 @@ help:
 	@echo "  colima-teardown Uninstall + stop Colima cluster"
 	@echo ""
 	@echo "Lint:"
-	@echo "  lint            go vet + staticcheck"
-	@echo "  lint-go         Go lint only"
+	@echo "  lint            gofmt check + go vet + staticcheck"
+	@echo "  lint-fmt        gofmt -s check only"
+	@echo "  lint-go         go vet + staticcheck only"
 	@echo "  lint-helm       Helm chart lint only"
 	@echo ""
 	@echo "Release:"
@@ -136,6 +153,10 @@ help:
 	@echo "  release-sbom       Generate SBOM (requires syft)"
 	@echo "  release-sign       Sign artifacts (requires cosign)"
 	@echo "  release-upload TAG=v1.x.x  Upload to GitHub Release (sets RELEASE_TAG)"
+	@echo ""
+	@echo "Repo Setup:"
+	@echo "  fresh-repo      First-time setup: download deps + install hooks"
+	@echo "  install-hooks   Install git hooks from scripts/hooks/"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  gen-certs       Generate self-signed TLS certs for testing"

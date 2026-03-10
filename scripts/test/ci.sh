@@ -12,6 +12,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/paths.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+
 readonly GOTESTSUM_VERSION='v1.13.0'
 
 function main() {
@@ -41,10 +44,14 @@ function ensure_gotestsum() {
 
 function run_unit_tests() {
   log "Running Go tests with race detection"
-  gotestsum \
+  local pkgs coverpkg
+  pkgs="$(go_pkgs)"
+  coverpkg="$(printf '%s\n' "${pkgs}" | tr '\n' ',' | sed 's/,$//')"
+  printf '%s\n' "${pkgs}" | xargs gotestsum \
     --junitfile test-results.xml \
     --format standard-verbose \
-    -- -race -coverprofile='coverage.txt' -covermode='atomic' -coverpkg='./...' ./...
+    -- -race -coverprofile='coverage.txt' -covermode='atomic' \
+    "-coverpkg=${coverpkg}"
 }
 
 function write_step_summary() {

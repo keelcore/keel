@@ -13,6 +13,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/paths.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
@@ -31,7 +34,7 @@ function log() {
 function validate_args() { :; }
 
 function run_vet() {
-  go vet ./...
+  go_pkgs | xargs go vet
 }
 
 function run_staticcheck() {
@@ -40,7 +43,7 @@ function run_staticcheck() {
     log "Skipping staticcheck"
     return 0
   fi
-  staticcheck ./...
+  go_pkgs | xargs staticcheck
 }
 
 main "${@:-}"

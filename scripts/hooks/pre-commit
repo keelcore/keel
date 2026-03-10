@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# pre-commit
+# Check that all staged Go files are gofmt -s clean.
+# Run scripts/lint/fmt.sh to fix, then re-stage.
+
+# bash configuration:
+# 1) Exit script if you try to use an uninitialized variable.
+set -o nounset
+
+# 2) Exit script if a statement returns a non-true return value.
+set -o errexit
+
+# 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
+set -o pipefail
+
+# shellcheck source=../lib/paths.sh
+source "$(git rev-parse --show-toplevel)/scripts/lib/paths.sh"
+
+function main() {
+  exec 5>&1
+  validate_args "${@:-}"
+  check_fmt
+}
+
+function log() {
+  local -r msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/keel_hooks_pre_commit.log' >&5
+}
+
+function validate_args() { :; }
+
+function staged_go_files() {
+  git diff --cached --name-only --diff-filter=ACMR | grep '\.go$' | filter_src || true
+}
+
+function check_fmt() {
+  local files unformatted
+  files="$(staged_go_files)"
+  [ -z "${files}" ] && return 0
+  unformatted="$(printf '%s\n' "${files}" | xargs gofmt -l -s)"
+  [ -z "${unformatted}" ] && return 0
+  log '❌ Unformatted Go files:'
+  while IFS= read -r f; do log "  ${f}"; done <<< "${unformatted}"
+  log 'Run scripts/lint/fmt.sh, review, and re-stage.'
+  exit 1
+}
+
+main "${@:-}"

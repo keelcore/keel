@@ -14,22 +14,23 @@ import (
 
 // TryVersion: with --version flag absent, returns without calling os.Exit.
 func TestTryVersion_NoFlag(t *testing.T) {
-	// flag.Parse() is idempotent; --version is not set in test binaries.
-	clisupport.TryVersion()
+	log := logging.New(logging.Config{Out: io.Discard})
+	clisupport.TryVersion(log)
 }
 
 // TryValidateApp: with --validate flag absent, returns without calling os.Exit.
 func TestTryValidateApp_NoFlag(t *testing.T) {
-	clisupport.TryValidateApp()
+	log := logging.New(logging.Config{Out: io.Discard})
+	clisupport.TryValidateApp(log)
 }
 
-// TryValidateConfig: loads defaults when KEEL_CONFIG/KEEL_SECRETS are unset,
+// ProcessArgs: loads defaults when KEEL_CONFIG/KEEL_SECRETS are unset,
 // validates successfully, and returns the config (--validate flag not set).
-func TestTryValidateConfig_DefaultEnv(t *testing.T) {
+func TestProcessArgs_DefaultEnv(t *testing.T) {
 	t.Setenv("KEEL_CONFIG", "")
 	t.Setenv("KEEL_SECRETS", "")
 	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := clisupport.TryValidateConfig(log)
+	cfg := clisupport.ProcessArgs(log)
 	if cfg.Listeners.HTTP.Port != ports.HTTP {
 		t.Errorf("expected HTTP port %d, got %d", ports.HTTP, cfg.Listeners.HTTP.Port)
 	}
@@ -56,5 +57,5 @@ func TestRunServer_CancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-cancel: Run exits at WaitForStop without blocking
 
-	clisupport.RunServer(s, ctx)
+	core.RunServer(s, ctx)
 }

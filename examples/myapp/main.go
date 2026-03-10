@@ -7,7 +7,6 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/keelcore/keel/pkg/clisupport"
 	keelcore "github.com/keelcore/keel/pkg/core"
 	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/ports"
@@ -15,12 +14,7 @@ import (
 
 func main() {
 	log := logging.New(logging.Config{JSON: true})
-
-	clisupport.TryVersion()
-
-	cfg := loadConfig(log)
-
-	clisupport.TryValidateApp()
+	cfg := processArgs(log)
 
 	srv := keelcore.NewServer(log, cfg.Keel)
 	srv.AddRoute(ports.HTTPS, "GET /hello", http.HandlerFunc(hello))

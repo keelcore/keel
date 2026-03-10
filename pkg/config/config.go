@@ -140,8 +140,8 @@ type AuthnConfig struct {
 
 type ExtAuthzConfig struct {
 	Enabled   bool     `yaml:"enabled"`
-	Endpoint  string   `yaml:"endpoint"`  // http(s)://host/path  or  unix:///path/to/socket
-	Path      string   `yaml:"path"`      // request path when endpoint is a unix socket
+	Endpoint  string   `yaml:"endpoint"` // http(s)://host/path  or  unix:///path/to/socket
+	Path      string   `yaml:"path"`     // request path when endpoint is a unix socket
 	Timeout   Duration `yaml:"timeout"`
 	Transport string   `yaml:"transport"` // "http" (default) or "opa"
 	FailOpen  bool     `yaml:"fail_open"` // true = allow on error; false = deny (default)

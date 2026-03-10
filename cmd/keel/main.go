@@ -13,17 +13,12 @@ import (
 // at this level; exit behaviour is encapsulated within the called function.
 func main() {
 	log := logging.New(logging.Config{JSON: true})
-
-	clisupport.TryVersion()
-
-	cfg := clisupport.TryValidateConfig(log)
-
+	cfg := clisupport.ProcessArgs(log)
 	srv := core.NewServer(
 		log, cfg, core.WithDefaultRegistrar(),
 	)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	clisupport.RunServer(srv, ctx)
+	core.RunServer(srv, ctx)
 }
