@@ -2,7 +2,7 @@
     <img src="docs/assets/logo.png" alt="Keel" width="200" />
 </p>
 
-# The KEEL: HTTP(S) Server Kit (Golang)
+# The KEEL HTTP(S) Server Kit (Golang)
 
 [![CI](https://img.shields.io/github/actions/workflow/status/keelcore/keel/ci.yml?branch=main)](https://github.com/keelcore/keel/actions)
 [![Release](https://img.shields.io/github/v/release/keelcore/keel)](https://github.com/keelcore/keel/releases)
