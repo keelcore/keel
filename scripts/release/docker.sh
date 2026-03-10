@@ -164,10 +164,13 @@ function sign_and_attest() {
 function attest_sbom() {
   local -r digest="${1}"
   log "  Attesting SBOM to ${digest}"
+  # Use the full predicate type URI rather than the 'spdx' shortname.
+  # cosign v3.x shortname validation rejects syft SPDX 2.3 JSON;
+  # the URI form treats the predicate as an opaque JSON payload.
   cosign attest \
     --yes \
     --predicate 'dist/keel-sbom.spdx.json' \
-    --type spdx \
+    --type 'https://spdx.dev/Document' \
     "${digest}"
 }
 
