@@ -259,6 +259,325 @@ cert_dir() {
 }
 
 # ---------------------------------------------------------------------------
+# Prometheus metrics gate
+# ---------------------------------------------------------------------------
+
+@test "metrics.prometheus false: GET /metrics returns 404 (keel-max)" {
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nmetrics:\n  prometheus: false\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-max &
+  pid="${!}"
+  sleep 0.4
+  local status
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:9999/metrics)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [ "${status}" -eq 404 ]
+}
+
+@test "metrics.prometheus true: GET /metrics returns 200 (keel-max)" {
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nmetrics:\n  prometheus: true\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-max &
+  pid="${!}"
+  sleep 0.4
+  local status
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:9999/metrics)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [ "${status}" -eq 200 ]
+}
+
+# ---------------------------------------------------------------------------
+# Prestop sleep
+# ---------------------------------------------------------------------------
+
+@test "prestop_sleep delays shutdown by at least configured duration" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntimeouts:\n  prestop_sleep: 300ms\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local t_start t_end elapsed
+  t_start="$(date +%s%3N)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  t_end="$(date +%s%3N)"
+  rm -f "${cfg}"
+  elapsed="$(( t_end - t_start ))"
+  [ "${elapsed}" -ge 250 ]
+}
+
+# ---------------------------------------------------------------------------
+# Logging level via SIGHUP reload
+# ---------------------------------------------------------------------------
+
+@test "log level survives SIGHUP reload without crash" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nlogging:\n  level: warn\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  kill -HUP "${pid}"
+  sleep 0.2
+  kill -0 "${pid}"
+  kill -TERM "${pid}"
+  wait "${pid}"
+  local exit_code="${?}"
+  rm -f "${cfg}"
+  [ "${exit_code}" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Remote log sink — HTTP delivery (keel-max)
+# ---------------------------------------------------------------------------
+
+@test "remote_sink protocol http: log lines delivered to HTTP endpoint (keel-max)" {
+  command -v python3 > /dev/null 2>&1 || skip "python3 not available"
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+
+  local sink_port received_file cfg pid sink_pid py_script
+  sink_port=19877
+  received_file="$(mktemp)"
+  py_script="$(mktemp)"
+
+  # Minimal HTTP POST acceptor: appends received bodies to received_file.
+  cat > "${py_script}" << 'PYEOF'
+import sys, http.server
+port = int(sys.argv[1])
+out  = sys.argv[2]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        n = int(self.headers.get('content-length', 0))
+        data = self.rfile.read(n)
+        with open(out, 'ab') as f:
+            f.write(data + b'\n')
+        self.send_response(200)
+        self.end_headers()
+    def log_message(self, *_): pass
+http.server.HTTPServer(('127.0.0.1', port), H).serve_forever()
+PYEOF
+  python3 "${py_script}" "${sink_port}" "${received_file}" &
+  sink_pid="${!}"
+  sleep 0.2
+
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\nlogging:\n  remote_sink:\n    enabled: true\n    endpoint: "http://127.0.0.1:%s/ingest"\n    protocol: http\n' \
+    "${sink_port}" > "${cfg}"
+
+  KEEL_CONFIG="${cfg}" keel-max &
+  pid="${!}"
+  sleep 0.5
+
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  kill "${sink_pid}" 2>/dev/null || true
+  wait "${sink_pid}" 2>/dev/null || true
+  rm -f "${cfg}" "${py_script}"
+
+  local received_bytes
+  received_bytes="$(wc -c < "${received_file}" | tr -d '[:space:]')"
+  rm -f "${received_file}"
+  [ "${received_bytes}" -gt 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Sidecar outbound signing (keel-max)
+# ---------------------------------------------------------------------------
+
+@test "sidecar outbound signing: Authorization Bearer header forwarded to upstream (keel-max)" {
+  command -v openssl > /dev/null 2>&1 || skip "openssl not available"
+  command -v python3 > /dev/null 2>&1 || skip "python3 not available"
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+
+  local upstream_port keel_port keyfile header_file cfg pid upstream_pid py_script
+  upstream_port=19878
+  keel_port=19879
+  keyfile="$(mktemp)"
+  header_file="$(mktemp)"
+  py_script="$(mktemp)"
+
+  # Generate ECDSA P-256 private key for outbound JWT signing.
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "${keyfile}" 2>/dev/null
+
+  # Upstream server: writes the Authorization header value to header_file.
+  cat > "${py_script}" << 'PYEOF'
+import sys, http.server
+port = int(sys.argv[1])
+out  = sys.argv[2]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        auth = self.headers.get('Authorization', '')
+        with open(out, 'w') as f:
+            f.write(auth)
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'ok')
+    def log_message(self, *_): pass
+http.server.HTTPServer(('127.0.0.1', port), H).serve_forever()
+PYEOF
+  python3 "${py_script}" "${upstream_port}" "${header_file}" &
+  upstream_pid="${!}"
+  sleep 0.2
+
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: true\n    port: %s\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n  my_id: test-svc\n  my_signature_key_file: %s\nsidecar:\n  enabled: true\n  upstream_url: "http://127.0.0.1:%s"\n' \
+    "${keel_port}" "${keyfile}" "${upstream_port}" > "${cfg}"
+
+  KEEL_CONFIG="${cfg}" keel-max &
+  pid="${!}"
+  sleep 0.5
+
+  curl -s --max-time 2 "http://127.0.0.1:${keel_port}/" > /dev/null || true
+  sleep 0.1
+
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  kill "${upstream_pid}" 2>/dev/null || true
+  wait "${upstream_pid}" 2>/dev/null || true
+  rm -f "${cfg}" "${keyfile}" "${py_script}"
+
+  grep -q 'Bearer ' "${header_file}"
+  rm -f "${header_file}"
+}
+
+# ---------------------------------------------------------------------------
+# authn.trusted_signers_file — JWT verified against file-loaded HMAC key (keel-max)
+# ---------------------------------------------------------------------------
+
+@test "authn.trusted_signers_file: request signed with file key returns 200 (keel-max)" {
+  command -v python3 > /dev/null 2>&1 || skip "python3 not available"
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+
+  local keel_port signers_file cfg pid token py_script hmac_key
+  keel_port=19880
+  signers_file="$(mktemp)"
+  py_script="$(mktemp)"
+
+  # Generate a random 32-byte hex HMAC key and write it to the signers file.
+  hmac_key="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+  printf '%s\n' "${hmac_key}" > "${signers_file}"
+
+  # Generate a valid HS256 JWT signed with hmac_key.
+  cat > "${py_script}" << 'PYEOF'
+import sys, json, time, hmac, hashlib, base64
+def b64url(b):
+    return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
+key = sys.argv[1].encode()
+now = int(time.time())
+hdr = b64url(json.dumps({"alg":"HS256","typ":"JWT"}).encode())
+pay = b64url(json.dumps({"sub":"test","iss":"test","iat":now,"exp":now+300}).encode())
+sig = b64url(hmac.new(key, f"{hdr}.{pay}".encode(), hashlib.sha256).digest())
+print(f"{hdr}.{pay}.{sig}")
+PYEOF
+  token="$(python3 "${py_script}" "${hmac_key}")"
+
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: true\n    port: %s\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: true\n  trusted_signers_file: %s\n' \
+    "${keel_port}" "${signers_file}" > "${cfg}"
+
+  KEEL_CONFIG="${cfg}" keel-max &
+  pid="${!}"
+  sleep 0.4
+
+  local status
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 \
+    -H "Authorization: Bearer ${token}" \
+    "http://127.0.0.1:${keel_port}/")"
+
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}" "${signers_file}" "${py_script}"
+  [ "${status}" -eq 200 ]
+}
+
+# ---------------------------------------------------------------------------
+# remote_sink protocol syslog: data arrives at TCP endpoint (keel-max)
+# ---------------------------------------------------------------------------
+
+@test "remote_sink protocol syslog: data delivered to TCP endpoint (keel-max)" {
+  command -v python3 > /dev/null 2>&1 || skip "python3 not available"
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+
+  local syslog_port received_file cfg pid syslog_pid py_script
+  syslog_port=19881
+  received_file="$(mktemp)"
+  py_script="$(mktemp)"
+
+  # Minimal TCP acceptor: reads first chunk and writes to received_file.
+  cat > "${py_script}" << 'PYEOF'
+import sys, socket
+port = int(sys.argv[1])
+out  = sys.argv[2]
+srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind(('127.0.0.1', port))
+srv.listen(1)
+srv.settimeout(10)
+try:
+    conn, _ = srv.accept()
+    conn.settimeout(5)
+    data = conn.recv(4096)
+    with open(out, 'wb') as f:
+        f.write(data)
+    conn.close()
+except Exception:
+    pass
+srv.close()
+PYEOF
+  python3 "${py_script}" "${syslog_port}" "${received_file}" &
+  syslog_pid="${!}"
+  sleep 0.2
+
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\nlogging:\n  remote_sink:\n    enabled: true\n    endpoint: "127.0.0.1:%s"\n    protocol: syslog\n' \
+    "${syslog_port}" > "${cfg}"
+
+  KEEL_CONFIG="${cfg}" keel-max &
+  pid="${!}"
+  sleep 0.5
+
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  wait "${syslog_pid}" 2>/dev/null || true
+  rm -f "${cfg}" "${py_script}"
+
+  local received_bytes
+  received_bytes="$(wc -c < "${received_file}" | tr -d '[:space:]')"
+  rm -f "${received_file}"
+  [ "${received_bytes}" -gt 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# prestop_sleep: 0s default — shutdown completes promptly (keel-min)
+# ---------------------------------------------------------------------------
+
+@test "prestop_sleep: 0s default shutdown completes in under 1 second" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local t_start t_end elapsed
+  t_start="$(date +%s%3N)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  t_end="$(date +%s%3N)"
+  rm -f "${cfg}"
+  elapsed="$(( t_end - t_start ))"
+  [ "${elapsed}" -lt 1000 ]
+}
+
+# ---------------------------------------------------------------------------
 # FIPS build (skipped when keel-fips binary is absent)
 # ---------------------------------------------------------------------------
 

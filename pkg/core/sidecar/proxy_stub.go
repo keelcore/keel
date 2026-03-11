@@ -12,7 +12,7 @@ import (
 	"github.com/keelcore/keel/pkg/core/probes"
 )
 
-func New(_ config.Config) (http.Handler, error) {
+func New(_ config.Config, _ ...func(*http.Request) error) (http.Handler, error) {
 	return nil, errors.New("sidecar disabled by build tag")
 }
 

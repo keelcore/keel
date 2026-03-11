@@ -351,21 +351,91 @@ Every inbound HTTP request produces one access log entry:
 
 Log level can be changed at runtime via SIGHUP reload or `POST /admin/reload` without restarting.
 
-### 5.4 Remote Log Sink
+### 5.4 Early-Boot Logging Lifecycle
+
+Keel has a chicken-and-egg problem that every process with a configurable logger
+must solve: the logging configuration lives in the config file, but loading and
+parsing the config file itself requires a working logger to report errors.
+
+The Linux kernel faces the same issue. The kernel emits early messages through a
+hard-wired serial port (`earlycon` / `printk`) long before the driver stack is
+initialised. Once the full console driver is up the kernel switches over, but
+nothing written before that switch is lost.
+
+Keel follows the same pattern:
+
+**Phase 1 — bootstrap (earlycon equivalent)**
+
+`main()` creates a logger unconditionally before touching any config:
+
+```go
+log := logging.New(logging.Config{JSON: true})
+```
+
+This writes JSON at `info` level to stdout. It cannot fail. All CLI flag parsing,
+config file location resolution, and config load errors flow through this logger.
+If the config file is missing or invalid, the error is always visible on stdout.
+
+**Phase 2 — reconfigure (driver handoff)**
+
+Once the config is loaded and validated, `Server.Run` calls
+`Logger.Reconfigure` with the user's level and JSON flag — and, if a remote
+sink is configured, replaces the output writer with
+`io.MultiWriter(stdout, remoteSink)`. From this point forward the operator's
+settings are in effect.
+
+Logs emitted during Phase 1 are never lost: they went to stdout before
+reconfiguration, and stdout remains part of the tee'd writer afterwards.
+
+**Phase 3 — live reload (SIGHUP / POST /admin/reload)**
+
+On reload, `Reconfigure` is called again with the new config. Level and JSON
+flag change atomically. If `logging.remote_sink.*` changed, the old sink
+goroutine is cancelled and a new one is started; the logger's output writer is
+replaced with a fresh `io.MultiWriter(stdout, newSink)`. If remote sink config
+is unchanged or removed, only the level/JSON are updated and the writer is
+preserved by setting `cfg.Out = nil` to signal Reconfigure.
+
+**Key guarantees**
+
+| Situation | Behaviour |
+|---|---|
+| Config file missing at startup | Error logged to stdout via bootstrap logger; process exits 1 |
+| `logging.level` invalid in config | Warning logged; previous level preserved |
+| Remote sink unreachable at startup | Warning logged; stdout-only logging continues |
+| SIGHUP with changed `logging.level` | Level changes in-flight without restarting listeners |
+| SIGHUP with changed `logging.json` | JSON flag changes in-flight |
+| SIGHUP with changed `remote_sink.*` | Old sink goroutine cancelled; new sink started; writer replaced |
+
+### 5.5 Remote Log Sink
 
 ```yaml
 logging:
   remote_sink:
     enabled: true
-    endpoint: "https://logs.example.com/ingest"
-    protocol: http   # or grpc
+    endpoint: "logs.example.com:514"
+    protocol: http    # "http" (default) or "syslog"
 ```
 
 **Build-time opt-out:** `no_remotelog`
 
-When enabled, Keel ships log entries to the specified endpoint. This is for environments that do not run a log aggregator as a sidecar (e.g., those that prefer push-based log ingestion over a DaemonSet-based approach).
+When enabled, Keel ships log entries to the specified endpoint. This is for
+environments that do not run a log aggregator as a sidecar (e.g., those that
+prefer push-based log ingestion over a DaemonSet-based approach).
 
-Log entries are buffered in memory (capacity: 1000 entries) and flushed to the endpoint via HTTP POST with a 5-second per-flush timeout. When the buffer is full, the oldest entries are dropped to make room for new ones — log entries are never allowed to block request handling. On clean shutdown, Keel flushes the buffer before exiting. Log output is tee'd to stdout regardless of whether the remote sink is enabled.
+**`protocol: http`** (default): log entries are buffered in memory (capacity:
+1000 entries) and flushed to the endpoint via HTTP POST with a 5-second
+per-flush timeout. When the buffer is full, the oldest entries are dropped to
+make room for new ones — log entries are never allowed to block request
+handling. On clean shutdown, Keel flushes the buffer before exiting. The
+`keel_log_drops_total` metric tracks cumulative dropped entries.
+
+**`protocol: syslog`**: Keel dials `endpoint` over TCP and emits RFC 5424
+syslog messages. Suitable for syslog-ng, rsyslog, or any RFC 5424-compatible
+aggregator. There is no in-process buffer — if the TCP connection drops, log
+lines are lost until reconnection.
+
+Log output is tee'd to stdout regardless of which protocol is configured.
 
 ---
 

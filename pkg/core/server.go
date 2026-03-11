@@ -12,6 +12,7 @@ import (
 	"os"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/keelcore/keel/pkg/config"
@@ -30,6 +31,12 @@ import (
 	"github.com/keelcore/keel/pkg/core/version"
 )
 
+// authnSnapshot holds the precomputed authn state used by AuthnJWT middleware.
+// It is rebuilt on every SIGHUP reload via applyAuthnState.
+type authnSnapshot struct {
+	signers []string
+}
+
 type Server struct {
 	cfg      config.Config
 	cfgMu    sync.RWMutex
@@ -43,6 +50,19 @@ type Server struct {
 	met                 *metrics.Metrics
 	sd                  *statsd.Client
 	certLoader          *keeltls.CertLoader
+
+	// Remote sink lifecycle. runCtx is set once in Run and used by
+	// applyRemoteSink to derive sink goroutine contexts so they are
+	// cancelled on both SIGHUP reload and process shutdown.
+	runCtx     context.Context
+	sinkMu     sync.Mutex
+	sinkCancel context.CancelFunc
+	httpSink   atomic.Pointer[logging.HTTPSink]
+
+	// Outbound signer: updated atomically on SIGHUP so the sidecar proxy
+	// picks up the new key without being re-created.
+	signer atomic.Pointer[mw.JWTSigner]
+	authn  atomic.Pointer[authnSnapshot]
 }
 
 func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
@@ -67,6 +87,83 @@ func (s *Server) AddRoute(port int, pattern string, h http.Handler) {
 	}))
 }
 
+// applyRemoteSink tears down any existing remote sink, then builds and attaches
+// a new one according to cfg. Also reconfigures the logger level and JSON flag.
+// Safe to call on SIGHUP reload; sinkMu serialises sink lifecycle transitions.
+func (s *Server) applyRemoteSink(cfg config.Config) {
+	s.sinkMu.Lock()
+	defer s.sinkMu.Unlock()
+
+	// Cancel and discard the previous sink goroutine (if any).
+	if s.sinkCancel != nil {
+		s.sinkCancel()
+		s.sinkCancel = nil
+	}
+	s.httpSink.Store(nil)
+
+	if !cfg.Logging.RemoteSink.Enabled || cfg.Logging.RemoteSink.Endpoint == "" {
+		_ = s.logger.Reconfigure(logging.Config{Level: cfg.Logging.Level, JSON: cfg.Logging.JSON})
+		return
+	}
+
+	w, httpSink, err := buildRemoteSink(cfg.Logging.RemoteSink)
+	if err != nil {
+		s.logger.Warn("remote_sink_init_failed", map[string]any{"err": err.Error()})
+		_ = s.logger.Reconfigure(logging.Config{Level: cfg.Logging.Level, JSON: cfg.Logging.JSON})
+		return
+	}
+
+	sinkCtx, cancel := context.WithCancel(s.runCtx)
+	s.sinkCancel = cancel
+	if httpSink != nil {
+		s.httpSink.Store(httpSink)
+		go httpSink.Run(sinkCtx)
+	}
+	_ = s.logger.Reconfigure(logging.Config{
+		Level: cfg.Logging.Level,
+		JSON:  cfg.Logging.JSON,
+		Out:   io.MultiWriter(os.Stdout, w),
+	})
+}
+
+// applyOutboundSigner initialises or replaces the JWTSigner used to sign
+// outbound sidecar requests. Called at startup (Fatal on error) and on
+// SIGHUP reload (Warn on error, preserves the existing signer on failure).
+func (s *Server) applyOutboundSigner(cfg config.Config) {
+	if cfg.Authn.MyID == "" || cfg.Authn.MySignatureKeyFile == "" {
+		s.signer.Store(nil)
+		return
+	}
+	sg, err := mw.NewJWTSigner(cfg.Authn.MyID, cfg.Authn.MySignatureKeyFile)
+	if err != nil {
+		s.logger.Warn("jwt_signer_reload_failed", map[string]any{"err": err.Error()})
+		return
+	}
+	s.signer.Store(sg)
+}
+
+// applyAuthnState precomputes the trusted signers list and stores it atomically
+// so AuthnJWT middleware reads the latest state on every request after SIGHUP.
+func (s *Server) applyAuthnState(cfg config.Config) {
+	signers := mw.LoadTrustedSigners(cfg.Authn, s.logger)
+	s.authn.Store(&authnSnapshot{signers: signers})
+}
+
+// buildRemoteSink constructs the appropriate remote log sink based on cfg.Protocol.
+// Returns the io.Writer to pass to the logger and, for HTTP sinks only, the
+// *logging.HTTPSink pointer needed for the drops-metric loop.
+func buildRemoteSink(cfg config.RemoteSinkConfig) (io.Writer, *logging.HTTPSink, error) {
+	if cfg.Protocol == "syslog" {
+		w, err := logging.NewSyslogSink(cfg.Endpoint)
+		if err != nil {
+			return nil, nil, err
+		}
+		return w, nil, nil
+	}
+	sink := logging.NewHTTPSink(cfg.Endpoint, 1000, 5*time.Second)
+	return sink, sink, nil
+}
+
 func (s *Server) Run(ctx context.Context) {
 	if err := acme.Validate(s.cfg); err != nil {
 		s.logger.Fatal("acme_config_invalid", map[string]any{"err": err.Error()})
@@ -76,16 +173,14 @@ func (s *Server) Run(ctx context.Context) {
 		debug.SetMemoryLimit(s.cfg.Backpressure.HeapMaxBytes)
 	}
 
-	// Remote log sink: attach to logger if configured.
-	var sink *logging.HTTPSink
-	if s.cfg.Logging.RemoteSink.Enabled && s.cfg.Logging.RemoteSink.Endpoint != "" {
-		sink = logging.NewHTTPSink(s.cfg.Logging.RemoteSink.Endpoint, 1000, 5*time.Second)
-		go sink.Run(ctx)
-		s.logger = logging.New(logging.Config{
-			JSON: s.cfg.Logging.JSON,
-			Out:  io.MultiWriter(os.Stdout, sink),
-		})
-	}
+	// Create the inner cancellable context before the remote sink so sink
+	// goroutines share the same lifetime as the listeners.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s.runCtx = ctx
+
+	// Apply logging level/format and start the remote sink (if configured).
+	s.applyRemoteSink(s.cfg)
 
 	// StatsD client.
 	if s.cfg.Metrics.StatsD.Enabled && s.cfg.Metrics.StatsD.Endpoint != "" {
@@ -134,18 +229,17 @@ func (s *Server) Run(ctx context.Context) {
 	probes.RegisterStartup(adminMux, s.startup)
 	probes.RegisterFIPS(adminMux)
 	probes.RegisterPProf(adminMux)
-	adminMux.Handle("/metrics", s.met.Handler())
+	adminMux.Handle("/metrics", s.metricsHandler())
 	adminMux.Handle("/admin/reload", s.ReloadHandler())
 	adminMux.Handle("/version", version.Handler())
 
+	s.applyAuthnState(s.cfg)
 	mainHandler := s.wrapMain(mainRT.Handler())
 
 	var (
 		wg    sync.WaitGroup
 		errCh = make(chan error, 8)
 	)
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	shutdown := lifecycle.NewShutdownOrchestrator(s.logger)
 	go s.runSignalLoop(ctx)
@@ -231,7 +325,23 @@ func (s *Server) Run(ctx context.Context) {
 
 	// Sidecar route registration.
 	if s.cfg.Sidecar.Enabled && s.cfg.Sidecar.UpstreamURL != "" {
-		h, err := sidecar.New(s.cfg)
+		// Initialise the outbound signer (Fatal on startup error; Warn on reload error).
+		if s.cfg.Authn.MyID != "" && s.cfg.Authn.MySignatureKeyFile != "" {
+			sg, signerErr := mw.NewJWTSigner(s.cfg.Authn.MyID, s.cfg.Authn.MySignatureKeyFile)
+			if signerErr != nil {
+				s.logger.Fatal("jwt_signer_init_failed", map[string]any{"err": signerErr.Error()})
+			}
+			s.signer.Store(sg)
+		}
+		// signFn reads the atomic pointer on every request so SIGHUP key rotation
+		// takes effect immediately without re-creating the sidecar proxy.
+		signFn := func(req *http.Request) error {
+			if sg := s.signer.Load(); sg != nil {
+				return sg.SignRequest(req)
+			}
+			return nil
+		}
+		h, err := sidecar.New(s.cfg, signFn)
 		if err == nil {
 			sidecar.StartHealthProbe(ctx, s.cfg.Sidecar, nil, s.readiness, s.logger)
 			mainRT.Handle(s.cfg.Listeners.HTTP.Port, "/", h)
@@ -257,19 +367,24 @@ func (s *Server) Run(ctx context.Context) {
 		}()
 	}
 
-	// Log drops metric loop: update keel_log_drops_total while running.
-	if sink != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			runLogDropsLoop(ctx, sink, s.met)
-		}()
-	}
+	// Log drops metric loop: always started so a reload-added sink is
+	// automatically tracked without restarting the goroutine.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		runLogDropsLoop(ctx, s.httpSink.Load, s.met)
+	}()
 
 	// All initialization complete; mark the startup probe ready.
 	s.startup.Done()
 
 	sigErr := shutdown.WaitForStop(ctx)
+
+	if d := s.Cfg().Timeouts.PrestopSleep.Duration; d > 0 {
+		s.logger.Info("prestop_sleep", map[string]any{"dur": d.String()})
+		time.Sleep(d)
+	}
+
 	if sigErr != nil {
 		cancel()
 	}
@@ -290,6 +405,15 @@ func (s *Server) Run(ctx context.Context) {
 	}
 }
 
+// metricsHandler returns the Prometheus /metrics handler when
+// cfg.Metrics.Prometheus is true, or a 404 handler otherwise.
+func (s *Server) metricsHandler() http.Handler {
+	if s.cfg.Metrics.Prometheus {
+		return s.met.Handler()
+	}
+	return http.NotFoundHandler()
+}
+
 func (s *Server) wrapMain(h http.Handler) http.Handler {
 	if s.cfg.Security.OWASPHeaders {
 		h = mw.OWASP(s.cfg, h)
@@ -298,7 +422,12 @@ func (s *Server) wrapMain(h http.Handler) http.Handler {
 		h = mw.Shedding(s.readiness, h)
 	}
 	if s.cfg.Authn.Enabled {
-		h = mw.AuthnJWT(s.cfg, h, s.logger)
+		h = mw.AuthnJWT(s.cfg, func() []string {
+			if sn := s.authn.Load(); sn != nil {
+				return sn.signers
+			}
+			return nil
+		}, h, s.logger)
 	}
 	if s.cfg.ExtAuthz.Enabled {
 		h = mw.ExtAuthz(s.cfg, h, s.logger)
@@ -405,7 +534,7 @@ func runCertExpiryLoop(ctx context.Context, certFile string, met *metrics.Metric
 	}
 }
 
-func runLogDropsLoop(ctx context.Context, sink *logging.HTTPSink, met *metrics.Metrics) {
+func runLogDropsLoop(ctx context.Context, getSink func() *logging.HTTPSink, met *metrics.Metrics) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -413,7 +542,9 @@ func runLogDropsLoop(ctx context.Context, sink *logging.HTTPSink, met *metrics.M
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			met.SetLogDrops(sink.DropsTotal())
+			if sink := getSink(); sink != nil {
+				met.SetLogDrops(sink.DropsTotal())
+			}
 		}
 	}
 }

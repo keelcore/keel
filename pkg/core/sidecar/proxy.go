@@ -25,7 +25,9 @@ var (
 // New creates a configured sidecar reverse proxy.
 // It applies XFF policy, header allowlist/denylist, response size capping,
 // upstream TLS (including mTLS), and an optional circuit breaker.
-func New(cfg config.Config) (http.Handler, error) {
+// The optional sign function is called on each outbound request after header
+// policy is applied (e.g. to attach a keel-to-keel Authorization JWT).
+func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, error) {
 	u, err := url.Parse(cfg.Sidecar.UpstreamURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse upstream_url: %w", err)
@@ -50,6 +52,11 @@ func New(cfg config.Config) (http.Handler, error) {
 	xffHops := cfg.Sidecar.XFFTrustedHops
 	policy := cfg.Sidecar.HeaderPolicy
 
+	var signFn func(*http.Request) error
+	if len(sign) > 0 {
+		signFn = sign[0]
+	}
+
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(u)
@@ -58,6 +65,11 @@ func New(cfg config.Config) (http.Handler, error) {
 			incomingXFF := pr.In.Header.Get("x-forwarded-for")
 			applyXFF(pr.Out, incomingXFF, pr.In.RemoteAddr, xffMode, xffHops)
 			applyHeaderPolicy(pr.Out, policy)
+			// Outbound signing runs after header policy so the signed token
+			// is never stripped by a denylist rule.
+			if signFn != nil {
+				_ = signFn(pr.Out)
+			}
 		},
 		Transport: rt,
 		ModifyResponse: func(resp *http.Response) error {

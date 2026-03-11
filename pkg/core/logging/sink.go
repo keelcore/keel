@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// httpSinkBatchSize is the number of lines that trigger an early flush before
+// the flushInterval fires. Not configurable: the operator tunes bufCap and
+// flushInterval; batch granularity is an implementation detail.
+const httpSinkBatchSize = 100
+
 // HTTPSink is an io.Writer that buffers log lines and POSTs them in batches
 // to an HTTP endpoint. Writes are non-blocking: lines are dropped when the
 // buffer is full and counted by DropsTotal.
@@ -68,7 +73,7 @@ func (s *HTTPSink) Run(ctx context.Context) {
 		select {
 		case line := <-s.buf:
 			batch = append(batch, line)
-			if len(batch) >= 100 {
+			if len(batch) >= httpSinkBatchSize {
 				flush()
 			}
 		case <-ticker.C:

@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -31,7 +32,21 @@ func TestRunLogDropsLoop_ExitsOnCancel(t *testing.T) {
 	sink := logging.NewHTTPSink("http://127.0.0.1:1", 10, time.Hour)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	runLogDropsLoop(ctx, sink, met)
+	runLogDropsLoop(ctx, func() *logging.HTTPSink { return sink }, met)
+}
+
+// metricsHandler with prometheus=true returns the real Prometheus handler (200, text/plain).
+func TestMetricsHandler_Enabled_Returns200(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	s := NewServer(log, config.Config{
+		Metrics: config.MetricsConfig{Prometheus: true},
+	})
+
+	rr := httptest.NewRecorder()
+	s.metricsHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rr.Code != http.StatusOK {
+		t.Errorf("prometheus=true: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
 }
 
 // AddRoute: appends a registrar and the closure body registers the handler on the router.

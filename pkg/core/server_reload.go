@@ -21,6 +21,13 @@ func (s *Server) Reload() error {
 	s.cfg = cfg
 	s.cfgMu.Unlock()
 
+	// Apply logging config and restart the remote sink if its config changed.
+	s.applyRemoteSink(cfg)
+	// Re-initialise the outbound signer (Warn on error, preserves old signer).
+	s.applyOutboundSigner(cfg)
+	// Reload trusted signers list (trusted_signers_file is re-read from disk).
+	s.applyAuthnState(cfg)
+
 	// Reload TLS certificate if a loader is active.
 	if s.certLoader != nil && cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {
 		if err := s.certLoader.Reload(cfg.TLS.CertFile, cfg.TLS.KeyFile); err != nil {

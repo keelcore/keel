@@ -476,9 +476,12 @@ Keel supports reloading most configuration at runtime without restarting the pro
 4. If validation passes, Keel applies changes to the running process.
 
 **What can be reloaded (no restart needed):**
-- Log level (`logging.level`)
-- Authn signing keys (`authn.trusted_signers`, `authn.trusted_signers_file`)
+- Log level and JSON format (`logging.level`, `logging.json`)
+- Remote log sink endpoint and protocol (`logging.remote_sink.*`) — old sink goroutine is cancelled, new one started
+- Authn signing keys (`authn.trusted_signers`, `authn.trusted_signers_file`) — file is re-read from disk
 - Trusted principal IDs (`authn.trusted_ids`)
+- Outbound JWT identity and signing key (`authn.my_id`, `authn.my_signature_key_file`)
+- Pre-stop sleep duration (`timeouts.prestop_sleep`)
 - Memory backpressure limits (`backpressure.*`)
 - Upstream URL (`sidecar.upstream_url`)
 - TLS certificate and key (zero-downtime cert rotation — new connections use the new cert; in-flight TLS sessions are not affected)

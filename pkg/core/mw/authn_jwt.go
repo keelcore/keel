@@ -3,6 +3,7 @@
 package mw
 
 import (
+	"bufio"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
@@ -10,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -18,12 +20,16 @@ import (
 	"github.com/keelcore/keel/pkg/core/logging"
 )
 
-func AuthnJWT(cfg config.Config, next http.Handler, log *logging.Logger) http.Handler {
+func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, log *logging.Logger) http.Handler {
 	allowed := make(map[string]struct{}, len(cfg.Authn.TrustedIDs))
 	for _, id := range cfg.Authn.TrustedIDs {
 		allowed[id] = struct{}{}
 	}
 	cache := newJWKSCache()
+	var staticSigners []string
+	if getSigners == nil {
+		staticSigners = LoadTrustedSigners(cfg.Authn, log)
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("authorization")
@@ -33,7 +39,11 @@ func AuthnJWT(cfg config.Config, next http.Handler, log *logging.Logger) http.Ha
 		}
 		raw := strings.TrimSpace(auth[len("bearer "):])
 
-		claims, err := parseWithAllSigners(raw, cfg.Authn.TrustedSigners, cache)
+		signers := staticSigners
+		if getSigners != nil {
+			signers = getSigners()
+		}
+		claims, err := parseWithAllSigners(raw, signers, cache)
 		if err != nil {
 			log.Warn("authn_fail", map[string]any{"err": err.Error()})
 			http.Error(w, "invalid token", http.StatusUnauthorized)
@@ -50,6 +60,44 @@ func AuthnJWT(cfg config.Config, next http.Handler, log *logging.Logger) http.Ha
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// LoadTrustedSigners merges cfg.TrustedSigners with any signers loaded from
+// cfg.TrustedSignersFile (one entry per line; blank lines and # comments ignored).
+// File read errors are logged as warnings and the inline list is returned unchanged.
+func LoadTrustedSigners(cfg config.AuthnConfig, log *logging.Logger) []string {
+	signers := make([]string, len(cfg.TrustedSigners))
+	copy(signers, cfg.TrustedSigners)
+
+	if cfg.TrustedSignersFile == "" {
+		return signers
+	}
+
+	f, err := os.Open(cfg.TrustedSignersFile)
+	if err != nil {
+		log.Warn("trusted_signers_file_open_failed", map[string]any{
+			"file": cfg.TrustedSignersFile,
+			"err":  err.Error(),
+		})
+		return signers
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		signers = append(signers, line)
+	}
+	if err := scanner.Err(); err != nil {
+		log.Warn("trusted_signers_file_read_failed", map[string]any{
+			"file": cfg.TrustedSignersFile,
+			"err":  err.Error(),
+		})
+	}
+	return signers
 }
 
 // parseWithAllSigners tries each trusted signer until one successfully verifies raw.

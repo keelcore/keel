@@ -47,7 +47,7 @@ func TestAuthnJWT_AllowsTrustedSub(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := mw.AuthnJWT(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := mw.AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}), logging.New(logging.Config{JSON: false}))
 
@@ -64,7 +64,7 @@ func TestAuthnJWT_AllowsTrustedSub(t *testing.T) {
 func TestAuthnJWT_MissingAuth(t *testing.T) {
 	const key = "0123456789abcdef"
 	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{key}, Enabled: true}}
-	h := mw.AuthnJWT(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := mw.AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}), logging.New(logging.Config{JSON: false}))
 
@@ -80,7 +80,7 @@ func TestAuthnJWT_MissingAuth(t *testing.T) {
 func TestAuthnJWT_ExpiredToken(t *testing.T) {
 	const key = "0123456789abcdef"
 	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{key}, Enabled: true}}
-	h := mw.AuthnJWT(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := mw.AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}), logging.New(logging.Config{JSON: false}))
 
@@ -107,7 +107,7 @@ func TestAuthnJWT_WrongSigner(t *testing.T) {
 	const trustedKey = "trusted-key-1234" // 16 bytes
 	const wrongKey = "wrong-key-16byte!"  // 17 bytes — different key
 	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{trustedKey}, Enabled: true}}
-	h := mw.AuthnJWT(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := mw.AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}), logging.New(logging.Config{JSON: false}))
 
@@ -137,7 +137,7 @@ func TestAuthnJWT_ForbiddenSub(t *testing.T) {
 		TrustedSigners: []string{key},
 		Enabled:        true,
 	}}
-	h := mw.AuthnJWT(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := mw.AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}), logging.New(logging.Config{JSON: false}))
 
@@ -172,7 +172,7 @@ func TestAuthnJWT_RS256Accepted(t *testing.T) {
 	pubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}))
 
 	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{pubPEM}, Enabled: true}}
-	h := mw.AuthnJWT(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := mw.AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}), logging.New(logging.Config{JSON: false}))
 
@@ -207,7 +207,7 @@ func TestAuthnJWT_ES256Accepted(t *testing.T) {
 	pubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}))
 
 	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{pubPEM}, Enabled: true}}
-	h := mw.AuthnJWT(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := mw.AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}), logging.New(logging.Config{JSON: false}))
 
@@ -238,7 +238,7 @@ func TestAuthnJWT_SecondSignerAccepted(t *testing.T) {
 		TrustedSigners: []string{firstKey, secondKey},
 		Enabled:        true,
 	}}
-	h := mw.AuthnJWT(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := mw.AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}), logging.New(logging.Config{JSON: false}))
 
@@ -284,7 +284,7 @@ func ecPublicKeyPEM(t *testing.T, priv *ecdsa.PrivateKey) string {
 }
 
 func authnHandler(cfg config.Config) http.Handler {
-	return mw.AuthnJWT(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	return mw.AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}), logging.New(logging.Config{Out: io.Discard}))
 }
