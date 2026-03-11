@@ -1,4 +1,4 @@
-//go:build !no_remotelog
+//go:build !no_remotelog && !windows
 
 package unit
 
