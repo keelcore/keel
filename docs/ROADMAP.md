@@ -167,3 +167,30 @@ Real files at both locations remove all of these issues. The drift-check hook en
 - If both copies have been modified since their last common commit and they differ: fail and advise the developer to manually merge before committing.
 
 **Implementation:** `scripts/check-legal-drift.sh` called from `.git/hooks/pre-commit`. Checked pairs: `LICENSE` ↔ `pkg/clisupport/LICENSE`, `TRADEMARK.md` ↔ `pkg/clisupport/TRADEMARK.md`.
+
+---
+
+### Keel-Wrapped Helm Charts Architecture
+
+**What it is:** A library of drop-in secure Helm chart replacements that wrap existing upstream charts with a Keel sidecar container — without modifying upstream chart templates. Each wrapper chart ships as an OCI artifact at `ghcr.io/keel/helm/keel-<name>`.
+
+**Why it matters:** Operators running commodity workloads (nginx, Grafana, MinIO, Keycloak, etc.) currently have no path to adding TLS termination, JWT authentication, OWASP headers, request protection, and observability without forking upstream charts or adding a separate ingress layer. A wrapper chart is a strict-dependency overlay: the upstream chart is vendored unchanged as a Helm dependency; the wrapper contributes only a second Deployment (Keel + upstream container in the same pod) and a Service that exposes Keel exclusively.
+
+**Design invariants:**
+1. The upstream chart is a declared `dependencies:` entry. Its templates are never modified.
+2. Upstream runtime behaviour is controlled only via `values.yaml` overrides passed through to the dependency.
+3. Wrapper `values.yaml` is a strict superset of upstream values: every upstream field is preserved under its upstream key; Keel-specific fields live under a top-level `keel:` namespace.
+4. Wrapper chart `version` matches the upstream dependency `version` exactly (same semver).
+5. Traffic flows: client → Keel container (external port) → `localhost` → upstream container (internal port). The upstream container is never exposed by the Service.
+6. The Keel container image digest must be attested as a cosign OCI signature on every chart release, matching the attestation produced by the main Keel binary release pipeline.
+
+**Pod structure:**
+```
+Pod
+ ├─ keel      (listens on external port, e.g. 8443)
+ └─ upstream  (binds 127.0.0.1:<internal port>)
+```
+
+**OCI registry layout:** `ghcr.io/keel/helm/keel-<name>` — installed as `helm install <name> oci://ghcr.io/keel/helm/keel-<name>` instead of the upstream `helm install <name> <repo>/<name>`.
+
+**Initial target charts (tracked individually as child issues):** nginx, grafana, prometheus, minio, argo-cd, loki, tempo, elasticsearch, kibana, keycloak.
