@@ -305,6 +305,8 @@ properties:
             acme:
                 additionalProperties: false
                 properties:
+                    ca_cert_file:
+                        type: string
                     ca_url:
                         format: uri
                         type: string

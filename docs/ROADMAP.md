@@ -140,23 +140,39 @@ The ACME manager must use `pkg/core/tls.BuildTLSConfig` for the listener `tls.Co
 
 ---
 
-### Replace LICENSE/TRADEMARK Root Symlinks with Real Files
+### Comprehensive TLS Cipher and Curve Hardening
 
-**What it is:** Remove the symlinks at the repository root (`LICENSE → pkg/clisupport/LICENSE`, `TRADEMARK.md → pkg/clisupport/TRADEMARK.md`) and replace them with real files. Add a pre-commit hook script (`scripts/check-legal-drift.sh`) that detects drift between the root copies and the `pkg/clisupport/` copies and tells the developer how to resolve it.
+**What it is:** A full audit and hardening pass ensuring every outbound TLS connection Keel makes — not just its server-side listener — applies the same cipher-suite and key-exchange policy enforced by `pkg/core/tls.BuildTLSConfig`.
 
-**Why it matters:** The canonical legal text lives in `pkg/clisupport/` because `embed.go` uses `//go:embed` to bake it into the `--check-integrity` command. The root-level symlinks exist so GitHub and tooling see the files at the conventional location. However, symlinks cause several concrete problems:
-- **GitHub does not resolve the license badge** — the repository license detection and the "View license" badge in the GitHub UI fail when `LICENSE` is a symlink; GitHub does not follow symlinks when scanning for license files.
-- Symlinks are fragile on Windows and break some archive and packaging tools.
-- Some editors and IDEs do not resolve symlinks transparently, causing confusing "file not found" behaviour.
+**Why it matters:** The current `BuildTLSConfig` policy (`policy_fips.go` / `policy.go`) is applied to the server-side TLS listener. Outbound connections — ACME CA endpoint (`httpClientWithCA`), remote log sink, ext-authz transport, and future OTLP exporter — each construct their own `tls.Config{}` and do not go through that policy. This means:
 
-Real files at both locations remove all of these issues. The drift-check hook ensures the two copies stay in sync after any edit.
+1. Under a FIPS toolchain (`GOFIPS140=only` / BoringCrypto), all crypto is enforced at the runtime level regardless of `tls.Config` content — so the gap is closed implicitly but not explicitly.
+2. Without the FIPS toolchain (e.g. the `fips` build tag used as a policy signal), outbound connections may negotiate X25519 key exchange or ChaCha20-Poly1305, which are not approved under FIPS 140-2/3.
+3. As new transports are added (OTLP, ext-authz gRPC, future federation), the policy must not be re-invented per-call-site.
 
-**Drift-check script behaviour (`scripts/check-legal-drift.sh`):**
-- If both copies are identical: pass silently.
-- If one file is newer (by `git log` date on the file) and they differ: fail and suggest `cp <newer> <older>` to propagate the change.
-- If both copies have been modified since their last common commit and they differ: fail and advise the developer to manually merge before committing.
+**What "comprehensive" means:**
 
-**Implementation:** `scripts/check-legal-drift.sh` called from `.git/hooks/pre-commit`. Checked pairs: `LICENSE` ↔ `pkg/clisupport/LICENSE`, `TRADEMARK.md` ↔ `pkg/clisupport/TRADEMARK.md`.
+- Audit every `tls.Config{...}` construction in the codebase; replace raw construction with a call to (or extension of) `BuildTLSConfig`.
+- For outbound clients: derive a `*tls.Config` from `BuildTLSConfig`, then layer caller-specific fields on top (e.g. `RootCAs` for private CAs, `ServerName` for SNI overrides).
+- Enumerate cipher suites **explicitly** in `policy_fips.go` rather than relying solely on BoringCrypto runtime enforcement — defence-in-depth; catches misconfiguration before it reaches the crypto layer.
+- Add a unit test that constructs every outbound HTTP/gRPC client in the codebase and asserts `MinVersion >= TLS 1.2`, no RC4/DES/3DES in `CipherSuites`, and — under the `fips` tag — no X25519 in `CurvePreferences`.
+
+**Concrete gap as of 2026-03-12:**
+
+| Call site | File | Gap |
+|---|---|---|
+| `httpClientWithCA` | `pkg/core/acme/manager.go` | Raw `&tls.Config{RootCAs: pool}` — no MinVersion, no curve policy |
+| Remote log HTTP sink | `pkg/core/server.go` | Uses `http.DefaultTransport` — no TLS policy |
+| ext-authz HTTP transport | `pkg/core/mw/ext_authz.go` | Default `http.Client` — no TLS policy |
+| OTLP exporter (future) | not yet implemented | Must apply policy at introduction time |
+
+**Acceptance criteria:**
+
+- `go vet ./...` and `staticcheck ./...` continue to pass.
+- All call sites above go through `BuildTLSConfig` (or a validated wrapper).
+- `policy_fips.go` enumerates `CipherSuites` explicitly.
+- New unit test `TestOutboundTLSPolicy` passes under both `fips` and non-`fips` build tags.
+- BATS: integrity test confirms ACME client successfully connects to pebble with FIPS-policy TLS settings.
 
 ---
 

@@ -1,6 +1,6 @@
 # Keel Operations Reference
 
-This document covers runtime operational behavior: graceful shutdown lifecycle, platform-specific signal handling, Kubernetes pre-stop hook patterns, sidecar health probing and circuit breaker state machine, and hot config reload.
+This document covers runtime operational behavior: graceful shutdown lifecycle, platform-specific signal handling, Kubernetes pre-stop hook patterns, sidecar health probing and circuit breaker state machine, hot config reload, and ACME certificate lifecycle.
 
 ---
 
@@ -317,4 +317,170 @@ git push origin v1.2.3
 # 3. The release.yml workflow fires automatically.
 # 4. After the first ever release, make GHCR packages public (one-time):
 bash scripts/release/setup-ghcr.sh
+
+---
+
+## 10. ACME Certificate Lifecycle
+
+> **Canonical specification:** [RFC 8555 — Automatic Certificate Management Environment (ACME)](https://www.rfc-editor.org/rfc/rfc8555)
+> Keel implements the ACME client role as defined by RFC 8555. All wire-protocol requirements are satisfied via `golang.org/x/crypto/acme`. See §10.6 for a full compliance statement.
+
+Keel's built-in ACME support is designed for **single-instance deployments** (a VPS, a bare-metal host, a container on a static IP). It automates the full Let's Encrypt certificate lifecycle — issuance, persistence, and renewal — without any external tooling.
+
+For multi-instance or Kubernetes fleets, use an external cert manager (e.g. cert-manager) and point `tls.cert_file` / `tls.key_file` at the shared cert. See Section 10.5.
+
+### 10.1 How It Works
+
+```
+Startup
+  ├─ Load account key from cache_dir/account.pem  (or generate + persist)
+  ├─ Load cert from cache_dir/cert.crt + cert.key  (if present)
+  │    └─ Serve cached cert immediately — no CA contact needed
+  ├─ Register account with Let's Encrypt (no-op if already registered)
+  └─ If cached cert is valid for > 30 days: sleep until renewal window
+       └─ Otherwise: obtain cert now
+
+Obtain / Renew
+  ├─ Authorize each domain via http-01 challenge on port 80
+  ├─ Let's Encrypt GETs /.well-known/acme-challenge/<token>
+  ├─ Issue cert; persist to cache_dir/cert.crt + cert.key
+  └─ Swap into the running TLS listener atomically (no restart needed)
+
+Background loop
+  └─ Sleep until 30 days before cert expiry, then renew
+```
+
+The http-01 challenge is served on port 80, which must be reachable from the internet. No DNS changes or DNS API credentials are needed.
+
+### 10.2 Minimal Configuration
+
+```yaml
+tls:
+  acme:
+    enabled: true
+    domains: [api.example.com]
+    email: ops@example.com
+    cache_dir: /var/lib/keel/acme
+```
+
+**Multiple domains** — Let's Encrypt issues a single cert covering all listed names. The first entry is the Common Name; all entries appear as Subject Alternative Names:
+
+```yaml
+tls:
+  acme:
+    enabled: true
+    domains:
+      - api.example.com
+      - www.example.com
+      - example.com
+    email: ops@example.com
+    cache_dir: /var/lib/keel/acme
+```
+
+All listed domains must resolve to this host at issuance time and at each renewal.
+
+### 10.3 Persistence and Restart Safety
+
+`cache_dir` is the key to restart-safe operation. Keel writes three files there:
+
+| File | Contents | Written |
+|---|---|---|
+| `account.pem` | ECDSA P-256 ACME account private key | Once, on first run |
+| `cert.crt` | PEM certificate chain (leaf + intermediates) | After each issuance/renewal |
+| `cert.key` | PEM EC private key for the certificate | After each issuance/renewal |
+
+**On every restart**, Keel reads `cert.crt` and `cert.key` before contacting Let's Encrypt. If the cert is still valid with more than 30 days remaining, Keel serves it immediately and waits until the renewal window opens — no ACME handshake, no rate-limit consumption.
+
+**Consequences of a missing or empty `cache_dir`:**
+- Keel contacts Let's Encrypt on every startup and issues a new cert each time.
+- Let's Encrypt allows at most 5 duplicate certificates per week. Frequent restarts will exhaust this limit and cause issuance failures.
+- Always use a persistent directory — a bind mount, a host path, or a persistent volume. Never use a tmpfs or an ephemeral container filesystem.
+
+**Cron / systemd timer pattern** — If Keel is invoked as a short-lived process (e.g. a cron job that runs, handles a batch, and exits), ACME is still correct provided `cache_dir` persists between invocations. Keel will load the existing cert on each invocation, serve it for the duration, and only contact Let's Encrypt when the cert enters its 30-day renewal window.
+
+### 10.4 Staging and Private CAs
+
+Always test against the Let's Encrypt staging environment before using production. The staging CA issues untrusted certificates but has much higher rate limits.
+
+```yaml
+tls:
+  acme:
+    enabled: true
+    domains: [api.example.com]
+    email: ops@example.com
+    cache_dir: /var/lib/keel/acme-staging
+    ca_url: https://acme-staging-v02.api.letsencrypt.org/directory
+```
+
+Use a separate `cache_dir` for staging and production — the certs are not interchangeable.
+
+For a private or internal CA (e.g. your own ACME server, or [pebble](https://github.com/letsencrypt/pebble) in a lab), add `ca_cert_file` so Keel trusts its TLS certificate:
+
+```yaml
+tls:
+  acme:
+    enabled: true
+    domains: [api.internal]
+    email: ops@example.com
+    cache_dir: /var/lib/keel/acme
+    ca_url: https://acme.internal/directory
+    ca_cert_file: /etc/keel/internal-ca.pem
+```
+
+### 10.5 Fleet Deployments
+
+ACME is scoped to single-instance use. For fleets:
+
+1. Use [cert-manager](https://cert-manager.io) (Kubernetes) or a dedicated cert renewal job to issue and renew the cert.
+2. Store the cert in a Kubernetes Secret or a shared volume.
+3. Point Keel's `tls.cert_file` and `tls.key_file` at the shared cert path.
+4. Send SIGHUP to Keel after renewal to reload the cert without restarting:
+   ```sh
+   kill -HUP $(pidof keel)
+   ```
+
+This avoids Let's Encrypt rate limits, eliminates the distribution problem, and works across any number of instances.
+
+### 10.6 RFC 8555 Compliance Statement
+
+Keel implements the ACME client role defined by [RFC 8555](https://www.rfc-editor.org/rfc/rfc8555). This section documents what is implemented, one intentional deviation, and known limitations.
+
+**Implemented and compliant**
+
+| RFC 8555 requirement | Section | How satisfied |
+|---|---|---|
+| HTTPS for all ACME requests | §6.1 | Let's Encrypt production URL is HTTPS by default; `ca_url` should be HTTPS for any non-loopback CA |
+| JWS request signing (ES256, ECDSA P-256 account key) | §6.2 | `golang.org/x/crypto/acme` |
+| `nonce` in every JWS protected header | §6.2, §6.5 | `golang.org/x/crypto/acme` |
+| `badNonce` retry using nonce from error response | §6.5 | `golang.org/x/crypto/acme` |
+| POST-as-GET for resource fetches | §6.3 | `golang.org/x/crypto/acme` |
+| `url` header set to exact request URL | §6.4 | `golang.org/x/crypto/acme` |
+| `User-Agent` on all requests | §6.1 | `golang.org/x/crypto/acme` |
+| `Content-Type: application/jose+json` on POSTs | §6.2 | `golang.org/x/crypto/acme` |
+| Account registration; 409 Conflict = already registered | §7.3 | `manager.go:registerAccount` |
+| Account `kid` (URL) in all post-registration requests | §6.2 | `golang.org/x/crypto/acme` |
+| Full order/authz state machine (pending → valid → ready) | §7.4 | `manager.go:obtainCert` via WaitOrder / WaitAuthorization |
+| http-01 challenge served on port 80 | §8.3 | `server.go`, port hardcoded |
+| Challenge path `/.well-known/acme-challenge/<token>` | §8.3 | `manager.go:HTTPHandler` |
+| Challenge response body: key authorization (UTF-8) | §8.1, §8.3 | `manager.go:HTTPHandler` |
+| Challenge `Content-Type: application/octet-stream` | §8.3 | `manager.go:HTTPHandler` |
+| Signal challenge readiness (POST `{}` to challenge URL) | §7.5.1 | `golang.org/x/crypto/acme:Accept` |
+| CSR: PKCS#10 DER, identifiers in SANs (not CN-only) | §7.4 | `manager.go:buildCSR` |
+| Certificate key pair distinct from account key pair | §7.4 | `manager.go:obtainCert` generates fresh ECDSA P-256 key per issuance |
+| ECDSA P-256 for both account key and certificate key | §6.2, §11 | `manager.go:loadOrCreateAccountKey`, `obtainCert` |
+| Certificate chain persisted leaf-first | §7.4.2 | `manager.go:storeCert` |
+| Post-issuance: cert SANs must cover all configured domains | beyond RFC | `manager.go:validateCert` |
+| Post-issuance: cert public key must be ECDSA | Keel TLS policy | `manager.go:validateCert` |
+
+**Intentional deviation**
+
+- **ToS auto-agreement** (RFC §7.3 SHOULD NOT): Keel calls `xacme.AcceptTOS`, which automatically agrees to the CA's Terms of Service. The RFC discourages this for interactive clients. For unattended server automation there is no practical alternative — certbot, acme.sh, and every other automated ACME client make the same call. Operators accept the CA's terms by configuring ACME.
+
+**Known limitations**
+
+- **Certificate revocation** (RFC §7.6): Not implemented. If a certificate's private key is compromised, revoke it manually via the CA's web interface or API. File a GitHub issue if revocation support is needed.
+- **External Account Binding / EAB** (RFC §7.3.4): Not implemented. CAs that require EAB (some enterprise and private CAs) cannot be used. `ca_url` works only for CAs that allow unauthenticated account registration.
+- **`Retry-After` on rate-limit errors** (RFC §6.6): On any cert-obtainment failure (including rate limiting), Keel falls back to a 24-hour retry interval. It does not parse `Retry-After` headers from the CA. Let's Encrypt's production rate limits are: 50 certificates per registered domain per week, 5 duplicate certificates per week.
+- **Internationalized domain names** (RFC §7.1.4): Domains must be supplied in ACE (ASCII Compatible Encoding) form (e.g., `xn--nxasmq6b.com`). Unicode domain names are not automatically converted and will be rejected by the CA.
+- **`ca_url` HTTPS enforcement** (RFC §6.1 MUST): Keel does not validate that `ca_url` starts with `https://`. In practice, all production CAs use HTTPS. Using an `http://` CA URL outside of loopback (test) environments violates RFC 8555 and exposes account keys to interception.
 ```

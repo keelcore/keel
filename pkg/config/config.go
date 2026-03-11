@@ -61,11 +61,12 @@ type ListenersConfig struct {
 }
 
 type ACMEConfig struct {
-	Enabled  bool     `yaml:"enabled"`
-	Domains  []string `yaml:"domains"`
-	Email    string   `yaml:"email"`
-	CacheDir string   `yaml:"cache_dir"`
-	CAUrl    string   `yaml:"ca_url"`
+	Enabled    bool     `yaml:"enabled"`
+	Domains    []string `yaml:"domains"`
+	Email      string   `yaml:"email"`
+	CacheDir   string   `yaml:"cache_dir"`
+	CAUrl      string   `yaml:"ca_url"`
+	CACertFile string   `yaml:"ca_cert_file"`
 }
 
 type TLSConfig struct {

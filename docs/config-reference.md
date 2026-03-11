@@ -86,15 +86,32 @@ tls:
 
   acme:
     enabled: false    # When true, Keel manages its own certificate via Let's Encrypt.
-    domains: []       # List of domain names to certify (SANs). Must not be empty when
-                      # ACME is enabled. Example: ["api.example.com", "www.example.com"]
-    email: ""         # ACME account email. Used for renewal notifications.
-    cache_dir: /var/lib/keel/acme   # Where the certificate files are cached on disk.
-                      # Use a PVC or emptyDir in Kubernetes so certs survive restarts.
+                      # Port 80 must be reachable from the internet for http-01 challenge
+                      # validation. See docs/operations.md §ACME for the full lifecycle.
+    domains: []       # One or more domain names for the certificate (SANs). The first
+                      # entry becomes the Common Name; all entries appear as Subject
+                      # Alternative Names. All domains must point to this host.
+                      # Single domain:  domains: [api.example.com]
+                      # Multiple SANs:  domains: [api.example.com, www.example.com]
+    email: ""         # ACME account email. Let's Encrypt sends expiry warnings here.
+                      # Strongly recommended — without it you receive no advance warning
+                      # if automated renewal fails.
+    cache_dir: ""     # Directory where Keel persists the issued cert and account key
+                      # between restarts. On restart Keel loads cert.crt / cert.key from
+                      # this directory and serves them immediately, without contacting
+                      # Let's Encrypt, until the 30-day renewal window opens.
+                      # Recommended value: /var/lib/keel/acme
+                      # Empty (default): cert is not persisted — a new cert is obtained
+                      # on every startup, rapidly exhausting Let's Encrypt rate limits.
+                      # The directory must survive process restarts (bind mount, host
+                      # path, or persistent volume — never a tmpfs or ephemeral fs).
     ca_url: ""        # ACME CA directory URL. Defaults to Let's Encrypt production when
                       # empty. Override to use Let's Encrypt staging
                       # (https://acme-staging-v02.api.letsencrypt.org/directory) during
-                      # development, or an internal CA.
+                      # development, or an internal CA URL.
+    ca_cert_file: ""  # Path to a PEM CA certificate to trust when connecting to ca_url.
+                      # Leave empty when using Let's Encrypt (trusted by the system store).
+                      # Required when ca_url points to a private or self-signed CA.
 
 # -----------------------------------------------------------------------
 # Sidecar mode: reverse-proxy envelope around an upstream service
@@ -102,7 +119,8 @@ tls:
 sidecar:
   enabled: false
 
-  upstream_url: http://127.0.0.1:3000   # The URL Keel forwards requests to.
+  upstream_url: ""    # The URL Keel forwards requests to. Required when sidecar is
+                      # enabled. Example: http://127.0.0.1:3000
                       # For intra-pod (localhost) upstreams, use http:// — TLS is not
                       # needed across the loopback because the pod network namespace is
                       # the trust boundary. For out-of-pod upstreams, use https://.
@@ -300,7 +318,7 @@ logging:
   remote_sink:
     enabled: false    # Ship logs to a remote endpoint (e.g., a log aggregator).
     endpoint: ""      # URL of the remote log sink.
-    protocol: http    # Protocol used to ship logs. Options: http, grpc.
+    protocol: http    # Protocol used to ship logs. Options: http, syslog.
 
 # -----------------------------------------------------------------------
 # Metrics: Prometheus and StatsD output
@@ -330,7 +348,7 @@ tracing:
 # FIPS: FIPS mode monitoring
 # -----------------------------------------------------------------------
 fips:
-  monitor: true       # Detect and expose FIPS mode status. When true, Keel checks at
+  monitor: false      # Detect and expose FIPS mode status. When true, Keel checks at
                       # startup whether the running binary was built with boringcrypto
                       # and exposes the result via /health/fips and the keel_fips_active
                       # Prometheus gauge. See docs/FIPS.md for the full FIPS guide.

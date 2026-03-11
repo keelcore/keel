@@ -99,7 +99,7 @@ func TestServeHTTPS_CancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if err := serveHTTPS(ctx, shutdown, "127.0.0.1:0", http.NotFoundHandler(), shortDrainCfg(), loader, log); err != nil {
+	if err := serveHTTPS(ctx, shutdown, "127.0.0.1:0", http.NotFoundHandler(), shortDrainCfg(), loader, nil, log); err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}
 }
@@ -117,7 +117,7 @@ func TestServeHTTPS_ListenError(t *testing.T) {
 	shutdown := lifecycle.NewShutdownOrchestrator(log)
 
 	err = serveHTTPS(context.Background(), shutdown, "256.0.0.1:0",
-		http.NotFoundHandler(), config.Config{}, loader, log)
+		http.NotFoundHandler(), config.Config{}, loader, nil, log)
 	if err == nil {
 		t.Fatal("expected error from invalid address, got nil")
 	}

@@ -78,6 +78,7 @@ keel:
       # PVC name for on-disk cert cache.  Must be ReadWriteOnce or ReadWriteMany.
       cachePVC: ""
       caUrl: ""  # default: Let's Encrypt production
+      caCertFile: ""  # path to PEM CA cert to trust when connecting to caUrl (private/test CAs)
 
   # Upstream connection (sidecar mode)
   upstream:

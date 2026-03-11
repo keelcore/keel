@@ -79,11 +79,13 @@ func TestACME_DeleteToken_RemovesChallenge(t *testing.T) {
 	}
 }
 
-// Start: stub implementation returns nil.
-func TestACME_Start_ReturnsNil(t *testing.T) {
+// Start: returns nil when context is cancelled before any CA contact.
+func TestACME_Start_ExitsOnContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately so Start exits without dialling
 	mgr := acme.New()
-	if err := mgr.Start(context.Background(), config.ACMEConfig{}); err != nil {
-		t.Errorf("Start: expected nil error, got %v", err)
+	if err := mgr.Start(ctx, config.ACMEConfig{}); err != nil {
+		t.Errorf("Start: expected nil on cancelled context, got %v", err)
 	}
 }
 

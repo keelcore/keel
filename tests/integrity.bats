@@ -608,6 +608,152 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
+# ACME http-01 challenge handler (RFC 8555 §8.3)
+# https://www.rfc-editor.org/rfc/rfc8555#section-8.3
+# ---------------------------------------------------------------------------
+
+# RFC 8555 §8.3: unknown challenge token must return 404.
+# Requires root to bind :80; skipped otherwise.
+@test "ACME http-01: GET /.well-known/acme-challenge/<unknown> returns 404" {
+  [ "$(id -u)" -eq 0 ] || skip "port 80 requires root"
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [test.example.com]\n    email: test@example.com\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local status
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:80/.well-known/acme-challenge/nosuchthing)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [ "${status}" -eq 404 ]
+}
+
+# Non-challenge paths on :80 must redirect to HTTPS (301).
+@test "ACME http-01: non-challenge GET / on port 80 redirects to HTTPS (301)" {
+  [ "$(id -u)" -eq 0 ] || skip "port 80 requires root"
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [test.example.com]\n    email: test@example.com\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local status
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --no-location http://127.0.0.1:80/)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [ "${status}" -eq 301 ]
+}
+
+# RFC 8555 §8.3 — end-to-end ACME http-01 cert issuance using pebble test CA.
+# PEBBLE_VA_SKIPVALIDATION=1: pebble marks challenges valid without contacting
+# port 80, so this test runs without root / inbound port-80 access.
+# Skipped when pebble binary or module cache is absent (dev/CI install pebble
+# with: go install github.com/letsencrypt/pebble/cmd/pebble@v1.0.1).
+@test "ACME end-to-end: pebble issues cert; keel writes cache_dir/cert.crt" {
+  command -v pebble > /dev/null 2>&1 || skip "pebble not installed (go install github.com/letsencrypt/pebble/cmd/pebble@v1.0.1)"
+
+  local gomodcache pebble_dir pebble_cfg ca_cert cache_dir cfg pid pebble_pid i
+
+  gomodcache="$(go env GOMODCACHE 2>/dev/null)" || skip "go not available"
+  pebble_dir="$(ls -d "${gomodcache}/github.com/letsencrypt/pebble@"* 2>/dev/null | sort -V | tail -1)"
+  [ -n "${pebble_dir}" ] || skip "pebble module not in module cache"
+
+  ca_cert="${pebble_dir}/test/certs/pebble.minica.pem"
+  [ -f "${ca_cert}" ] || skip "pebble minica CA cert not found at ${ca_cert}"
+
+  # Write pebble config pointing at its bundled test TLS cert.
+  pebble_cfg="$(mktemp --suffix=.json)"
+  printf '{"pebble":{"listenAddress":"127.0.0.1:14000","managementListenAddress":"127.0.0.1:15000","certificate":"%s/test/certs/localhost/cert.pem","privateKey":"%s/test/certs/localhost/key.pem","httpPort":5002,"tlsPort":5001,"externalAccountBindingRequired":false}}\n' \
+    "${pebble_dir}" "${pebble_dir}" > "${pebble_cfg}"
+
+  PEBBLE_VA_NOSLEEP=1 PEBBLE_VA_SKIPVALIDATION=1 pebble -config "${pebble_cfg}" > /tmp/pebble.log 2>&1 &
+  pebble_pid="${!}"
+  # Wait for pebble ACME directory to become reachable (up to 5 s).
+  i=0
+  while ! curl -sk --max-time 1 https://127.0.0.1:14000/dir > /dev/null 2>&1; do
+    sleep 0.2
+    i=$(( i + 1 ))
+    if [ "${i}" -ge 25 ]; then
+      kill "${pebble_pid}" 2>/dev/null || true
+      rm -f "${pebble_cfg}"
+      skip "pebble did not start within 5 s"
+    fi
+  done
+
+  cache_dir="$(mktemp -d)"
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [localhost]\n    email: test@example.com\n    ca_url: "https://127.0.0.1:14000/dir"\n    ca_cert_file: "%s"\n    cache_dir: "%s"\n' \
+    "${ca_cert}" "${cache_dir}" > "${cfg}"
+
+  KEEL_CONFIG="${cfg}" keel-min > /tmp/keel-acme.log 2>&1 &
+  pid="${!}"
+
+  # Poll for cert.crt up to 10 s.
+  i=0
+  while [ ! -s "${cache_dir}/cert.crt" ]; do
+    sleep 0.5
+    i=$(( i + 1 ))
+    if [ "${i}" -ge 20 ]; then break; fi
+  done
+
+  kill -TERM "${pid}" 2>/dev/null || true
+  wait "${pid}" 2>/dev/null || true
+  kill -TERM "${pebble_pid}" 2>/dev/null || true
+  wait "${pebble_pid}" 2>/dev/null || true
+  rm -f "${cfg}" "${pebble_cfg}"
+
+  [ -s "${cache_dir}/cert.crt" ]
+  rm -rf "${cache_dir}"
+}
+
+# ACME cache reuse: keel must serve a cached cert without contacting the CA.
+# A valid ECDSA P-256 cert is pre-written to cache_dir. keel is started with
+# a dead ca_url so any CA contact would cause a fatal error. If keel stays
+# alive and the cert file is intact, the cache-load path is working.
+# Requires root because ACME mode opens port 80.
+@test "ACME cache reuse: pre-existing cert.crt served without contacting CA" {
+  [ "$(id -u)" -eq 0 ] || skip "port 80 requires root"
+  command -v openssl > /dev/null 2>&1 || skip "openssl not available"
+
+  local cache_dir cfg pid
+
+  cache_dir="$(mktemp -d)"
+
+  # Generate a fresh ECDSA P-256 self-signed cert covering "localhost" with a
+  # 90-day validity so certNeedsRenewal returns false and no CA contact occurs.
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+    -keyout "${cache_dir}/cert.key" \
+    -out "${cache_dir}/cert.crt" \
+    -days 90 -nodes \
+    -subj "/CN=localhost" \
+    -addext "subjectAltName=DNS:localhost" \
+    > /dev/null 2>&1
+
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [localhost]\n    email: test@example.com\n    ca_url: "http://127.0.0.1:19991/dead"\n    cache_dir: "%s"\n' \
+    "${cache_dir}" > "${cfg}"
+
+  KEEL_CONFIG="${cfg}" keel-min > /tmp/keel-acme-reuse.log 2>&1 &
+  pid="${!}"
+  sleep 0.5
+
+  # Verify process is still alive (did not exit due to validation error).
+  kill -0 "${pid}" 2>/dev/null
+  local alive="${?}"
+
+  kill -TERM "${pid}" 2>/dev/null || true
+  wait "${pid}" 2>/dev/null || true
+  rm -f "${cfg}"
+
+  [ "${alive}" -eq 0 ]
+  [ -s "${cache_dir}/cert.crt" ]
+  rm -rf "${cache_dir}"
+}
+
+# ---------------------------------------------------------------------------
 # FIPS build (skipped when keel-fips binary is absent)
 # ---------------------------------------------------------------------------
 

@@ -298,35 +298,54 @@ func (s *Server) Run(ctx context.Context) {
 		}()
 	}
 
-	// --- Main listeners ---
-	if s.cfg.Listeners.HTTP.Enabled {
-		httpH := http.Handler(mainHandler)
-		if s.cfg.TLS.ACME.Enabled {
-			acmeMgr := acme.New()
-			go func() { _ = acmeMgr.Start(ctx, s.cfg.TLS.ACME) }()
-			httpH = acmeMgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port)
-		}
+	// --- ACME http-01 challenge listener (RFC 8555 §8.3) ---
+	// Always binds :80 when ACME is enabled, independent of listeners.http.
+	// acmeMgr is also used by the HTTPS listener below for GetCertificate.
+	var acmeMgr *acme.Manager
+	if s.cfg.TLS.ACME.Enabled {
+		acmeMgr = acme.New()
+		acmeMgr.SetLogger(func(event string, fields map[string]any) {
+			s.logger.Warn(event, fields)
+		})
+		go func() { _ = acmeMgr.Start(ctx, s.cfg.TLS.ACME) }()
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), httpH, s.cfg, s.logger)
+			errCh <- serveHTTP(ctx, shutdown, ":80", acmeMgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port), s.cfg, s.logger)
+		}()
+	}
+
+	// --- Main listeners ---
+	if s.cfg.Listeners.HTTP.Enabled {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), mainHandler, s.cfg, s.logger)
 		}()
 	}
 
 	if s.cfg.Listeners.HTTPS.Enabled {
-		if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
-			s.logger.Fatal("https_no_tls_cert", map[string]any{"err": "cert_file and key_file required"})
+		if s.cfg.TLS.ACME.Enabled {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				errCh <- serveHTTPS(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), mainHandler, s.cfg, nil, acmeMgr.GetCertificate, s.logger)
+			}()
+		} else {
+			if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
+				s.logger.Fatal("https_no_tls_cert", map[string]any{"err": "cert_file and key_file required"})
+			}
+			loader, err := keeltls.NewCertLoader(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile)
+			if err != nil {
+				s.logger.Fatal("tls_cert_load_failed", map[string]any{"err": err.Error()})
+			}
+			s.certLoader = loader
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				errCh <- serveHTTPS(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), mainHandler, s.cfg, loader, nil, s.logger)
+			}()
 		}
-		loader, err := keeltls.NewCertLoader(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile)
-		if err != nil {
-			s.logger.Fatal("tls_cert_load_failed", map[string]any{"err": err.Error()})
-		}
-		s.certLoader = loader
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			errCh <- serveHTTPS(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), mainHandler, s.cfg, loader, s.logger)
-		}()
 	}
 
 	if s.cfg.Listeners.H3.Enabled {
@@ -376,12 +395,20 @@ func (s *Server) Run(ctx context.Context) {
 	}
 
 	// Cert expiry metric loop: update keel_tls_cert_expiry_seconds while running.
-	if s.cfg.Listeners.HTTPS.Enabled && s.certLoader != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			runCertExpiryLoop(ctx, s.cfg.TLS.CertFile, s.met)
-		}()
+	if s.cfg.Listeners.HTTPS.Enabled {
+		if s.cfg.TLS.ACME.Enabled {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				runACMECertExpiryLoop(ctx, acmeMgr, s.met)
+			}()
+		} else if s.certLoader != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				runCertExpiryLoop(ctx, s.cfg.TLS.CertFile, s.met)
+			}()
+		}
 	}
 
 	// Log drops metric loop: always started so a reload-added sink is
@@ -508,9 +535,13 @@ func serveHTTP(ctx context.Context, shutdown *lifecycle.Orchestrator, addr strin
 	return err
 }
 
-func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, loader *keeltls.CertLoader, log *logging.Logger) error {
+func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, loader *keeltls.CertLoader, getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error), log *logging.Logger) error {
 	tlsCfg := keeltls.BuildTLSConfig(cfg)
-	tlsCfg.GetCertificate = loader.Get
+	if loader != nil {
+		tlsCfg.GetCertificate = loader.Get
+	} else {
+		tlsCfg.GetCertificate = getCert
+	}
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           h,
@@ -543,6 +574,24 @@ func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr stri
 		return nil
 	}
 	return err
+}
+
+func runACMECertExpiryLoop(ctx context.Context, mgr *acme.Manager, met *metrics.Metrics) {
+	if secs, err := mgr.CertExpiry(); err == nil {
+		met.SetCertExpiry(secs)
+	}
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if secs, err := mgr.CertExpiry(); err == nil {
+				met.SetCertExpiry(secs)
+			}
+		}
+	}
 }
 
 func runCertExpiryLoop(ctx context.Context, certFile string, met *metrics.Metrics) {

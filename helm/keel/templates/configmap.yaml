@@ -47,6 +47,7 @@ data:
         email: {{ $v.tls.acme.email | quote }}
         cache_dir: /var/lib/keel/acme
         ca_url: {{ $v.tls.acme.caUrl | quote }}
+        ca_cert_file: {{ $v.tls.acme.caCertFile | quote }}
 
     sidecar:
       enabled: {{ eq .Values.mode "sidecar" }}
