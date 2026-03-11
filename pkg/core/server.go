@@ -55,9 +55,12 @@ type Server struct {
 	// Remote sink lifecycle. runCtx is set once in Run and used by
 	// applyRemoteSink to derive sink goroutine contexts so they are
 	// cancelled on both SIGHUP reload and process shutdown.
+	// sinkWg tracks the active sink goroutine so Run waits for its final
+	// flush to complete before the process exits.
 	runCtx     context.Context
 	sinkMu     sync.Mutex
 	sinkCancel context.CancelFunc
+	sinkWg     sync.WaitGroup
 	httpSink   atomic.Pointer[logging.HTTPSink]
 
 	// Outbound signer: updated atomically on SIGHUP so the sidecar proxy
@@ -118,7 +121,11 @@ func (s *Server) applyRemoteSink(cfg config.Config) {
 	s.sinkCancel = cancel
 	if httpSink != nil {
 		s.httpSink.Store(httpSink)
-		go httpSink.Run(sinkCtx)
+		s.sinkWg.Add(1)
+		go func() {
+			defer s.sinkWg.Done()
+			httpSink.Run(sinkCtx)
+		}()
 	}
 	_ = s.logger.Reconfigure(logging.Config{
 		Level: cfg.Logging.Level,
@@ -413,12 +420,14 @@ func (s *Server) Run(ctx context.Context) {
 	case err := <-errCh:
 		cancel()
 		wg.Wait()
+		s.sinkWg.Wait()
 		if err != nil {
 			s.logger.Fatal("listener_error", map[string]any{"err": err.Error()})
 		}
 	default:
 		cancel()
 		wg.Wait()
+		s.sinkWg.Wait()
 		if sigErr != nil && !errors.Is(sigErr, context.Canceled) {
 			s.logger.Fatal("shutdown_error", map[string]any{"err": sigErr.Error()})
 		}

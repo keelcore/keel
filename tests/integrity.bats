@@ -295,6 +295,14 @@ cert_dir() {
 }
 
 # ---------------------------------------------------------------------------
+# Portable millisecond timestamp helper.
+# date +%s%3N is GNU-only; macOS date does not support %N.
+# python3 Time::HiRes is available on all supported platforms.
+# ---------------------------------------------------------------------------
+
+ms_now() { python3 -c 'import time; print(int(time.time()*1000))'; }
+
+# ---------------------------------------------------------------------------
 # Prestop sleep
 # ---------------------------------------------------------------------------
 
@@ -306,10 +314,10 @@ cert_dir() {
   pid="${!}"
   sleep 0.4
   local t_start t_end elapsed
-  t_start="$(date +%s%3N)"
+  t_start="$(ms_now)"
   kill -TERM "${pid}"
   wait "${pid}" || true
-  t_end="$(date +%s%3N)"
+  t_end="$(ms_now)"
   rm -f "${cfg}"
   elapsed="$(( t_end - t_start ))"
   [ "${elapsed}" -ge 250 ]
@@ -568,10 +576,10 @@ PYEOF
   pid="${!}"
   sleep 0.4
   local t_start t_end elapsed
-  t_start="$(date +%s%3N)"
+  t_start="$(ms_now)"
   kill -TERM "${pid}"
   wait "${pid}" || true
-  t_end="$(date +%s%3N)"
+  t_end="$(ms_now)"
   rm -f "${cfg}"
   elapsed="$(( t_end - t_start ))"
   [ "${elapsed}" -lt 1000 ]

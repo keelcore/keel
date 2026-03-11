@@ -140,16 +140,6 @@ The ACME manager must use `pkg/core/tls.BuildTLSConfig` for the listener `tls.Co
 
 ---
 
-### `fips.monitor` Implementation
-
-**What it is:** Defined and implemented behavior for the `fips.monitor` configuration field, which is currently a parsed-but-ignored placeholder.
-
-**Why it matters:** `fips.monitor` signals that the operator wants the binary to assert and continuously verify its FIPS 140-2/3 posture at runtime — not just at build time. Without an implementation, the field is a no-op that gives a false sense of assurance. A real implementation would: (1) confirm at startup that the binary was built with `GOEXPERIMENT=boringcrypto` and that BoringCrypto is active; (2) periodically re-assert this via a background health check; and (3) expose the FIPS status on the `/version` admin endpoint so orchestrators and badge services can verify it.
-
-**Implementation:** Add a `fips` package with a `Check() error` function that inspects the Go runtime to confirm BoringCrypto linkage. Expose the result on the `/version` endpoint. If `fips.monitor` is true and the binary was NOT built with BoringCrypto, fail fast at startup with a clear error.
-
----
-
 ### Replace LICENSE/TRADEMARK Root Symlinks with Real Files
 
 **What it is:** Remove the symlinks at the repository root (`LICENSE → pkg/clisupport/LICENSE`, `TRADEMARK.md → pkg/clisupport/TRADEMARK.md`) and replace them with real files. Add a pre-commit hook script (`scripts/check-legal-drift.sh`) that detects drift between the root copies and the `pkg/clisupport/` copies and tells the developer how to resolve it.
