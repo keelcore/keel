@@ -268,7 +268,7 @@ func defaults() Config {
 			StatsD:     StatsDConfig{Prefix: "keel"},
 		},
 		FIPS: FIPSConfig{
-			Monitor: true,
+			Monitor: false,
 		},
 		Sidecar: SidecarConfig{
 			UpstreamHealthPath:     "/health",

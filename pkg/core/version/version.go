@@ -3,8 +3,10 @@ package version
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"runtime"
 	"runtime/debug"
+	"strings"
 )
 
 // Build-time overrides via -ldflags "-X github.com/keelcore/keel/pkg/core/version.Version=1.2.3".
@@ -19,11 +21,30 @@ var activeTags []string
 
 // Info is the JSON schema for GET /version.
 type Info struct {
-	Version   string   `json:"version"`
-	Commit    string   `json:"commit"`
-	BuildDate string   `json:"build_date"`
-	GoVersion string   `json:"go_version"`
-	BuildTags []string `json:"build_tags"`
+	Version    string   `json:"version"`
+	Commit     string   `json:"commit"`
+	BuildDate  string   `json:"build_date"`
+	GoVersion  string   `json:"go_version"`
+	BuildTags  []string `json:"build_tags"`
+	FIPSActive bool     `json:"fips_active"`
+}
+
+// fipsRuntimeActive returns true when the FIPS runtime mode is active.
+// It mirrors the logic in pkg/core/fips.Check without creating a package dependency.
+// fipsBuilt is a build-tag-specific constant defined in fips_active.go / fips_active_nofips.go.
+func fipsRuntimeActive() bool {
+	if !fipsBuilt {
+		return false
+	}
+	if v := os.Getenv("GOFIPS140"); v != "" {
+		return true
+	}
+	for _, token := range strings.Split(os.Getenv("GODEBUG"), ",") {
+		if strings.TrimSpace(token) == "fips140=only" {
+			return true
+		}
+	}
+	return false
 }
 
 // Get returns the current build info, enriching commit/date from VCS metadata
@@ -48,11 +69,12 @@ func Get() Info {
 	tags := make([]string, len(activeTags))
 	copy(tags, activeTags)
 	return Info{
-		Version:   Version,
-		Commit:    commit,
-		BuildDate: buildDate,
-		GoVersion: runtime.Version(),
-		BuildTags: tags,
+		Version:    Version,
+		Commit:     commit,
+		BuildDate:  buildDate,
+		GoVersion:  runtime.Version(),
+		BuildTags:  tags,
+		FIPSActive: fipsRuntimeActive(),
 	}
 }
 

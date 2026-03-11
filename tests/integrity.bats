@@ -578,6 +578,19 @@ PYEOF
 }
 
 # ---------------------------------------------------------------------------
+# fips.monitor: startup gate — non-FIPS binary must exit non-zero
+# ---------------------------------------------------------------------------
+
+@test "fips.monitor: keel-min with monitor=true exits non-zero (FIPS not compiled in)" {
+  local cfg
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\nfips:\n  monitor: true\n' > "${cfg}"
+  run env -u GOFIPS140 -u GODEBUG KEEL_CONFIG="${cfg}" keel-min
+  rm -f "${cfg}"
+  [ "${status}" -ne 0 ]
+}
+
+# ---------------------------------------------------------------------------
 # FIPS build (skipped when keel-fips binary is absent)
 # ---------------------------------------------------------------------------
 

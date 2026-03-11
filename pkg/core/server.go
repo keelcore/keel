@@ -17,6 +17,7 @@ import (
 
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/acme"
+	keelfips "github.com/keelcore/keel/pkg/core/fips"
 	"github.com/keelcore/keel/pkg/core/http3"
 	"github.com/keelcore/keel/pkg/core/httpx"
 	"github.com/keelcore/keel/pkg/core/lifecycle"
@@ -181,6 +182,15 @@ func (s *Server) Run(ctx context.Context) {
 
 	// Apply logging level/format and start the remote sink (if configured).
 	s.applyRemoteSink(s.cfg)
+
+	// FIPS monitor startup gate: fatal if fips.monitor is enabled and FIPS
+	// runtime mode is not active. Checked before any listener starts so the
+	// binary fails closed rather than serving traffic in a non-FIPS state.
+	if s.cfg.FIPS.Monitor {
+		if err := keelfips.Check(); err != nil {
+			s.logger.Fatal("fips_monitor_check_failed", map[string]any{"err": err.Error()})
+		}
+	}
 
 	// StatsD client.
 	if s.cfg.Metrics.StatsD.Enabled && s.cfg.Metrics.StatsD.Endpoint != "" {
@@ -375,6 +385,16 @@ func (s *Server) Run(ctx context.Context) {
 		runLogDropsLoop(ctx, s.httpSink.Load, s.met)
 	}()
 
+	// FIPS monitor loop: only started when fips.monitor is enabled.
+	// Logs a warning and increments a metric on each failed check (hourly).
+	if s.cfg.FIPS.Monitor {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			runFIPSMonitorLoop(ctx, s.met)
+		}()
+	}
+
 	// All initialization complete; mark the startup probe ready.
 	s.startup.Done()
 
@@ -544,6 +564,21 @@ func runLogDropsLoop(ctx context.Context, getSink func() *logging.HTTPSink, met 
 		case <-ticker.C:
 			if sink := getSink(); sink != nil {
 				met.SetLogDrops(sink.DropsTotal())
+			}
+		}
+	}
+}
+
+func runFIPSMonitorLoop(ctx context.Context, met *metrics.Metrics) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := keelfips.Check(); err != nil {
+				met.IncFIPSMonitorFailure()
 			}
 		}
 	}

@@ -14,3 +14,4 @@ func (m *Metrics) Inflight() float64                         { return 0 }
 func (m *Metrics) FIPSActive() float64                       { return 0 }
 func (m *Metrics) SetCertExpiry(_ float64)                   {}
 func (m *Metrics) SetLogDrops(_ int64)                       {}
+func (m *Metrics) IncFIPSMonitorFailure()                    {}

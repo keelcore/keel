@@ -49,6 +49,14 @@ func TestMetricsHandler_Enabled_Returns200(t *testing.T) {
 	}
 }
 
+// runFIPSMonitorLoop: exits immediately when ctx is already cancelled.
+func TestRunFIPSMonitorLoop_ExitsOnCancel(t *testing.T) {
+	met := metrics.New()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	runFIPSMonitorLoop(ctx, met)
+}
+
 // AddRoute: appends a registrar and the closure body registers the handler on the router.
 func TestServer_AddRoute(t *testing.T) {
 	log := logging.New(logging.Config{Out: io.Discard})
