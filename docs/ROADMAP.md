@@ -90,20 +90,6 @@ This fills the gap between Keel's current service-to-service authn (JWT) and use
 ---
 
 
-### CI Kubernetes Integration Testing
-
-**What it is:** A CI job that provisions a lightweight Kubernetes cluster (e.g., kind or k3s), installs the Keel Helm chart, and runs the existing Colima integration test suite against it on every pull request.
-
-**Why it matters:** The Colima k8s tests currently run only on developer laptops, which means Kubernetes-level regressions — broken Helm rendering, incorrect RBAC, probe misconfiguration, or incompatible API versions — are not caught until after merge. Running these tests in CI provides three concrete outcomes:
-
-1. **Kubernetes API compatibility:** every PR is verified against the target cluster API version, catching deprecated resource kinds or field names before they reach production.
-2. **Helm chart correctness under real conditions:** `helm template` linting catches syntax errors, but only a live install catches runtime failures (missing RBAC permissions, incorrect port names, probe paths that don't match the running binary).
-3. **End-to-end signal before merge:** confidence that the binary, chart, and cluster configuration work together, not just individually.
-
-**Implementation approach:** Use `kind` (Kubernetes-in-Docker) in GHA — no external cluster required, no secrets needed, runs on standard `ubuntu-latest` runners. The existing `scripts/colima/` scripts are refactored to accept a kubeconfig path so they work against any cluster, not just Colima.
-
----
-
 ### TRADEMARK.md Periodic Review
 
 **What it is:** A scheduled periodic review (annually) of TRADEMARK.md to ensure the trademark policy is current and reflects actual usage in the ecosystem.
