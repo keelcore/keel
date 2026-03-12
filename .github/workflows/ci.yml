@@ -379,6 +379,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Start Docker (Colima)
+        run: bash scripts/ci/setup-docker-macos.sh
       - name: Install Helm
         run: bash scripts/ci/setup-helm.sh
       - name: Run k8s integration tests
