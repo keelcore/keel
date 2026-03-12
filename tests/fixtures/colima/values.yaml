@@ -2,6 +2,8 @@
 # Helm values for deploying Keel to the local Colima k8s cluster (P3.5).
 # Single replica, HTTP only, no TLS, no authn — optimised for local dev testing.
 
+fullnameOverride: keel
+
 replicaCount: 1
 
 image:

@@ -78,6 +78,7 @@ function start_port_forward() {
     svc/keel 19091:9091 19092:9092 &
   PORT_FORWARD_PID=$!
   sleep 2
+  kill -0 "${PORT_FORWARD_PID}" 2>/dev/null || { log '❌ Port-forward exited; check service name'; exit 1; }
   log "✅ Port-forward running (PID: ${PORT_FORWARD_PID})"
 }
 

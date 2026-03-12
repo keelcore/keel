@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # setup-helm.sh
-# Install Helm on a Linux CI runner via the official GPG-signed apt repository.
-# No-op if helm is already present. Linux only.
+# Install Helm via the platform-appropriate package manager.
+# Linux: official GPG-signed apt repository.
+# macOS: Homebrew.
+# No-op if helm is already present.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -20,9 +22,20 @@ function main() {
     log "helm already installed: $(helm version --short)"
     return 0
   fi
-  require_linux
-  log "Installing Helm via official apt repository"
-  install_helm_apt
+  case "$(uname -s)" in
+    Linux)
+      log "Installing Helm via official apt repository"
+      install_helm_apt
+      ;;
+    Darwin)
+      log "Installing Helm via Homebrew"
+      install_helm_brew
+      ;;
+    *)
+      log "ERROR: setup-helm.sh does not support OS: $(uname -s)"
+      exit 1
+      ;;
+  esac
   log "Helm installed: $(helm version --short)"
 }
 
@@ -33,13 +46,8 @@ function log() {
 
 function validate_args() { :; }
 
-function require_linux() {
-  if [[ "$(uname -s)" != 'Linux' ]]; then
-    log "ERROR: setup-helm.sh only supports Linux CI runners"
-    log "  For macOS: brew install helm"
-    log "  For Windows: choco install kubernetes-helm"
-    exit 1
-  fi
+function install_helm_brew() {
+  brew install helm
 }
 
 function install_helm_apt() {
