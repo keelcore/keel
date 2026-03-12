@@ -149,7 +149,7 @@ keel:
     remoteSink:
       enabled: false
       endpoint: ""
-      protocol: ""
+      protocol: "http"
 
   metrics:
     prometheus: true
