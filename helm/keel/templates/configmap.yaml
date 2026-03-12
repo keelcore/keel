@@ -122,7 +122,9 @@ data:
       remote_sink:
         enabled: {{ $v.logging.remoteSink.enabled }}
         endpoint: {{ $v.logging.remoteSink.endpoint | quote }}
+        {{- if $v.logging.remoteSink.protocol }}
         protocol: {{ $v.logging.remoteSink.protocol | quote }}
+        {{- end }}
 
     metrics:
       prometheus: {{ $v.metrics.prometheus }}
