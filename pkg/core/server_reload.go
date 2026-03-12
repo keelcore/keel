@@ -27,6 +27,8 @@ func (s *Server) Reload() error {
 	s.applyOutboundSigner(cfg)
 	// Reload trusted signers list (trusted_signers_file is re-read from disk).
 	s.applyAuthnState(cfg)
+	// Reinitialise OTLP tracing if endpoint or enabled flag changed.
+	s.applyTracing(cfg)
 
 	// Reload TLS certificate if a loader is active.
 	if s.certLoader != nil && cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {

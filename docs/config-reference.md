@@ -340,9 +340,9 @@ metrics:
 # -----------------------------------------------------------------------
 tracing:
   otlp:
-    enabled: false    # Emit OpenTelemetry spans via OTLP gRPC. Opt-out: no_otel tag.
-    endpoint: ""      # OTLP gRPC collector endpoint. Example: "otel-collector:4317"
-    insecure: false   # Allow plaintext OTLP connections. Set true for in-cluster
+    enabled: false    # Emit OpenTelemetry spans via OTLP/HTTP. Opt-out: no_otel tag.
+    endpoint: ""      # OTLP/HTTP collector endpoint (port 4318). Example: "otel-collector:4318"
+    insecure: false   # Allow plaintext HTTP connections. Set true for in-cluster
                       # collectors that do not terminate TLS. Never true in prod
                       # if the collector is outside the cluster network.
 

@@ -29,6 +29,7 @@ import (
 	"github.com/keelcore/keel/pkg/core/sidecar"
 	"github.com/keelcore/keel/pkg/core/statsd"
 	keeltls "github.com/keelcore/keel/pkg/core/tls"
+	"github.com/keelcore/keel/pkg/core/tracing"
 	"github.com/keelcore/keel/pkg/core/version"
 )
 
@@ -67,6 +68,11 @@ type Server struct {
 	// picks up the new key without being re-created.
 	signer atomic.Pointer[mw.JWTSigner]
 	authn  atomic.Pointer[authnSnapshot]
+
+	// OTLP tracing: tracingMu serialises Setup/Shutdown across concurrent
+	// SIGHUP reloads; expPtr is read per-request via the OTelSpan middleware.
+	tracingMu sync.Mutex
+	expPtr    atomic.Pointer[tracing.Exporter]
 }
 
 func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
@@ -157,6 +163,28 @@ func (s *Server) applyAuthnState(cfg config.Config) {
 	s.authn.Store(&authnSnapshot{signers: signers})
 }
 
+// applyTracing tears down any existing TracerProvider and sets up a new one
+// according to cfg. Safe to call on SIGHUP reload; tracingMu serialises
+// lifecycle transitions. Shutdown is synchronous so no goroutine is needed.
+func (s *Server) applyTracing(cfg config.Config) {
+	s.tracingMu.Lock()
+	defer s.tracingMu.Unlock()
+
+	tracing.Shutdown(s.expPtr.Load())
+	s.expPtr.Store(nil)
+
+	if !cfg.Tracing.OTLP.Enabled {
+		return
+	}
+
+	exp, err := tracing.Setup(cfg.Tracing.OTLP)
+	if err != nil {
+		s.logger.Warn("tracing_init_failed", map[string]any{"err": err.Error()})
+		return
+	}
+	s.expPtr.Store(exp)
+}
+
 // buildRemoteSink constructs the appropriate remote log sink based on cfg.Protocol.
 // Returns the io.Writer to pass to the logger and, for HTTP sinks only, the
 // *logging.HTTPSink pointer needed for the drops-metric loop.
@@ -189,6 +217,9 @@ func (s *Server) Run(ctx context.Context) {
 
 	// Apply logging level/format and start the remote sink (if configured).
 	s.applyRemoteSink(s.cfg)
+	// Initialise OTLP tracing. Shutdown is deferred to flush spans on exit.
+	s.applyTracing(s.cfg)
+	defer func() { tracing.Shutdown(s.expPtr.Load()) }()
 
 	// FIPS monitor startup gate: fatal if fips.monitor is enabled and FIPS
 	// runtime mode is not active. Checked before any listener starts so the
@@ -492,6 +523,9 @@ func (s *Server) wrapMain(h http.Handler) http.Handler {
 		h = mw.AccessLog(s.logger, h)
 	}
 	h = mw.RequestID(h)
+	// OTelSpan is wrapped before TraceContext so it executes after TraceContext
+	// at request time, giving it access to the trace/span IDs in r.Context().
+	h = mw.OTelSpan(func() *tracing.Exporter { return s.expPtr.Load() }, h)
 	h = mw.TraceContext(h)
 	if s.cfg.Limits.MaxConcurrent > 0 {
 		h = mw.ConcurrencyLimit(s.cfg, h)

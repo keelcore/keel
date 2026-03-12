@@ -130,9 +130,11 @@ These are the minimum required by the OpenTelemetry HTTP semantic conventions.
 tracing:
   otlp:
     enabled: true
-    endpoint: "otel-collector:4317"   # OTLP gRPC collector endpoint
-    insecure: true                    # true = plaintext; false = TLS (default false)
+    endpoint: "otel-collector:4318"   # OTLP/HTTP collector endpoint (port 4318)
+    insecure: true                    # true = plaintext HTTP; false = HTTPS (default false)
 ```
+
+Keel uses the **OTLP/HTTP** exporter (not gRPC). The standard OTLP/HTTP port is **4318**; the gRPC port 4317 is not used. Most collectors (OpenTelemetry Collector, Jaeger, Grafana Agent) listen on both ports by default.
 
 `insecure: true` is appropriate for in-cluster collectors on the same namespace that do not terminate TLS. For collectors accessible over the internet or outside the cluster network, use `insecure: false` and configure the collector with a TLS certificate.
 

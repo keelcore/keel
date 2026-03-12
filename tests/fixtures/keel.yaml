@@ -95,8 +95,8 @@ metrics:
 
 tracing:
   otlp:
-    enabled: false
-    endpoint: "otel-collector:4317"
+    enabled: true
+    endpoint: "otel-collector:4318"
     insecure: true
 
 fips:

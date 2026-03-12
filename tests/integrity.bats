@@ -319,6 +319,23 @@ cert_dir() {
   [ "${status}" -eq 200 ]
 }
 
+@test "tracing.otlp enabled: keel-max starts cleanly with no collector present (keel-max)" {
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  local cfg pid alive
+  cfg="$(mktemp)"
+  # otlptracehttp dials lazily: binary must start without a live collector.
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntracing:\n  otlp:\n    enabled: true\n    endpoint: "localhost:4318"\n    insecure: true\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-max &
+  pid="${!}"
+  sleep 0.4
+  kill -0 "${pid}" 2>/dev/null
+  alive="${?}"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [ "${alive}" -eq 0 ]
+}
+
 # ---------------------------------------------------------------------------
 # Portable millisecond timestamp helper.
 # date +%s%3N is GNU-only; macOS date does not support %N.
