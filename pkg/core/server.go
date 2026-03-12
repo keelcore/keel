@@ -311,7 +311,7 @@ func (s *Server) Run(ctx context.Context) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, shutdown, ":80", acmeMgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port), s.cfg, s.logger)
+			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.TLS.ACME.ChallengePort), acmeMgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port), s.cfg, s.logger)
 		}()
 	}
 

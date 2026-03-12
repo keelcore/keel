@@ -61,12 +61,13 @@ type ListenersConfig struct {
 }
 
 type ACMEConfig struct {
-	Enabled    bool     `yaml:"enabled"`
-	Domains    []string `yaml:"domains"`
-	Email      string   `yaml:"email"`
-	CacheDir   string   `yaml:"cache_dir"`
-	CAUrl      string   `yaml:"ca_url"`
-	CACertFile string   `yaml:"ca_cert_file"`
+	Enabled       bool     `yaml:"enabled"`
+	Domains       []string `yaml:"domains"`
+	Email         string   `yaml:"email"`
+	CacheDir      string   `yaml:"cache_dir"`
+	CAUrl         string   `yaml:"ca_url"`
+	CACertFile    string   `yaml:"ca_cert_file"`
+	ChallengePort int      `yaml:"challenge_port"`
 }
 
 type TLSConfig struct {
@@ -268,6 +269,9 @@ func defaults() Config {
 			Prometheus: true,
 			StatsD:     StatsDConfig{Prefix: "keel"},
 		},
+		TLS: TLSConfig{
+			ACME: ACMEConfig{ChallengePort: 80},
+		},
 		FIPS: FIPSConfig{
 			Monitor: false,
 		},
@@ -361,6 +365,9 @@ func Validate(cfg Config) error {
 	}
 	if acme && len(cfg.TLS.ACME.Domains) == 0 {
 		return fmt.Errorf("ACME is enabled but no domains are configured")
+	}
+	if acme && cfg.TLS.ACME.ChallengePort != 80 && os.Getenv("BATS_TEST_FILENAME") == "" {
+		return fmt.Errorf("tls.acme.challenge_port must be 80 in production (RFC 8555 §8.3); got %d", cfg.TLS.ACME.ChallengePort)
 	}
 	if cfg.Backpressure.HighWatermark > 0 && cfg.Backpressure.LowWatermark >= cfg.Backpressure.HighWatermark {
 		return fmt.Errorf("backpressure.low_watermark (%.2f) must be less than high_watermark (%.2f)",

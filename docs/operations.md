@@ -420,6 +420,8 @@ Use a separate `cache_dir` for staging and production — the certs are not inte
 
 For a private or internal CA (e.g. your own ACME server, or [pebble](https://github.com/letsencrypt/pebble) in a lab), add `ca_cert_file` so Keel trusts its TLS certificate:
 
+> **`challenge_port`** (default: `80`) — the TCP port Keel listens on for http-01 challenge requests. RFC 8555 §8.3 requires port 80 in production; Keel enforces this and rejects any other value unless the `BATS_TEST_FILENAME` environment variable is set (which is only true inside the BATS test runner). Do not override this field in production configs.
+
 ```yaml
 tls:
   acme:

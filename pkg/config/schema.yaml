@@ -319,6 +319,8 @@ properties:
                     email:
                         format: email
                         type: string
+                    challenge_port:
+                        type: integer
                     enabled:
                         type: boolean
                 type: object

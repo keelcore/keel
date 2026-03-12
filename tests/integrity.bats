@@ -677,8 +677,8 @@ PYEOF
 
 # RFC 8555 §8.3 — end-to-end ACME http-01 cert issuance using pebble test CA.
 # PEBBLE_VA_SKIPVALIDATION=1: pebble marks challenges valid without contacting
-# port 80. keel-max still binds :80 for the challenge server (RFC requirement);
-# on darwin this requires passwordless sudo; on Linux CI port 80 is open.
+# the challenge port. keel-max uses challenge_port: 5080 (non-privileged) so
+# no root/sudo is required on any platform.
 # Skipped when pebble binary or module cache is absent (dev/CI install pebble
 # with: go install github.com/letsencrypt/pebble/cmd/pebble@v1.0.1).
 @test "ACME end-to-end: pebble issues cert; keel writes cache_dir/cert.crt" {
@@ -694,9 +694,9 @@ PYEOF
   ca_cert="${pebble_dir}/test/certs/pebble.minica.pem"
   [ -f "${ca_cert}" ] || skip "pebble minica CA cert not found at ${ca_cert}"
 
-  # Write pebble config pointing at its bundled test TLS cert.
+  # Write pebble config: httpPort matches keel's challenge_port (5080).
   pebble_cfg="$(mktemp)"
-  printf '{"pebble":{"listenAddress":"127.0.0.1:14000","managementListenAddress":"127.0.0.1:15000","certificate":"%s/test/certs/localhost/cert.pem","privateKey":"%s/test/certs/localhost/key.pem","httpPort":80,"tlsPort":5001,"externalAccountBindingRequired":false}}\n' \
+  printf '{"pebble":{"listenAddress":"127.0.0.1:14000","managementListenAddress":"127.0.0.1:15000","certificate":"%s/test/certs/localhost/cert.pem","privateKey":"%s/test/certs/localhost/key.pem","httpPort":5080,"tlsPort":5001,"externalAccountBindingRequired":false}}\n' \
     "${pebble_dir}" "${pebble_dir}" > "${pebble_cfg}"
 
   PEBBLE_VA_NOSLEEP=1 PEBBLE_VA_SKIPVALIDATION=1 pebble -config "${pebble_cfg}" > /tmp/pebble.log 2>&1 &
@@ -715,22 +715,10 @@ PYEOF
 
   cache_dir="$(mktemp -d)"
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [localhost]\n    email: test@example.com\n    ca_url: "https://127.0.0.1:14000/dir"\n    ca_cert_file: "%s"\n    cache_dir: "%s"\n' \
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [localhost]\n    email: test@example.com\n    ca_url: "https://127.0.0.1:14000/dir"\n    ca_cert_file: "%s"\n    cache_dir: "%s"\n    challenge_port: 5080\n' \
     "${ca_cert}" "${cache_dir}" > "${cfg}"
 
-  # On darwin, ACME binds port 80 which requires root.
-  # Skip if passwordless sudo is not configured (non-interactive BATS cannot prompt).
-  if [[ "$(uname)" == "Darwin" ]]; then
-    sudo -n true 2>/dev/null || {
-      kill "${pebble_pid}" 2>/dev/null || true
-      rm -f "${cfg}" "${pebble_cfg}"
-      rm -rf "${cache_dir}"
-      skip "ACME end-to-end: passwordless sudo required on darwin (port 80)"
-    }
-    sudo env PATH="${PATH}" KEEL_CONFIG="${cfg}" keel-max > /tmp/keel-acme.log 2>&1 &
-  else
-    KEEL_CONFIG="${cfg}" keel-max > /tmp/keel-acme.log 2>&1 &
-  fi
+  KEEL_CONFIG="${cfg}" keel-max > /tmp/keel-acme.log 2>&1 &
   pid="${!}"
 
   # Poll for cert.crt up to 10 s.
@@ -741,11 +729,7 @@ PYEOF
     if [ "${i}" -ge 20 ]; then break; fi
   done
 
-  if [[ "$(uname)" == "Darwin" ]]; then
-    sudo kill -TERM "${pid}" 2>/dev/null || true
-  else
-    kill -TERM "${pid}" 2>/dev/null || true
-  fi
+  kill -TERM "${pid}" 2>/dev/null || true
   wait "${pid}" 2>/dev/null || true
   kill -TERM "${pebble_pid}" 2>/dev/null || true
   wait "${pebble_pid}" 2>/dev/null || true
