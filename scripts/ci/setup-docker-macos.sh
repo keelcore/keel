@@ -53,7 +53,7 @@ function install_deps() {
 
 function start_colima() {
   log '🚀 Starting Colima (cpu=2, memory=4, arch=arm64)...'
-  colima start --arch arm64 --cpu 2 --memory 4 --wait 120
+  colima start --arch aarch64 --cpu 2 --memory 4
   log '✅ Colima started'
 }
 
