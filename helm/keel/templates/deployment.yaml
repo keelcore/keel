@@ -78,16 +78,20 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
 
+          {{- with .Values.keel.extraArgs }}
           args:
-            - --config=/etc/keel/keel.yaml
-            {{- if .Values.keel.secrets.existingSecret }}
-            - --secrets={{ .Values.keel.secrets.mountPath }}/keel-secrets.yaml
-            {{- end }}
-            {{- range .Values.keel.extraArgs }}
+            {{- range . }}
             - {{ . | quote }}
             {{- end }}
+          {{- end }}
 
           env:
+            - name: KEEL_CONFIG
+              value: /etc/keel/keel.yaml
+            {{- if .Values.keel.secrets.existingSecret }}
+            - name: KEEL_SECRETS
+              value: {{ .Values.keel.secrets.mountPath }}/keel-secrets.yaml
+            {{- end }}
             {{- with .Values.keel.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
