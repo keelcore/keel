@@ -1,14 +1,14 @@
 module github.com/keelcore/keel
 
-go 1.25
+go 1.25.0
 
 toolchain go1.25.5
 
 require (
-	github.com/golang-jwt/jwt/v5 v5.3.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/quic-go/quic-go v0.59.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
-	golang.org/x/crypto v0.47.0
+	golang.org/x/crypto v0.49.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -16,7 +16,7 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	go.uber.org/mock v0.6.0 // indirect
-	golang.org/x/net v0.49.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/net v0.51.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
 )
