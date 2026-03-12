@@ -79,6 +79,7 @@ keel:
       cachePVC: ""
       caUrl: ""  # default: Let's Encrypt production
       caCertFile: ""  # path to PEM CA cert to trust when connecting to caUrl (private/test CAs)
+      challengePort: 80  # RFC 8555 §8.3 requires 80 in production; do not change
 
   # Upstream connection (sidecar mode)
   upstream:

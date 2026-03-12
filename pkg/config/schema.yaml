@@ -312,6 +312,8 @@ properties:
                         type: string
                     cache_dir:
                         type: string
+                    challenge_port:
+                        type: integer
                     domains:
                         items:
                             type: string
@@ -319,8 +321,6 @@ properties:
                     email:
                         format: email
                         type: string
-                    challenge_port:
-                        type: integer
                     enabled:
                         type: boolean
                 type: object

@@ -112,6 +112,8 @@ tls:
     ca_cert_file: ""  # Path to a PEM CA certificate to trust when connecting to ca_url.
                       # Leave empty when using Let's Encrypt (trusted by the system store).
                       # Required when ca_url points to a private or self-signed CA.
+    challenge_port: 80 # TCP port for the http-01 challenge server (RFC 8555 §8.3).
+                      # Must be 80 in production. Do not change.
 
 # -----------------------------------------------------------------------
 # Sidecar mode: reverse-proxy envelope around an upstream service
