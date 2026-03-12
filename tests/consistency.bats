@@ -28,6 +28,7 @@ setup_file() {
   export RENDERED
   RENDERED="$(helm template consistency-test "${REPO_ROOT}/helm/keel" \
     --set 'mode=sidecar' \
+    --set 'sidecar.app.image=placeholder' \
     --set 'keel.upstream.url=http://localhost:3000' 2>&1)"
 
   export RENDERED_CONFIG

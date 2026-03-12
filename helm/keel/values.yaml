@@ -5,7 +5,7 @@ replicaCount: 1
 
 # library  = single Keel container; your Go code links keel as a library.
 # sidecar  = two containers (app + keel); keel wraps an existing service.
-mode: library
+mode: sidecar
 
 image:
   repository: keelcore/keel
@@ -83,7 +83,8 @@ keel:
 
   # Upstream connection (sidecar mode)
   upstream:
-    url: ""
+    # In sidecar mode the app runs on localhost. Keep in sync with sidecar.app.port.
+    url: "http://localhost:3000"
     # k8s Secret with keys: ca.crt, tls.crt, tls.key
     # Mounted at /etc/keel/secrets/upstream-tls/ and wired into upstream_tls.*_file paths.
     tlsSecret: ""

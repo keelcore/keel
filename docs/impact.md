@@ -54,9 +54,38 @@ The table below maps each keel capability to the three communities that feel its
 
 ---
 
+## Implementation: The 7MB Drop-In
+
+Keel is designed to be invisible to your app code and weightless in your cluster. With a **shredded 7MB footprint** and ripped of legacy overhead, rolling it out is a purely operational exercise.
+
+* **Zero-Touch Retrofit:** Inject it via `mode: sidecar` in your Helm chart. The application container remains completely untouched.
+* **Compile-Time Hardening:** Capabilities are explicitly opted-in via build tags, not loaded as brittle dynamic plugins. You ship a single, statically linked binary.
+* **Instant Telemetry:** The moment the pod schedules, `prom` and `otel` are active at the boundary. No waiting for app teams to patch or update dependencies.
+
+## AI-Friendly Guardrails
+
+When you are exposing LLMs, internal AI agents, or expensive inference endpoints, the N/S boundary becomes your primary defense against compute exhaustion, unauthorized access, and compliance breaches. Keel acts as a hardened shield for AI workloads:
+
+* **Pre-Inference Identity Validation (`authn`):** Never let an unauthenticated request reach a GPU or an expensive LLM API. Keel verifies JWTs at the boundary in microseconds, dropping unverified requests before they consume a single compute cycle.
+* **Auditable AI Access (`authz` + `remotelog`):** Compliance teams heavily scrutinize who is talking to internal AI models. Keel uses OPA to strictly verify model access per-tenant, while simultaneously shipping a tamper-proof log of the request to your SIEM.
+* **FedRAMP-Ready AI (`fips`):** Shipping AI to federal, healthcare, or DoD customers requires strict network-layer compliance. Keel’s `fips` flavor allows you to wrap standard AI containers in a validated crypto boundary with a single Helm value change.
+* **Token Stream Resiliency (`h3`):** Streaming long-form AI token responses back to edge or mobile clients? Keel's HTTP/3 termination ensures dropped packets on lossy networks don't stall the entire response stream.
+
+## Standards: Uncompromising Supply Chain Provenance
+
+When you deploy a N/S boundary layer into a regulated environment, the binary's provenance is just as critical as its feature set. Keel's engineering standards eliminate supply-chain ambiguity:
+
+* **OpenSSF Baseline Certification:** Keel tracks and adheres to the Open Source Security Foundation's (OpenSSF) baseline criteria for secure software development. Vulnerability management, automated testing, and secure coding practices are treated as zero-tier requirements, not afterthoughts.
+* **Provable & Reproducible Builds:** Every release is pinned to a verifiable, reproducible build pipeline. Keel natively supports providing a comprehensive Software Bill of Materials (SBOM), satisfying federal (EO 14028) and strict enterprise software supply chain mandates.
+* **SLSA Hardened:** From commit to container registry, the build pipeline is hardened against tampering. This gives your DevSecOps and platform teams mathematical confidence that the sidecar they deploy is exactly the sidecar compiled.
+* **Continuous Cryptographic Validation:** The `flavor: fips` image doesn't just bundle a compliant crypto library; its development standards ensure it is validated against FIPS 140 compliance suites to guarantee no non-approved ciphers ever leak into the N/S traffic path.
+
+---
+
 ## What keel is not
 
 - **Not a WAF.** Keel does not inspect or block payloads based on signatures. Use a dedicated WAF upstream if you need that.
 - **Not a service mesh.** Keel owns N/S (external → pod). Istio and Linkerd own E/W (pod → pod). They are complementary; keel does not replace them.
 - **Not a policy engine.** Keel calls OPA for authorization decisions. OPA is the policy engine; keel is the enforcement point.
 - **Not an ingress controller.** Keel runs inside the pod, not at the cluster edge. It is the last hop before your app, not the first hop from the internet.
+- 

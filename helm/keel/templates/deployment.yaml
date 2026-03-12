@@ -197,7 +197,7 @@ spec:
         # ── App container (sidecar mode only) ─────────────────────────────────
         {{- if eq .Values.mode "sidecar" }}
         - name: app
-          image: "{{ .Values.sidecar.app.image }}:{{ .Values.sidecar.app.tag }}"
+          image: "{{ required "sidecar.app.image is required when mode=sidecar" .Values.sidecar.app.image }}:{{ .Values.sidecar.app.tag }}"
           imagePullPolicy: {{ .Values.sidecar.app.pullPolicy }}
           {{- with .Values.sidecar.app.securityContext }}
           securityContext:
