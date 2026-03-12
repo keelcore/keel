@@ -47,6 +47,8 @@ When compiled with BoringCrypto, Go's `crypto/tls`, `crypto/rsa`, `crypto/ecdsa`
 
 ## 3. How to Build a FIPS-Compliant Keel Binary
 
+**Build-time opt-out:** `no_fips`
+
 ### 3.1 Using the `fips` Image Flavor (Helm / Docker)
 
 The simplest approach: use the pre-built `fips` image flavor in the Helm chart.

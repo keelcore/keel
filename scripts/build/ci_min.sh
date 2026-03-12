@@ -39,7 +39,7 @@ function verify_toolchain() {
 }
 
 function execute_tiny_build() {
-  local -r tiny_tags='no_fips,no_otel,no_prom,no_remotelog,no_authn,no_h3,no_sidecar'
+  local -r tiny_tags='no_acme,no_authz,no_fips,no_h2,no_otel,no_owasp,no_prom,no_remotelog,no_authn,no_h3,no_sidecar,no_statsd'
   CGO_ENABLED=0 \
     go build -v -trimpath -tags "${tiny_tags}" \
     -ldflags='-s -w -buildid=' \

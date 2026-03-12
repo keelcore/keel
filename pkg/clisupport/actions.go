@@ -67,6 +67,7 @@ func tryCheckShred(log *logging.Logger) {
 		"build_tags":        info.BuildTags,
 		"binary_size_bytes": binSize,
 		"acme":              !tagSet["no_acme"],
+		"owasp":             !tagSet["no_owasp"],
 		"authn":             !tagSet["no_authn"],
 		"authz":             !tagSet["no_authz"],
 		"fips":              !tagSet["no_fips"],

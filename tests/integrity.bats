@@ -653,6 +653,7 @@ PYEOF
 # Skipped when pebble binary or module cache is absent (dev/CI install pebble
 # with: go install github.com/letsencrypt/pebble/cmd/pebble@v1.0.1).
 @test "ACME end-to-end: pebble issues cert; keel writes cache_dir/cert.crt" {
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   command -v pebble > /dev/null 2>&1 || skip "pebble not installed (go install github.com/letsencrypt/pebble/cmd/pebble@v1.0.1)"
 
   local gomodcache pebble_dir pebble_cfg ca_cert cache_dir cfg pid pebble_pid i
@@ -665,8 +666,8 @@ PYEOF
   [ -f "${ca_cert}" ] || skip "pebble minica CA cert not found at ${ca_cert}"
 
   # Write pebble config pointing at its bundled test TLS cert.
-  pebble_cfg="$(mktemp --suffix=.json)"
-  printf '{"pebble":{"listenAddress":"127.0.0.1:14000","managementListenAddress":"127.0.0.1:15000","certificate":"%s/test/certs/localhost/cert.pem","privateKey":"%s/test/certs/localhost/key.pem","httpPort":5002,"tlsPort":5001,"externalAccountBindingRequired":false}}\n' \
+  pebble_cfg="$(mktemp)"
+  printf '{"pebble":{"listenAddress":"127.0.0.1:14000","managementListenAddress":"127.0.0.1:15000","certificate":"%s/test/certs/localhost/cert.pem","privateKey":"%s/test/certs/localhost/key.pem","httpPort":80,"tlsPort":5001,"externalAccountBindingRequired":false}}\n' \
     "${pebble_dir}" "${pebble_dir}" > "${pebble_cfg}"
 
   PEBBLE_VA_NOSLEEP=1 PEBBLE_VA_SKIPVALIDATION=1 pebble -config "${pebble_cfg}" > /tmp/pebble.log 2>&1 &
@@ -688,7 +689,7 @@ PYEOF
   printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [localhost]\n    email: test@example.com\n    ca_url: "https://127.0.0.1:14000/dir"\n    ca_cert_file: "%s"\n    cache_dir: "%s"\n' \
     "${ca_cert}" "${cache_dir}" > "${cfg}"
 
-  KEEL_CONFIG="${cfg}" keel-min > /tmp/keel-acme.log 2>&1 &
+  KEEL_CONFIG="${cfg}" keel-max > /tmp/keel-acme.log 2>&1 &
   pid="${!}"
 
   # Poll for cert.crt up to 10 s.

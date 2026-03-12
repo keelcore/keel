@@ -207,6 +207,9 @@ See Section 1.3 of this document and the [config reference](config-reference.md)
 
 ## 4. TLS Policy
 
+**Build-time opt-out (HTTP/2):** `no_h2`
+**Build-time opt-out (HTTP/3):** `no_h3`
+
 See also [docs/FIPS.md](FIPS.md) for the FIPS-specific TLS constraints.
 
 ### 4.1 TLS 1.3 Only
@@ -262,6 +265,8 @@ When `tls.acme.enabled: true`, Keel becomes its own certificate manager.
 ---
 
 ## 5. Sidecar Upstream Security
+
+**Build-time opt-out:** `no_sidecar`
 
 When running in sidecar mode, Keel proxies requests to an upstream service. This section covers how Keel handles headers, IP attribution, response size, and upstream TLS.
 
@@ -384,6 +389,8 @@ sidecar:
 ---
 
 ## 6. External Authorization
+
+**Build-time opt-out:** `no_authz`
 
 Keel can delegate authorization decisions to an external policy engine via `ext_authz`. When enabled, every inbound request is forwarded to the configured endpoint before reaching the upstream service. The endpoint returns allow or deny; Keel enforces the decision with no application code changes required.
 

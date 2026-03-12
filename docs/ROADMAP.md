@@ -122,24 +122,6 @@ This fills the gap between Keel's current service-to-service authn (JWT) and use
 
 ---
 
-### Full ACME Certificate Manager
-
-**What it is:** Full implementation of the `tls.acme.*` configuration block — wiring `tls.acme.email`, `tls.acme.cache_dir`, and `tls.acme.ca_url` to a live ACME client (Let's Encrypt or any RFC 8555-compatible CA).
-
-**Why it matters:** The `tls.acme.*` fields are parsed today, but the ACME manager is stubbed. The stub logs a warning at startup and falls back to the static cert path. Completing this removes the need to manage TLS certificates manually: Keel would obtain, cache, and automatically renew certificates via the ACME HTTP-01 or TLS-ALPN-01 challenge, with `ca_url` allowing use of private CAs or Let's Encrypt staging.
-
-**Implementation:** Integrate `golang.org/x/crypto/acme/autocert` (or an equivalent library that supports custom CA URLs). `cache_dir` maps to `autocert.DirCache`. Expose port 80 for HTTP-01 challenges when not already in use, or use TLS-ALPN-01 to avoid the extra listener.
-
-**Compliance constraint (non-negotiable):** ACME-obtained certificates and the TLS listener they serve must satisfy all mandatory criteria from `governance/platform.md §32–35`:
-- Minimum TLS 1.2; TLS 1.3 required for all new integrations (Keel currently enforces TLS 1.3 minimum via `BuildTLSConfig`).
-- Cipher suites: ECDHE key exchange with AES-GCM or ChaCha20-Poly1305 only. RC4, DES, 3DES, export-grade, and sub-2048-bit DHE suites are prohibited.
-- Under FIPS builds: key-exchange curves restricted to P-256/P-384 (X25519 excluded); AES-GCM enforced by BoringCrypto.
-- HSTS `max-age` ≥ 1 year required on all HTTPS endpoints.
-
-The ACME manager must use `pkg/core/tls.BuildTLSConfig` for the listener `tls.Config` rather than constructing its own, so that the FIPS and non-FIPS policy files remain the single source of truth. The certificate key type requested from the CA must be ECDSA P-256 (or P-384 under FIPS) — RSA 2048 is the `autocert` default and must be overridden.
-
----
-
 ### Comprehensive TLS Cipher and Curve Hardening
 
 **What it is:** A full audit and hardening pass ensuring every outbound TLS connection Keel makes — not just its server-side listener — applies the same cipher-suite and key-exchange policy enforced by `pkg/core/tls.BuildTLSConfig`.

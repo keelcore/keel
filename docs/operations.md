@@ -322,10 +322,14 @@ bash scripts/release/setup-ghcr.sh
 
 ## 10. ACME Certificate Lifecycle
 
+**Build-time opt-out:** `no_acme`
+
 > **Canonical specification:** [RFC 8555 — Automatic Certificate Management Environment (ACME)](https://www.rfc-editor.org/rfc/rfc8555)
 > Keel implements the ACME client role as defined by RFC 8555. All wire-protocol requirements are satisfied via `golang.org/x/crypto/acme`. See §10.6 for a full compliance statement.
 
 Keel's built-in ACME support is designed for **single-instance deployments** (a VPS, a bare-metal host, a container on a static IP). It automates the full Let's Encrypt certificate lifecycle — issuance, persistence, and renewal — without any external tooling.
+
+> **Root / CAP_NET_BIND_SERVICE required.** The HTTP-01 challenge (RFC 8555 §8.3) mandates that the challenge response be served on **port 80** — this is a protocol requirement enforced by every public ACME CA, including Let's Encrypt. Port 80 is a privileged port on Linux and macOS (port < 1024), so Keel must run as `root` or with the `CAP_NET_BIND_SERVICE` capability. If Keel cannot bind port 80 at startup it will exit immediately. See the Docker and systemd examples in §10.2 for how to grant this capability without running the full process as root.
 
 For multi-instance or Kubernetes fleets, use an external cert manager (e.g. cert-manager) and point `tls.cert_file` / `tls.key_file` at the shared cert. See Section 10.5.
 
