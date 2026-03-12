@@ -63,17 +63,10 @@ function build_image() {
 
 function deploy_helm() {
   local -r profile="${1}"
-  local -r context="colima-${profile}"
-  local -r values="${REPO_ROOT}/tests/fixtures/colima/values.yaml"
-  log "⎈ Running helm upgrade --install (context: ${context})..."
-  helm upgrade --install keel "${REPO_ROOT}/helm/keel" \
-    --kube-context "${context}" \
-    --namespace keel \
-    --create-namespace \
-    --values "${values}" \
-    --wait \
-    --timeout 120s
-  log '✅ Helm release deployed'
+  KEEL_K8S_CONTEXT="${KEEL_K8S_CONTEXT:-colima-${profile}}"
+  export KEEL_K8S_CONTEXT
+  log "⎈ Delegating to helm-deploy.sh (context: ${KEEL_K8S_CONTEXT})..."
+  "${REPO_ROOT}/scripts/k8s/helm-deploy.sh"
 }
 
 main "${@:-}"

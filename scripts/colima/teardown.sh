@@ -39,7 +39,7 @@ function validate_args() {
 
 function uninstall_helm() {
   local -r profile="${1}"
-  local -r context="colima-${profile}"
+  local -r context="${KEEL_K8S_CONTEXT:-colima-${profile}}"
   log "⎈ Uninstalling keel Helm release (context: ${context})..."
   helm uninstall keel \
     --kube-context "${context}" \

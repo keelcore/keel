@@ -2,7 +2,7 @@
 # Part of the KeelCore governance: Ripped. Hard. Shredded.
 
 .PHONY: all clean min max max-no-fips \
-        test test-unit test-integrity test-compose \
+        test test-unit test-consistency test-integrity test-compose test-k8s \
         lint lint-go lint-helm lint-fmt \
         release-checksums release-sbom release-sign release-upload \
         colima-setup colima-deploy colima-test colima-teardown \
@@ -57,11 +57,15 @@ release-upload:
 	RELEASE_TAG=$(TAG) ./scripts/release/upload.sh
 
 ## Testing Targets
-test: test-unit test-integrity
+test: test-unit test-consistency test-integrity
 
 test-unit:
 	@echo "🧪 Running unit tests..."
 	./scripts/test/ci.sh
+
+test-consistency:
+	@echo "🧪 Running consistency suite..."
+	./scripts/test/consistency.sh
 
 test-integrity:
 	@echo "🧪 Running BATS integrity suite..."
@@ -79,6 +83,11 @@ test-compose:
 test-compose-keep:
 	@echo "🐳 Running Docker Compose integration tests (stack stays up)..."
 	./scripts/test/compose.sh --keep-up
+
+## CI Kubernetes (kind)
+test-k8s:
+	@echo "⎈ Running kind k8s integration tests..."
+	./scripts/test/k8s.sh
 
 ## P3.5 Local k8s (Colima) Targets
 colima-setup:
@@ -138,11 +147,13 @@ help:
 	@echo "  max-no-fips     Build the full-feature non-FIPS binary"
 	@echo ""
 	@echo "Test:"
-	@echo "  test            Run unit + BATS integrity tests"
-	@echo "  test-unit       Unit tests only"
-	@echo "  test-integrity  BATS integrity suite only"
-	@echo "  test-compose    Docker Compose integration tests (P3)"
+	@echo "  test             Run unit + consistency + BATS integrity tests"
+	@echo "  test-unit        Unit tests only"
+	@echo "  test-consistency Consistency suite only"
+	@echo "  test-integrity   BATS integrity suite only"
+	@echo "  test-compose     Docker Compose integration tests (P3)"
 	@echo "  test-compose-keep  Same but leave compose stack running"
+	@echo "  test-k8s         kind k8s integration tests (requires Docker)"
 	@echo ""
 	@echo "Local k8s (Colima / P3.5):"
 	@echo "  colima-setup    Install deps + start local k8s via Colima"
