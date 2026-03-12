@@ -17,6 +17,8 @@ function main() {
   validate_args "${@:-}"
   log '🔨 Building minimalist binary for integrity testing...'
   build_min
+  log '🔨 Building max (full-feature) binary for integrity testing...'
+  build_max
   log '🧪 Running BATS integrity suite...'
   run_bats
   log '✅ Integrity suite passed'
@@ -32,6 +34,10 @@ function validate_args() { :; }
 
 function build_min() {
   ./scripts/build/ci_min.sh
+}
+
+function build_max() {
+  ./scripts/build/ci_max_no_fips.sh
 }
 
 function run_bats() {

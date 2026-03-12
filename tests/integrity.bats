@@ -273,12 +273,28 @@ cert_dir() {
 
 @test "metrics.prometheus false: GET /metrics returns 404 (keel-max)" {
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  # macOS: poll until port 9999 is free (previous test may hold it briefly).
+  if [[ "$(uname)" == "Darwin" ]]; then
+    local _p=0
+    while lsof -nP -iTCP:9999 -sTCP:LISTEN > /dev/null 2>&1; do
+      sleep 0.1; _p=$(( _p + 1 ))
+      [ "${_p}" -lt 50 ] || break
+    done
+  fi
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nmetrics:\n  prometheus: false\n' > "${cfg}"
   KEEL_CONFIG="${cfg}" keel-max &
   pid="${!}"
-  sleep 0.4
+  # macOS: keel-max (full build) cold-starts slowly; poll for admin port readiness.
+  if [[ "$(uname)" == "Darwin" ]]; then
+    local _q=0
+    until curl -s --max-time 0.1 http://127.0.0.1:9999/ > /dev/null 2>&1 || [ "${_q}" -ge 30 ]; do
+      sleep 0.1; _q=$(( _q + 1 ))
+    done
+  else
+    sleep 0.4
+  fi
   local status
   status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:9999/metrics)"
   kill -TERM "${pid}"
@@ -337,6 +353,14 @@ ms_now() { python3 -c 'import time; print(int(time.time()*1000))'; }
 # ---------------------------------------------------------------------------
 
 @test "log level survives SIGHUP reload without crash" {
+  # macOS: poll until port 9999 is free (previous test may hold it briefly).
+  if [[ "$(uname)" == "Darwin" ]]; then
+    local _p=0
+    while lsof -nP -iTCP:9999 -sTCP:LISTEN > /dev/null 2>&1; do
+      sleep 0.1; _p=$(( _p + 1 ))
+      [ "${_p}" -lt 50 ] || break
+    done
+  fi
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nlogging:\n  level: warn\n' > "${cfg}"
@@ -360,6 +384,8 @@ ms_now() { python3 -c 'import time; print(int(time.time()*1000))'; }
 @test "remote_sink protocol http: log lines delivered to HTTP endpoint (keel-max)" {
   command -v python3 > /dev/null 2>&1 || skip "python3 not available"
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  # macOS: brief delay to allow previous test's port 9999 socket to be released.
+  [[ "$(uname)" == "Darwin" ]] && sleep 1.0
 
   local sink_port received_file cfg pid sink_pid py_script
   sink_port=19877
@@ -523,6 +549,8 @@ PYEOF
 @test "remote_sink protocol syslog: data delivered to TCP endpoint (keel-max)" {
   command -v python3 > /dev/null 2>&1 || skip "python3 not available"
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  # macOS: brief delay to allow previous test's port 9999 socket to be released.
+  [[ "$(uname)" == "Darwin" ]] && sleep 1.0
 
   local syslog_port received_file cfg pid syslog_pid py_script
   syslog_port=19881
@@ -649,7 +677,8 @@ PYEOF
 
 # RFC 8555 §8.3 — end-to-end ACME http-01 cert issuance using pebble test CA.
 # PEBBLE_VA_SKIPVALIDATION=1: pebble marks challenges valid without contacting
-# port 80, so this test runs without root / inbound port-80 access.
+# port 80. keel-max still binds :80 for the challenge server (RFC requirement);
+# on darwin this requires passwordless sudo; on Linux CI port 80 is open.
 # Skipped when pebble binary or module cache is absent (dev/CI install pebble
 # with: go install github.com/letsencrypt/pebble/cmd/pebble@v1.0.1).
 @test "ACME end-to-end: pebble issues cert; keel writes cache_dir/cert.crt" {
@@ -689,7 +718,19 @@ PYEOF
   printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [localhost]\n    email: test@example.com\n    ca_url: "https://127.0.0.1:14000/dir"\n    ca_cert_file: "%s"\n    cache_dir: "%s"\n' \
     "${ca_cert}" "${cache_dir}" > "${cfg}"
 
-  KEEL_CONFIG="${cfg}" keel-max > /tmp/keel-acme.log 2>&1 &
+  # On darwin, ACME binds port 80 which requires root.
+  # Skip if passwordless sudo is not configured (non-interactive BATS cannot prompt).
+  if [[ "$(uname)" == "Darwin" ]]; then
+    sudo -n true 2>/dev/null || {
+      kill "${pebble_pid}" 2>/dev/null || true
+      rm -f "${cfg}" "${pebble_cfg}"
+      rm -rf "${cache_dir}"
+      skip "ACME end-to-end: passwordless sudo required on darwin (port 80)"
+    }
+    sudo env PATH="${PATH}" KEEL_CONFIG="${cfg}" keel-max > /tmp/keel-acme.log 2>&1 &
+  else
+    KEEL_CONFIG="${cfg}" keel-max > /tmp/keel-acme.log 2>&1 &
+  fi
   pid="${!}"
 
   # Poll for cert.crt up to 10 s.
@@ -700,7 +741,11 @@ PYEOF
     if [ "${i}" -ge 20 ]; then break; fi
   done
 
-  kill -TERM "${pid}" 2>/dev/null || true
+  if [[ "$(uname)" == "Darwin" ]]; then
+    sudo kill -TERM "${pid}" 2>/dev/null || true
+  else
+    kill -TERM "${pid}" 2>/dev/null || true
+  fi
   wait "${pid}" 2>/dev/null || true
   kill -TERM "${pebble_pid}" 2>/dev/null || true
   wait "${pebble_pid}" 2>/dev/null || true
