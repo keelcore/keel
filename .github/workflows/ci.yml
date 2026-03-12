@@ -362,30 +362,6 @@ jobs:
       - name: Run k8s integration tests
         run: bash scripts/test/k8s.sh
 
-  # ---------------------------------------------------------------------------
-  # Kubernetes (kind, macOS) — cross-compiles linux/arm64 binary on macOS,
-  # builds keel:test image, loads it into kind, deploys via Helm, runs tests.
-  # No artifact dependency; kind-load.sh builds the binary from source.
-  # ---------------------------------------------------------------------------
-  k8s-macos:
-    name: Kubernetes (kind, macOS)
-    runs-on: macos-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.4.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Start Docker (Colima)
-        run: bash scripts/ci/setup-docker-macos.sh
-      - name: Install Helm
-        run: bash scripts/ci/setup-helm.sh
-      - name: Run k8s integration tests
-        run: bash scripts/test/k8s.sh
-
   build-windows-smoke:
     name: Windows Smoke
     runs-on: windows-latest
