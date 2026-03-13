@@ -152,6 +152,7 @@ setup_file() {
 # 7. .git/hooks/pre-commit is a symlink to scripts/hooks/pre-commit
 # ---------------------------------------------------------------------------
 @test ".git/hooks/pre-commit is a symlink to scripts/hooks/pre-commit" {
+  [ -n "${CI:-}" ] && skip "hook symlink not installed in CI checkout"
   [ -L "${REPO_ROOT}/.git/hooks/pre-commit" ]
   local target
   target="$(readlink "${REPO_ROOT}/.git/hooks/pre-commit")"
