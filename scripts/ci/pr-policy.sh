@@ -85,6 +85,7 @@ function run_checks() {
   check_branch_name      || failed=1
   check_file_sizes       || failed=1
   check_commit_messages  || failed=1
+  check_dco              || failed=1
   check_linked_issue     || failed=1
   return "${failed}"
 }
@@ -230,6 +231,26 @@ function validate_commit_subject() {
     err "Commit '${subject}' does not follow Conventional Commits format"
     return 1
   fi
+}
+
+function check_dco() {
+  local base
+  base="$(resolve_base_sha)"
+  [ -z "${base}" ] && log "  [SKIP] DCO sign-off: cannot determine base commit" && return 0
+  local -r head="${HEAD_SHA:-HEAD}"
+  local failed=0
+  local sha subject body
+  while IFS=' ' read -r sha subject; do
+    [ -z "${sha}" ] && continue
+    body="$(git log -1 --format='%b' "${sha}")"
+    if ! printf '%s\n' "${body}" | grep -qi '^Signed-off-by:'; then
+      err "Commit '${sha} ${subject}' is missing a Signed-off-by trailer"
+      err "  Fix: git rebase --signoff HEAD~N && git push --force-with-lease"
+      failed=1
+    fi
+  done < <(git log --format='%h %s' "${base}..${head}" 2>/dev/null || true)
+  [ "${failed}" -eq 0 ] && log "  [PASS] DCO sign-off"
+  return "${failed}"
 }
 
 function check_linked_issue() {

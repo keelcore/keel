@@ -86,6 +86,8 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 type(scope): short description
 
 Optional longer description explaining the why, not the what.
+
+Signed-off-by: Your Name <your@email.com>
 ```
 
 Allowed types: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `perf`,
@@ -98,8 +100,40 @@ fix(tls): handle cert reload failure without dropping existing connections
 docs(config-reference): add ext_authz section
 ```
 
-The PR policy gate enforces this format on both PR titles and individual commit
-messages. Run `scripts/ci/pr-policy.sh` locally before pushing to check.
+The PR policy gate enforces the Conventional Commits format on both PR titles
+and individual commit messages. Run `scripts/ci/pr-policy.sh` locally before
+pushing to check.
+
+### DCO sign-off
+
+Every commit must carry a `Signed-off-by:` trailer (Developer Certificate of
+Origin — [DCO](https://developercertificate.org/)). By signing off, you certify
+that you wrote the contribution or have the right to submit it under the
+project's open-source license. This satisfies the OSPS-LE-01.01 requirement
+that contributors assert legal authorization on every commit.
+
+**Sign off automatically:**
+
+```bash
+git commit -s -m "type(scope): description"
+# or
+git commit --signoff -m "type(scope): description"
+```
+
+Git appends `Signed-off-by: Your Name <your@email.com>` using your configured
+`user.name` and `user.email`.
+
+**Retroactively sign off commits already on a branch (replace `N` with the
+number of commits in your PR):**
+
+```bash
+git rebase --signoff HEAD~N
+git push --force-with-lease
+```
+
+The `dco` CI check runs on every PR and blocks merge if any commit is missing
+the trailer. Run `scripts/ci/dco-check.sh` locally (with `BASE_SHA` and
+`HEAD_SHA` set) to pre-flight the check.
 
 ### Branch naming
 
@@ -192,6 +226,7 @@ Before requesting review, confirm:
 - [ ] `docs/config-reference.md` updated if config fields were added or changed
 - [ ] `docs/security.md` updated if security behavior changed
 - [ ] Commit messages follow Conventional Commits
+- [ ] Every commit is signed off (`Signed-off-by:` trailer — `git commit -s`)
 
 ---
 

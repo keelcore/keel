@@ -1,0 +1,36 @@
+name: DCO
+
+on:
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs for the same PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Default: least privilege.
+permissions:
+  contents: read
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # DCO — verifies every commit in the PR carries a Signed-off-by trailer
+  # (OSPS-LE-01.01). All check logic lives in scripts/ci/dco-check.sh.
+  # ---------------------------------------------------------------------------
+  dco:
+    name: DCO Sign-off
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Check DCO sign-off
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/ci/dco-check.sh
