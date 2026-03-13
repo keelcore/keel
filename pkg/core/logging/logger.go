@@ -82,10 +82,11 @@ type Config struct {
 
 // Logger is a minimal structured logger. All methods are safe for concurrent use.
 type Logger struct {
-	mu    sync.Mutex
-	json  bool
-	out   io.Writer
-	level int32 // read/written via sync/atomic
+	mu     sync.Mutex
+	json   bool
+	out    io.Writer
+	level  int32     // read/written via sync/atomic
+	ExitFn func(int) // injectable; defaults to os.Exit
 }
 
 // New constructs a Logger from cfg. An unknown Level defaults to "info".
@@ -95,7 +96,7 @@ func New(cfg Config) *Logger {
 		out = os.Stdout
 	}
 	lvl, _ := ParseLevel(cfg.Level)
-	return &Logger{json: cfg.JSON, out: out, level: lvl}
+	return &Logger{json: cfg.JSON, out: out, level: lvl, ExitFn: os.Exit}
 }
 
 // Reconfigure atomically applies a new level and JSON flag.
@@ -124,13 +125,13 @@ func (l *Logger) Error(msg string, fields map[string]any) { l.log("error", level
 // Exit always logs (bypasses level filter) then terminates the process cleanly.
 func (l *Logger) Exit(msg string, fields map[string]any) {
 	l.write("info", msg, fields)
-	os.Exit(0)
+	l.ExitFn(0)
 }
 
 // Fatal always logs (bypasses level filter) then terminates the process.
 func (l *Logger) Fatal(msg string, fields map[string]any) {
 	l.write("error", msg, fields)
-	os.Exit(1)
+	l.ExitFn(1)
 }
 
 // log emits msg at the given level if the current level filter allows it.
