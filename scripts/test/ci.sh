@@ -33,7 +33,12 @@ function log() {
   printf '%s\n' "${msg}" | tee -a '/tmp/keel_test.log' >&5
 }
 
-function validate_args() { :; }
+function validate_args() {
+  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected arg'
+    exit 1
+  fi
+}
 
 function ensure_gotestsum() {
   if ! command -v gotestsum >/dev/null 2>&1; then
@@ -46,7 +51,7 @@ function run_unit_tests() {
   log "Running Go tests with race detection"
   local pkgs coverpkg
   pkgs="$(go_pkgs)"
-  coverpkg="$(printf '%s\n' "${pkgs}" | tr '\n' ',' | sed 's/,$//')"
+  coverpkg="$(printf '%s\n' "${pkgs}" | grep -v '/examples/' | tr '\n' ',' | sed 's/,$//')"
   printf '%s\n' "${pkgs}" | xargs gotestsum \
     --junitfile test-results.xml \
     --format standard-verbose \
