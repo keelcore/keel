@@ -34,6 +34,8 @@ A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops
 | [docs/release-policy.md](docs/release-policy.md) | Release tagging policy, semver versioning rules, schema-driven version computation |
 | [docs/governance.md](docs/governance.md) | Engineering governance standards submodule — what it is, why, and how to update it |
 | [docs/ai-tooling.md](docs/ai-tooling.md) | AI coding assistant integration — Claude Code, Cursor, GitHub Copilot adapter symlinks |
+| [docs/impact.md](docs/impact.md) | Use-case guide — who Keel is for, feature × community impact matrix, AI workload patterns, supply chain provenance posture |
+| [docs/no-comparison.md](docs/no-comparison.md) | Competitive landscape — why Envoy/service meshes, Caddy/NGINX, and single-trick sidecars are the wrong fit for brownfield compliance, and why the real competitor is the status quo |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Planned future capabilities |
 | [SECURITY.md](SECURITY.md) | CVE policy, private reporting, triage timeline, coordinated disclosure |
 | [TRADEMARK.md](TRADEMARK.md) | Trademark policy and permitted use |
@@ -323,6 +325,7 @@ See [docs/deployment.md](docs/deployment.md) for the complete library mode walkt
 - Vulnerability reporting and CVE policy: [SECURITY.md](SECURITY.md)
 - SBOM and provenance attached to each GitHub Release — see [Supply Chain Verification](docs/security.md#7-supply-chain-verification) for consumer verification instructions.
 - FIPS compliance guide: [docs/FIPS.md](docs/FIPS.md)
+- Emergency CI bypass procedure: [docs/break-glass.md](docs/break-glass.md) — authorisation requirements, minimal-fix discipline, and the 48-hour post-incident checklist for pushing directly to `main` when a critical production issue cannot wait for normal CI gates.
 
 ## Engineering Governance
 
@@ -336,6 +339,19 @@ git add .standards && git commit -m "chore: update standards"
 ```
 
 See [docs/governance.md](docs/governance.md) for the full explanation: what the submodule contains, why the submodule pattern was chosen over copy-paste, how to initialize it after a fresh clone, and how to propose changes upstream.
+
+---
+
+## Community
+
+Keel is an open-source project and welcomes contributions of all kinds — from documentation fixes to new middleware layers. The table below covers the contribution workflow, the people who maintain the project, and the community norms everyone is asked to follow. If you already have a fix in mind, [docs/LAZY.md](docs/LAZY.md) is the fastest path to a merged PR.
+
+| Document | Contents |
+|---|---|
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Full contribution guide — dev setup, coding standards, Conventional Commits format, testing checklist, and PR process |
+| [docs/LAZY.md](docs/LAZY.md) | Quick-path contribution guide — fork → branch → PR in five minutes for contributors who already have a fix ready |
+| [docs/MAINTAINERS.md](docs/MAINTAINERS.md) | Current maintainers, the path to maintainership, and ongoing maintainer responsibilities |
+| [docs/CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md) | CNCF Code of Conduct — the community norms all participants agree to |
 
 ---
 
