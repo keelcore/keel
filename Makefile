@@ -3,7 +3,7 @@
 
 .PHONY: all clean min max max-no-fips \
         test test-unit test-consistency test-integrity test-compose test-k8s \
-        lint lint-go lint-helm lint-fmt \
+        lint lint-go lint-helm lint-helm-validate lint-fmt \
         release-checksums release-sbom release-sign release-upload \
         colima-setup colima-deploy colima-test colima-teardown \
         gen-certs gen-schema create-release install-hooks fresh-repo help
@@ -39,6 +39,10 @@ lint-helm:
 	@echo "🔍 Running Helm lint..."
 	./scripts/lint/helm.sh
 
+lint-helm-validate:
+	@echo "🔍 Validating Helm template against Kubernetes schema..."
+	./scripts/lint/helm-validate.sh
+
 ## Release Targets
 release-checksums:
 	@echo "🔐 Generating SHA256SUMS..."
@@ -57,7 +61,7 @@ release-upload:
 	RELEASE_TAG=$(TAG) ./scripts/release/upload.sh
 
 ## Testing Targets
-test: test-unit test-consistency test-integrity
+test: test-unit test-consistency test-integrity lint-helm lint-helm-validate
 
 test-unit:
 	@echo "🧪 Running unit tests..."
@@ -164,7 +168,8 @@ help:
 	@echo "  lint            gofmt check + go vet + staticcheck"
 	@echo "  lint-fmt        gofmt -s check only"
 	@echo "  lint-go         go vet + staticcheck only"
-	@echo "  lint-helm       Helm chart lint only"
+	@echo "  lint-helm       Helm chart lint (no cluster required)"
+	@echo "  lint-helm-validate  Helm template schema validation via kubeconform (no cluster required)"
 	@echo ""
 	@echo "Release:"
 	@echo "  release-checksums  Generate dist/SHA256SUMS"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # helm.sh
-# Lint the Keel Helm chart and validate the rendered template.
+# Lint the Keel Helm chart (pure Helm validation, no cluster required).
 # Runnable locally and in CI identically.
 
 # bash configuration:
@@ -21,8 +21,6 @@ function main() {
   require_helm
   log "Linting ${CHART_DIR}"
   run_lint
-  log "Validating rendered template"
-  run_template_validate
   log "Helm lint passed"
 }
 
@@ -31,7 +29,12 @@ function log() {
   printf '%s\n' "${msg}" | tee -a '/tmp/keel_lint_helm.log' >&5
 }
 
-function validate_args() { :; }
+function validate_args() {
+  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected arg'
+    exit 1
+  fi
+}
 
 function require_helm() {
   if ! command -v helm >/dev/null 2>&1; then
@@ -42,16 +45,9 @@ function require_helm() {
 }
 
 function run_lint() {
-  helm lint "${CHART_DIR}"
-}
-
-function run_template_validate() {
-  if ! command -v kubectl >/dev/null 2>&1; then
-    log "ERROR: kubectl not found — run scripts/ci/setup-kind.sh first"
-    exit 1
-  fi
-  helm template keel-test "${CHART_DIR}" \
-    | kubectl apply --dry-run=client -f -
+  helm lint "${CHART_DIR}" \
+    --set 'mode=sidecar' \
+    --set 'sidecar.app.image=placeholder'
 }
 
 main "${@:-}"

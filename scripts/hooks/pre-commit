@@ -26,6 +26,7 @@ function main() {
   check_newlines
   check_legal_drift
   check_schema
+  check_helm
 }
 
 function log() {
@@ -95,6 +96,18 @@ function check_schema() {
   else
     log '✅ schema.yaml already up to date'
   fi
+}
+
+function staged_helm_files() {
+  git diff --cached --name-only --diff-filter=ACMR | grep '^helm/' || true
+}
+
+function check_helm() {
+  [ -n "$(staged_helm_files)" ] || return 0
+  log 'helm/ changed — running helm lint'
+  "$(git rev-parse --show-toplevel)/scripts/lint/helm.sh" \
+  && "$(git rev-parse --show-toplevel)/scripts/lint/helm-validate.sh"
+  log '✅ Helm lint passed'
 }
 
 main "${@:-}"
