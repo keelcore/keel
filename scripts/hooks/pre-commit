@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # pre-commit
 # Check that all staged Go files are gofmt -s clean.
-# Run scripts/lint/fmt.sh to fix, then re-stage.
+# Check that all staged .md/.sh/.go files end with a trailing newline.
+# Check that legal boilerplate files have not drifted.
+# Regenerate schema.yaml if pkg/config/*.go changed.
+# Run scripts/lint/fmt.sh or scripts/lint/newlines.sh --fix to repair, then re-stage.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -20,6 +23,8 @@ function main() {
   exec 5>&1
   validate_args "${@:-}"
   check_fmt
+  check_newlines
+  check_legal_drift
   check_schema
 }
 
@@ -28,7 +33,37 @@ function log() {
   printf '%s\n' "${msg}" | tee -a '/tmp/keel_hooks_pre_commit.log' >&5
 }
 
-function validate_args() { :; }
+function validate_args() {
+  if [ "${#}" -gt 0 ] && [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected arg'
+    exit 1
+  fi
+}
+
+function staged_text_files() {
+  git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(md|sh|go)$' | filter_src || true
+}
+
+function check_newlines() {
+  local files failed=0
+  files="$(staged_text_files)"
+  [ -z "${files}" ] && return 0
+  while IFS= read -r f; do
+    [ -s "${f}" ] || continue
+    if [ "$(tail -c1 "${f}" | od -An -tx1 | tr -d ' \n')" != "0a" ]; then
+      log "❌ Missing trailing newline: ${f}"
+      failed=1
+    fi
+  done <<< "${files}"
+  if [ "${failed}" -ne 0 ]; then
+    log 'Run scripts/lint/newlines.sh --fix, review, and re-stage.'
+    exit 1
+  fi
+}
+
+function check_legal_drift() {
+  "$(git rev-parse --show-toplevel)/scripts/check-legal-drift.sh"
+}
 
 function staged_go_files() {
   git diff --cached --name-only --diff-filter=ACMR | grep '\.go$' | filter_src || true

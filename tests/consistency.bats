@@ -149,7 +149,17 @@ setup_file() {
 }
 
 # ---------------------------------------------------------------------------
-# 7. gen-schema.sh writes valid JSON Schema YAML with the expected header
+# 7. .git/hooks/pre-commit is a symlink to scripts/hooks/pre-commit
+# ---------------------------------------------------------------------------
+@test ".git/hooks/pre-commit is a symlink to scripts/hooks/pre-commit" {
+  [ -L "${REPO_ROOT}/.git/hooks/pre-commit" ]
+  local target
+  target="$(readlink "${REPO_ROOT}/.git/hooks/pre-commit")"
+  [[ "${target}" == *"scripts/hooks/pre-commit" ]]
+}
+
+# ---------------------------------------------------------------------------
+# 8. gen-schema.sh writes valid JSON Schema YAML with the expected header
 # ---------------------------------------------------------------------------
 @test "gen-schema.sh produces valid YAML with json-schema.org 2019-09 header" {
   local tmpdir

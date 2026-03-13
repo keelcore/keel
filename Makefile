@@ -122,8 +122,7 @@ create-release:
 ## Repo Setup Targets
 install-hooks:
 	@echo "🪝 Installing git hooks..."
-	cp scripts/hooks/pre-commit .git/hooks/pre-commit
-	chmod +x .git/hooks/pre-commit
+	ln -sf "$(CURDIR)/scripts/hooks/pre-commit" .git/hooks/pre-commit
 	@echo "✅ Hooks installed"
 
 fresh-repo: install-hooks
