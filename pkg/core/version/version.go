@@ -31,9 +31,10 @@ type Info struct {
 
 // fipsRuntimeActive returns true when the FIPS runtime mode is active.
 // It mirrors the logic in pkg/core/fips.Check without creating a package dependency.
-// fipsBuilt is a build-tag-specific constant defined in fips_active.go / fips_active_nofips.go.
-func fipsRuntimeActive() bool {
-	if !fipsBuilt {
+// fipsBuild is injected by the caller (typically the build-tag constant fipsBuilt) so
+// that tests can exercise every branch without depending on a specific build tag.
+func fipsRuntimeActive(fipsBuild bool) bool {
+	if !fipsBuild {
 		return false
 	}
 	if v := os.Getenv("GOFIPS140"); v != "" {
@@ -74,7 +75,7 @@ func Get() Info {
 		BuildDate:  buildDate,
 		GoVersion:  runtime.Version(),
 		BuildTags:  tags,
-		FIPSActive: fipsRuntimeActive(),
+		FIPSActive: fipsRuntimeActive(fipsBuilt),
 	}
 }
 
