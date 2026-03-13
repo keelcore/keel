@@ -64,7 +64,7 @@ func TestAuthzClient_UnixSocket_ReturnsClient(t *testing.T) {
 	cfg := config.ExtAuthzConfig{Endpoint: "unix:///tmp/authz.sock"}
 	c := authzClient(cfg)
 	if c == nil {
-		t.Error("expected non-nil *http.Client for unix socket endpoint")
+		t.Fatal("expected non-nil *http.Client for unix socket endpoint")
 	}
 	if c.Transport == nil {
 		t.Error("expected custom Transport for unix socket endpoint")

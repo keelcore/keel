@@ -71,9 +71,16 @@ func TestStoreCert_MkdirFail(t *testing.T) {
 		t.Fatal(err)
 	}
 	der := makeECDSACertDER(t, key, []string{"example.com"}, time.Now().Add(90*24*time.Hour))
-	// Use a path under an existing read-only root file to trigger MkdirAll failure.
-	// /dev/null is a file, so creating a subdir under it fails on all platforms.
-	if err := m.storeCert("/dev/null/nonexistent-cache-for-test", []string{"example.com"}, key, [][]byte{der}); err == nil {
+	// Create a regular file then use a subpath beneath it as the cache dir.
+	// MkdirAll cannot create a directory inside a file on any OS, so it always fails.
+	f, err := os.CreateTemp("", "keel-acme-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	defer os.Remove(f.Name())
+	badPath := filepath.Join(f.Name(), "subdir")
+	if err := m.storeCert(badPath, []string{"example.com"}, key, [][]byte{der}); err == nil {
 		t.Error("expected error for non-writable cacheDir in storeCert")
 	}
 }
@@ -417,7 +424,7 @@ func TestLoadOrCreateAccountKey_CreatesAndCaches(t *testing.T) {
 		t.Fatalf("loadOrCreateAccountKey (load): %v", err)
 	}
 	if key2 == nil {
-		t.Error("expected non-nil key after load")
+		t.Fatal("expected non-nil key after load")
 	}
 	// Both keys should have the same public key.
 	if key1.PublicKey.X.Cmp(key2.PublicKey.X) != 0 {

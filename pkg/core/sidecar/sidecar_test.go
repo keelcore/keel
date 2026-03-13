@@ -178,7 +178,7 @@ func TestBuildTransport_Disabled_ReturnsClone(t *testing.T) {
 		t.Fatalf("buildTransport disabled: %v", err)
 	}
 	if tr == nil {
-		t.Error("expected non-nil transport")
+		t.Fatal("expected non-nil transport")
 	}
 }
 
@@ -189,7 +189,7 @@ func TestBuildTransport_Enabled_NoCANoCert_ReturnsTLSTransport(t *testing.T) {
 		t.Fatalf("buildTransport enabled: %v", err)
 	}
 	if tr == nil {
-		t.Error("expected non-nil transport")
+		t.Fatal("expected non-nil transport")
 	}
 	if tr.TLSClientConfig == nil {
 		t.Error("expected non-nil TLSClientConfig")
