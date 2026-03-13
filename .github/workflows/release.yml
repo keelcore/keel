@@ -38,19 +38,19 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Build min
-        run: bash scripts/build/ci_min.sh
+        run: make min
       - name: Build max (no FIPS)
-        run: bash scripts/build/ci_max_no_fips.sh
+        run: make max-no-fips
       - name: Build max (FIPS) + verify symbols
-        run: bash scripts/build/ci_max.sh
+        run: make max
       - name: Rename artifacts with platform suffix
-        run: bash scripts/release/rename-assets.sh
+        run: make release-rename
       - name: Install syft
-        run: bash scripts/release/install-syft.sh
+        run: make setup-syft
       - name: Generate SBOM
-        run: bash scripts/release/sbom.sh
+        run: make release-sbom
       - name: Generate checksums
-        run: bash scripts/release/checksums.sh
+        run: make release-checksums
       - uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.6.1
         with:
           name: release-artifacts
@@ -88,11 +88,11 @@ jobs:
           name: release-artifacts
           path: dist/
       - name: Verify artifact checksums
-        run: bash scripts/release/checksums.sh --verify
+        run: make release-checksums-verify
       - name: Install cosign
-        run: bash scripts/release/install-cosign.sh
+        run: make setup-cosign
       - name: Sign artifacts
-        run: bash scripts/release/sign.sh
+        run: make release-sign
       - name: Generate SLSA provenance attestation
         uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
         with:
@@ -101,14 +101,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: bash scripts/release/upload.sh
+        run: make release-upload
       - name: Build and push container images
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
-        run: bash scripts/release/docker.sh
+        run: make release-docker
       - name: Package and push Helm chart
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
-        run: bash scripts/release/helm-push.sh
+        run: make release-helm-push

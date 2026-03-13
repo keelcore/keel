@@ -2,11 +2,19 @@
 # Part of the KeelCore governance: Ripped. Hard. Shredded.
 
 .PHONY: all clean min max max-no-fips \
+        build integration-test unit-test \
         test test-unit test-consistency test-integrity test-compose test-k8s coverage \
-        lint lint-go lint-helm lint-helm-validate lint-fmt \
-        release-checksums release-sbom release-sign release-upload \
+        lint lint-go lint-helm lint-helm-validate lint-fmt lint-newlines \
+        release-checksums release-checksums-verify release-sbom release-sign release-upload \
+        release-rename release-docker release-helm-push release-ci \
         colima-setup colima-deploy colima-test colima-teardown \
-        gen-certs gen-schema create-release install-hooks fresh-repo help
+        gen-certs gen-schema create-release install-hooks fresh-repo help \
+        setup-helm setup-bats setup-pebble setup-kind setup-staticcheck setup-syft setup-cosign \
+        setup-docker-macos setup-kubeconform setup-ghcr \
+        ci-pr-policy ci-secret-scan ci-dco ci-coverage-delta ci-smoke-windows \
+        bats-integrity bats-example ci-build-example dist-chmod \
+        audit check-legal-drift size-report roadmap-issues \
+        k8s-cluster-test k8s-helm-deploy k8s-kind-load k8s-kind-setup k8s-kind-teardown
 
 # Default target: build the shredded minimalist binary
 all: min
@@ -138,7 +146,160 @@ fresh-repo: install-hooks
 	go mod download
 	@echo "✅ Repo ready"
 
+## Universal Canonical Targets (language-independent interface; mandated by CI standards)
+build: min
+
+unit-test: test-unit
+
+integration-test: test-integrity
+
+## Audit Target
+audit:
+	@echo "🔍 Running CI/Makefile audit..."
+	./scripts/ci/audit-make-targets.sh
+
+## Setup Targets
+setup-helm:
+	@echo "🔧 Installing Helm..."
+	./scripts/ci/setup-helm.sh
+
+setup-bats:
+	@echo "🔧 Installing bats-core..."
+	./scripts/ci/setup-bats.sh
+
+setup-pebble:
+	@echo "🔧 Installing pebble..."
+	./scripts/ci/setup-pebble.sh
+
+setup-kind:
+	@echo "🔧 Installing kind and creating cluster..."
+	./scripts/ci/setup-kind.sh
+
+setup-staticcheck:
+	@echo "🔧 Installing staticcheck..."
+	go install honnef.co/go/tools/cmd/staticcheck@latest
+
+setup-syft:
+	@echo "🔧 Installing syft..."
+	./scripts/release/install-syft.sh
+
+setup-cosign:
+	@echo "🔧 Installing cosign..."
+	./scripts/release/install-cosign.sh
+
+## CI Gate Targets
+ci-pr-policy:
+	@echo "🔍 Running PR policy check..."
+	./scripts/ci/pr-policy.sh
+
+ci-secret-scan:
+	@echo "🔍 Running secret scan..."
+	./scripts/ci/secret-scan.sh
+
+ci-dco:
+	@echo "🔍 Running DCO sign-off check..."
+	./scripts/ci/dco-check.sh
+
+ci-coverage-delta:
+	@echo "📊 Checking coverage delta..."
+	./scripts/test/coverage-delta.sh
+
+ci-smoke-windows:
+	@echo "🪟 Running Windows smoke test..."
+	./scripts/build/ci_smoke_windows.sh
+
+## BATS Runner Targets (artifact-based; distinct from test-integrity which builds first)
+bats-integrity:
+	@echo "🧪 Running BATS integrity suite against downloaded artifact..."
+	bats tests/integrity.bats
+
+bats-example:
+	@echo "🧪 Running BATS example suite..."
+	bats examples/myapp/myapp.bats
+
+ci-build-example:
+	@echo "🔨 Building examples/myapp (CI, no BATS)..."
+	./scripts/build/ci_example.sh
+
+## Additional Release Targets
+release-checksums-verify:
+	@echo "🔐 Verifying SHA256SUMS..."
+	./scripts/release/checksums.sh --verify
+
+release-rename:
+	@echo "📦 Renaming release artifacts with platform suffix..."
+	./scripts/release/rename-assets.sh
+
+release-docker:
+	@echo "🐳 Building and pushing container images..."
+	./scripts/release/docker.sh
+
+release-helm-push:
+	@echo "⎈ Packaging and pushing Helm chart..."
+	./scripts/release/helm-push.sh
+
+## Kubernetes Helper Targets (internal; called by test-k8s)
+k8s-cluster-test:
+	@echo "⎈ Running k8s cluster tests..."
+	./scripts/k8s/cluster-test.sh
+
+k8s-helm-deploy:
+	@echo "⎈ Deploying Helm chart to kind cluster..."
+	./scripts/k8s/helm-deploy.sh
+
+k8s-kind-load:
+	@echo "⎈ Loading image into kind cluster..."
+	./scripts/k8s/kind-load.sh
+
+k8s-kind-setup:
+	@echo "⎈ Setting up kind cluster..."
+	./scripts/k8s/kind-setup.sh
+
+k8s-kind-teardown:
+	@echo "⎈ Tearing down kind cluster..."
+	./scripts/k8s/kind-teardown.sh
+
+## Additional Setup Targets
+setup-docker-macos:
+	@echo "🔧 Setting up Docker on macOS runner..."
+	./scripts/ci/setup-docker-macos.sh
+
+setup-kubeconform:
+	@echo "🔧 Installing kubeconform..."
+	./scripts/ci/setup-kubeconform.sh
+
+setup-ghcr:
+	@echo "🔧 Setting up GHCR credentials..."
+	./scripts/release/setup-ghcr.sh
+
+## Additional Lint Targets
+lint-newlines:
+	@echo "🔍 Checking trailing newlines..."
+	./scripts/lint/newlines.sh
+
+## Additional Release Targets
+release-ci:
+	@echo "🚀 Running release CI pipeline..."
+	./scripts/release/ci.sh
+
+## Additional Utility Targets
+check-legal-drift:
+	@echo "⚖️  Checking legal file drift..."
+	./scripts/check-legal-drift.sh
+
+size-report:
+	@echo "📏 Generating binary size report..."
+	./scripts/build/size-report.sh
+
+roadmap-issues:
+	@echo "🗺️  Syncing roadmap issues..."
+	./scripts/roadmap-issues.sh
+
 ## Utility Targets
+dist-chmod:
+	@echo "🔑 Making dist binaries executable..."
+	chmod +x dist/keel-*
+
 clean:
 	@echo "🧹 Cleaning dist/ and build artifacts..."
 	rm -rf dist/
@@ -177,18 +338,52 @@ help:
 	@echo "  lint-helm-validate  Helm template schema validation via kubeconform (no cluster required)"
 	@echo ""
 	@echo "Release:"
-	@echo "  release-checksums  Generate dist/SHA256SUMS"
-	@echo "  release-sbom       Generate SBOM (requires syft)"
-	@echo "  release-sign       Sign artifacts (requires cosign)"
+	@echo "  release-checksums         Generate dist/SHA256SUMS"
+	@echo "  release-checksums-verify  Verify dist/SHA256SUMS"
+	@echo "  release-sbom              Generate SBOM (requires syft)"
+	@echo "  release-sign              Sign artifacts (requires cosign)"
+	@echo "  release-rename            Rename artifacts with platform suffix"
+	@echo "  release-docker            Build and push container images"
+	@echo "  release-helm-push         Package and push Helm chart"
 	@echo "  release-upload TAG=v1.x.x  Upload to GitHub Release (sets RELEASE_TAG)"
-	@echo "  gen-schema         Regenerate pkg/config/schema.yaml from config.Config"
-	@echo "  create-release     Compute and tag next semver release"
+	@echo "  gen-schema                Regenerate pkg/config/schema.yaml from config.Config"
+	@echo "  create-release            Compute and tag next semver release"
 	@echo "  create-release FORCE=v1.0.0  Force a specific version"
+	@echo ""
+	@echo "Setup (CI tooling):"
+	@echo "  setup-helm        Install Helm"
+	@echo "  setup-bats        Install bats-core"
+	@echo "  setup-pebble      Install pebble ACME test server"
+	@echo "  setup-kind        Install kind and create cluster"
+	@echo "  setup-staticcheck Install staticcheck linter"
+	@echo "  setup-syft        Install syft SBOM tool"
+	@echo "  setup-cosign      Install cosign signing tool"
+	@echo ""
+	@echo "CI Gates:"
+	@echo "  ci-pr-policy      Run PR policy check"
+	@echo "  ci-secret-scan    Run secret scan"
+	@echo "  ci-dco            Run DCO sign-off check"
+	@echo "  ci-coverage-delta Check coverage delta vs base branch"
+	@echo "  ci-smoke-windows  Build and smoke test Windows binary"
+	@echo "  ci-build-example  Build examples/myapp only (no BATS)"
+	@echo "  bats-integrity    Run BATS integrity suite (artifact must exist)"
+	@echo "  bats-example      Run BATS example suite"
 	@echo ""
 	@echo "Repo Setup:"
 	@echo "  fresh-repo      First-time setup: download deps + install hooks"
 	@echo "  install-hooks   Install git hooks from scripts/hooks/"
 	@echo ""
 	@echo "Utilities:"
-	@echo "  gen-certs       Generate self-signed TLS certs for testing"
-	@echo "  clean           Remove build artifacts"
+	@echo "  audit             Run CI/Makefile standards compliance audit"
+	@echo "  dist-chmod        Make dist/keel-* binaries executable"
+	@echo "  gen-certs         Generate self-signed TLS certs for testing"
+	@echo "  check-legal-drift Check legal file drift"
+	@echo "  size-report       Generate binary size report"
+	@echo "  roadmap-issues    Sync roadmap issues"
+	@echo "  lint-newlines     Check trailing newlines"
+	@echo "  clean             Remove build artifacts"
+	@echo ""
+	@echo "Universal targets (canonical; language-independent):"
+	@echo "  build             Alias for min (default artifact)"
+	@echo "  unit-test         Alias for test-unit"
+	@echo "  integration-test  Alias for test-integrity"

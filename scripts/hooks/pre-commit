@@ -27,6 +27,7 @@ function main() {
   check_legal_drift
   check_schema
   check_helm
+  check_ci_audit
 }
 
 function log() {
@@ -108,6 +109,18 @@ function check_helm() {
   "$(git rev-parse --show-toplevel)/scripts/lint/helm.sh" \
   && "$(git rev-parse --show-toplevel)/scripts/lint/helm-validate.sh"
   log '✅ Helm lint passed'
+}
+
+function staged_ci_audit_files() {
+  git diff --cached --name-only --diff-filter=ACMR \
+    | grep -E '^\.github/workflows/|^scripts/.*\.sh$|^Makefile$' || true
+}
+
+function check_ci_audit() {
+  [ -n "$(staged_ci_audit_files)" ] || return 0
+  log 'CI-sensitive files changed — running Makefile audit'
+  "$(git rev-parse --show-toplevel)/scripts/ci/audit-make-targets.sh"
+  log '✅ CI audit passed'
 }
 
 main "${@:-}"
