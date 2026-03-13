@@ -98,16 +98,6 @@ This fills the gap between Keel's current service-to-service authn (JWT) and use
 
 ---
 
-### OTLP Tracing Implementation
-
-**What it is:** Full implementation of the `tracing.otlp.*` configuration block — wiring `tracing.otlp.enabled`, `tracing.otlp.endpoint`, and `tracing.otlp.insecure` to a real OpenTelemetry OTLP exporter.
-
-**Why it matters:** The `tracing.otlp.*` config fields are parsed and validated today, but the tracing pipeline is not started. Completing this wires the fields to the `go.opentelemetry.io/otel/exporters/otlp/otlptrace` exporter so that every proxied request produces a span in the operator's tracing backend (Jaeger, Tempo, Honeycomb, etc.). This closes the observability gap between metrics (Prometheus, StatsD) and distributed tracing.
-
-**Implementation:** Create a `tracing` package (or extend the existing stub) that initialises an OTLP gRPC/HTTP exporter from the config, registers it as the global tracer provider, and injects `otelhttp.NewHandler` into the middleware stack. Honour `tracing.otlp.insecure` for dev environments that do not terminate TLS at the collector.
-
----
-
 ### Comprehensive TLS Cipher and Curve Hardening
 
 **What it is:** A full audit and hardening pass ensuring every outbound TLS connection Keel makes — not just its server-side listener — applies the same cipher-suite and key-exchange policy enforced by `pkg/core/tls.BuildTLSConfig`.
@@ -132,7 +122,7 @@ This fills the gap between Keel's current service-to-service authn (JWT) and use
 | `httpClientWithCA` | `pkg/core/acme/manager.go` | Raw `&tls.Config{RootCAs: pool}` — no MinVersion, no curve policy |
 | Remote log HTTP sink | `pkg/core/server.go` | Uses `http.DefaultTransport` — no TLS policy |
 | ext-authz HTTP transport | `pkg/core/mw/ext_authz.go` | Default `http.Client` — no TLS policy |
-| OTLP exporter (future) | not yet implemented | Must apply policy at introduction time |
+| OTLP/HTTP exporter | `pkg/core/tracing/provider.go` | `http.Client` with no TLS policy |
 
 **Acceptance criteria:**
 
