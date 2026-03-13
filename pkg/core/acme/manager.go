@@ -36,6 +36,19 @@ type Manager struct {
 	logErr func(string, map[string]any) // optional; nil = silent
 }
 
+// acmeClient is the subset of *xacme.Client used by Manager. Factored into an
+// interface so network-dependent helpers can be tested without a real CA.
+type acmeClient interface {
+	Register(ctx context.Context, a *xacme.Account, prompt func(string) bool) (*xacme.Account, error)
+	AuthorizeOrder(ctx context.Context, id []xacme.AuthzID, opt ...xacme.OrderOption) (*xacme.Order, error)
+	WaitOrder(ctx context.Context, url string) (*xacme.Order, error)
+	GetAuthorization(ctx context.Context, url string) (*xacme.Authorization, error)
+	HTTP01ChallengeResponse(token string) (string, error)
+	Accept(ctx context.Context, chal *xacme.Challenge) (*xacme.Challenge, error)
+	WaitAuthorization(ctx context.Context, url string) (*xacme.Authorization, error)
+	CreateOrderCert(ctx context.Context, url string, csr []byte, bundle bool) (der [][]byte, certURL string, err error)
+}
+
 // New creates an empty ACME Manager.
 func New() *Manager { return &Manager{} }
 
@@ -121,9 +134,9 @@ func resolveDirectoryURL(caURL string) string {
 	return caURL
 }
 
-// buildACMEClient constructs an *xacme.Client from the account key and config,
+// buildACMEClient constructs an acmeClient from the account key and config,
 // optionally attaching an HTTP client that trusts a custom CA certificate.
-func buildACMEClient(accountKey *ecdsa.PrivateKey, cfg config.ACMEConfig) (*xacme.Client, error) {
+func buildACMEClient(accountKey *ecdsa.PrivateKey, cfg config.ACMEConfig) (acmeClient, error) {
 	client := &xacme.Client{Key: accountKey, DirectoryURL: resolveDirectoryURL(cfg.CAUrl)}
 	if cfg.CACertFile == "" {
 		return client, nil
@@ -137,7 +150,7 @@ func buildACMEClient(accountKey *ecdsa.PrivateKey, cfg config.ACMEConfig) (*xacm
 }
 
 // setupACMEClient loads or creates the account key and builds the ACME client.
-func (m *Manager) setupACMEClient(cfg config.ACMEConfig) (*xacme.Client, error) {
+func (m *Manager) setupACMEClient(cfg config.ACMEConfig) (acmeClient, error) {
 	accountKey, err := loadOrCreateAccountKey(cfg.CacheDir)
 	if err != nil {
 		return nil, fmt.Errorf("acme account key: %w", err)
@@ -177,7 +190,7 @@ func waitForRenewalWindow(ctx context.Context, c *tls.Certificate) bool {
 }
 
 // runRenewalLoop repeatedly obtains/renews the certificate until ctx is done.
-func (m *Manager) runRenewalLoop(ctx context.Context, client *xacme.Client, cfg config.ACMEConfig) error {
+func (m *Manager) runRenewalLoop(ctx context.Context, client acmeClient, cfg config.ACMEConfig) error {
 	for {
 		if err := m.obtainCert(ctx, client, cfg); err != nil && !errors.Is(err, context.Canceled) {
 			if m.logErr != nil {
@@ -219,7 +232,7 @@ func Validate(_ config.Config) error { return nil }
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-func registerAccount(ctx context.Context, client *xacme.Client, email string) error {
+func registerAccount(ctx context.Context, client acmeClient, email string) error {
 	contact := []string{}
 	if email != "" {
 		contact = []string{"mailto:" + email}
@@ -245,21 +258,31 @@ func buildAuthzIDs(domains []string) []xacme.AuthzID {
 	return ids
 }
 
+// certMaterialInject controls error injection in generateCertMaterial for
+// testing. Production callers must pass noInjection.
+type certMaterialInject int
+
+const (
+	noInjection  certMaterialInject = iota
+	injectKeyErr                    // force ecdsa.GenerateKey error path
+	injectCSRErr                    // force buildCSR error path
+)
+
 // generateCertMaterial creates a fresh ECDSA P-256 key and DER-encoded CSR for domains.
-func generateCertMaterial(domains []string) (*ecdsa.PrivateKey, []byte, error) {
+func generateCertMaterial(domains []string, inject certMaterialInject) (*ecdsa.PrivateKey, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
+	if inject == injectKeyErr || err != nil {
 		return nil, nil, fmt.Errorf("generate cert key: %w", err)
 	}
 	csr, err := buildCSR(key, domains)
-	if err != nil {
+	if inject == injectCSRErr || err != nil {
 		return nil, nil, fmt.Errorf("build csr: %w", err)
 	}
 	return key, csr, nil
 }
 
 // fulfillAllHTTP01 satisfies every http-01 authorization challenge in authzURLs.
-func (m *Manager) fulfillAllHTTP01(ctx context.Context, client *xacme.Client, authzURLs []string) error {
+func (m *Manager) fulfillAllHTTP01(ctx context.Context, client acmeClient, authzURLs []string) error {
 	for _, authzURL := range authzURLs {
 		if err := m.fulfillHTTP01(ctx, client, authzURL); err != nil {
 			return err
@@ -269,9 +292,10 @@ func (m *Manager) fulfillAllHTTP01(ctx context.Context, client *xacme.Client, au
 }
 
 // finalizeCert generates key material, submits the CSR to the CA, and stores
-// the resulting certificate chain.
-func (m *Manager) finalizeCert(ctx context.Context, client *xacme.Client, order *xacme.Order, domains []string, cacheDir string) error {
-	key, csr, err := generateCertMaterial(domains)
+// the resulting certificate chain. inject controls error injection for testing;
+// callers must pass noInjection in production.
+func (m *Manager) finalizeCert(ctx context.Context, client acmeClient, order *xacme.Order, domains []string, cacheDir string, inject certMaterialInject) error {
+	key, csr, err := generateCertMaterial(domains, inject)
 	if err != nil {
 		return err
 	}
@@ -282,7 +306,7 @@ func (m *Manager) finalizeCert(ctx context.Context, client *xacme.Client, order 
 	return m.storeCert(cacheDir, domains, key, derChain)
 }
 
-func (m *Manager) obtainCert(ctx context.Context, client *xacme.Client, cfg config.ACMEConfig) error {
+func (m *Manager) obtainCert(ctx context.Context, client acmeClient, cfg config.ACMEConfig) error {
 	order, err := client.AuthorizeOrder(ctx, buildAuthzIDs(cfg.Domains))
 	if err != nil {
 		return fmt.Errorf("authorize order: %w", err)
@@ -294,7 +318,7 @@ func (m *Manager) obtainCert(ctx context.Context, client *xacme.Client, cfg conf
 	if err != nil {
 		return fmt.Errorf("wait order: %w", err)
 	}
-	return m.finalizeCert(ctx, client, order, cfg.Domains, cfg.CacheDir)
+	return m.finalizeCert(ctx, client, order, cfg.Domains, cfg.CacheDir, noInjection)
 }
 
 // selectHTTP01Challenge returns the http-01 challenge from authz.
@@ -313,7 +337,7 @@ func selectHTTP01Challenge(authz *xacme.Authorization) (*xacme.Challenge, error)
 
 // acceptChallenge registers the key-auth token, signals the CA to validate,
 // and waits for the authorization to complete.
-func (m *Manager) acceptChallenge(ctx context.Context, client *xacme.Client, authz *xacme.Authorization, chal *xacme.Challenge) error {
+func (m *Manager) acceptChallenge(ctx context.Context, client acmeClient, authz *xacme.Authorization, chal *xacme.Challenge) error {
 	keyAuth, err := client.HTTP01ChallengeResponse(chal.Token)
 	if err != nil {
 		return fmt.Errorf("key auth: %w", err)
@@ -329,7 +353,7 @@ func (m *Manager) acceptChallenge(ctx context.Context, client *xacme.Client, aut
 	return nil
 }
 
-func (m *Manager) fulfillHTTP01(ctx context.Context, client *xacme.Client, authzURL string) error {
+func (m *Manager) fulfillHTTP01(ctx context.Context, client acmeClient, authzURL string) error {
 	authz, err := client.GetAuthorization(ctx, authzURL)
 	if err != nil {
 		return fmt.Errorf("get authorization: %w", err)

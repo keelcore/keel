@@ -53,7 +53,7 @@ func TestBuildAuthzIDs_MultiDomain(t *testing.T) {
 // generateCertMaterial returns a non-nil ECDSA P-256 key and a parseable CSR
 // containing the requested domain in its DNS names.
 func TestGenerateCertMaterial_Valid(t *testing.T) {
-	key, csr, err := generateCertMaterial([]string{"example.com"})
+	key, csr, err := generateCertMaterial([]string{"example.com"}, noInjection)
 	if err != nil {
 		t.Fatalf("generateCertMaterial: %v", err)
 	}
