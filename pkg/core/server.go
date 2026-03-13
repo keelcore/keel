@@ -204,163 +204,172 @@ func (s *Server) Run(ctx context.Context) {
 	if err := acme.Validate(s.cfg); err != nil {
 		s.logger.Fatal("acme_config_invalid", map[string]any{"err": err.Error()})
 	}
-
 	if s.cfg.Backpressure.HeapMaxBytes > 0 {
 		debug.SetMemoryLimit(s.cfg.Backpressure.HeapMaxBytes)
 	}
 
-	// Create the inner cancellable context before the remote sink so sink
-	// goroutines share the same lifetime as the listeners.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	s.runCtx = ctx
-
-	// Apply logging level/format and start the remote sink (if configured).
 	s.applyRemoteSink(s.cfg)
-	// Initialise OTLP tracing. Shutdown is deferred to flush spans on exit.
 	s.applyTracing(s.cfg)
 	defer func() { tracing.Shutdown(s.expPtr.Load()) }()
 
-	// FIPS monitor startup gate: fatal if fips.monitor is enabled and FIPS
-	// runtime mode is not active. Checked before any listener starts so the
-	// binary fails closed rather than serving traffic in a non-FIPS state.
 	if s.cfg.FIPS.Monitor {
 		if err := keelfips.Check(); err != nil {
 			s.logger.Fatal("fips_monitor_check_failed", map[string]any{"err": err.Error()})
 		}
 	}
 
-	// StatsD client.
-	if s.cfg.Metrics.StatsD.Enabled && s.cfg.Metrics.StatsD.Endpoint != "" {
-		if sd, err := statsd.New(s.cfg.Metrics.StatsD.Endpoint, s.cfg.Metrics.StatsD.Prefix); err == nil {
-			s.sd = sd
-		} else {
-			s.logger.Warn("statsd_dial_failed", map[string]any{"err": err.Error()})
-		}
-	}
+	s.initStatsD()
+	rt, mainHandler := s.buildMainRouter()
+	healthMux := buildHealthMux()
+	readyMux := buildReadyMux(s.readiness)
+	adminMux := buildAdminMux(s.readiness, s.startup, s.metricsHandler(), s.ReloadHandler())
 
-	// Main router: ONLY application routes, each registered with an explicit fixed port.
-	mainRT := router.New()
-	for _, r := range s.registrars {
-		r.Register(mainRT)
-	}
-	s.registerDefaultRoutes(mainRT)
-
-	// Probes: separate muxes, served ONLY on probe/admin listeners.
-	healthMux := http.NewServeMux()
-	probes.RegisterHealth(healthMux)
-
-	readyMux := http.NewServeMux()
-	probes.RegisterReady(readyMux, s.readiness)
-
-	adminMux := http.NewServeMux()
-	probes.RegisterHealth(adminMux)
-	probes.RegisterReady(adminMux, s.readiness)
-	probes.RegisterStartup(adminMux, s.startup)
-	probes.RegisterFIPS(adminMux)
-	probes.RegisterPProf(adminMux)
-	adminMux.Handle("/metrics", s.metricsHandler())
-	adminMux.Handle("/admin/reload", s.ReloadHandler())
-	adminMux.Handle("/version", version.Handler())
-
-	s.applyAuthnState(s.cfg)
-	mainHandler := s.wrapMain(mainRT.Handler())
-
-	var (
-		wg    sync.WaitGroup
-		errCh = make(chan error, 8)
-	)
-
+	var wg sync.WaitGroup
+	errCh := make(chan error, 8)
 	shutdown := lifecycle.NewShutdownOrchestrator(s.logger)
 	go s.runSignalLoop(ctx)
 
-	// --- Probe / Admin listeners ---
+	s.startProbeListeners(ctx, shutdown, &wg, errCh, healthMux, readyMux, adminMux)
+	acmeMgr := s.startACMEListener(ctx, shutdown, &wg, errCh)
+	s.startMainListeners(ctx, shutdown, &wg, errCh, mainHandler, acmeMgr)
+	s.startSidecar(ctx, rt)
+	s.startBackgroundLoops(ctx, &wg, acmeMgr)
+	s.startup.Done()
+
+	sigErr := shutdown.WaitForStop(ctx)
+	s.prestopSleep()
+	s.drainListeners(cancel, &wg, errCh, sigErr)
+}
+
+// initStatsD connects to the StatsD endpoint when configured. A dial error is
+// logged as a warning and the server continues without StatsD.
+func (s *Server) initStatsD() {
+	if !s.cfg.Metrics.StatsD.Enabled || s.cfg.Metrics.StatsD.Endpoint == "" {
+		return
+	}
+	sd, err := statsd.New(s.cfg.Metrics.StatsD.Endpoint, s.cfg.Metrics.StatsD.Prefix)
+	if err != nil {
+		s.logger.Warn("statsd_dial_failed", map[string]any{"err": err.Error()})
+		return
+	}
+	s.sd = sd
+}
+
+// buildMainRouter assembles the application router, registers all routes, and
+// wraps the handler with middleware. Returns the router (for sidecar wiring)
+// and the fully-wrapped handler.
+func (s *Server) buildMainRouter() (*router.Router, http.Handler) {
+	rt := router.New()
+	for _, r := range s.registrars {
+		r.Register(rt)
+	}
+	s.registerDefaultRoutes(rt)
+	s.applyAuthnState(s.cfg)
+	return rt, s.wrapMain(rt.Handler())
+}
+
+// newACMEManager creates an ACME manager wired to the server logger.
+func (s *Server) newACMEManager() *acme.Manager {
+	mgr := acme.New()
+	mgr.SetLogger(func(event string, fields map[string]any) {
+		s.logger.Warn(event, fields)
+	})
+	return mgr
+}
+
+// startProbeListeners launches goroutines for the health, ready, admin, and
+// startup probe listeners according to the listener config.
+func (s *Server) startProbeListeners(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error, healthMux, readyMux, adminMux *http.ServeMux) {
 	if s.cfg.Listeners.Health.Enabled {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.Health.Port), healthMux, s.cfg, s.logger)
+			errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Health.Port), healthMux, s.cfg, s.logger)
 		}()
 	}
-
 	if s.cfg.Listeners.Ready.Enabled {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.Ready.Port), readyMux, s.cfg, s.logger)
+			errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Ready.Port), readyMux, s.cfg, s.logger)
 		}()
 	}
-
-	// Admin: enabled independently of health/ready listeners.
 	if s.cfg.Listeners.Admin.Enabled {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.Admin.Port), adminMux, s.cfg, s.logger)
+			errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Admin.Port), adminMux, s.cfg, s.logger)
 		}()
 	}
-
-	// Startup probe listener (separate port; /startupz only).
 	if s.cfg.Listeners.Startup.Enabled {
-		startupMux := http.NewServeMux()
-		probes.RegisterStartup(startupMux, s.startup)
+		startupMux := buildStartupMux(s.startup)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.Startup.Port), startupMux, s.cfg, s.logger)
+			errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Startup.Port), startupMux, s.cfg, s.logger)
 		}()
 	}
+}
 
-	// --- ACME http-01 challenge listener (RFC 8555 §8.3) ---
-	// Always binds :80 when ACME is enabled, independent of listeners.http.
-	// acmeMgr is also used by the HTTPS listener below for GetCertificate.
-	var acmeMgr *acme.Manager
+// startACMEListener starts the ACME certificate manager and its http-01
+// challenge listener when ACME is enabled. Returns the manager (nil if
+// disabled) for use by the HTTPS listener.
+func (s *Server) startACMEListener(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error) *acme.Manager {
+	if !s.cfg.TLS.ACME.Enabled {
+		return nil
+	}
+	mgr := s.newACMEManager()
+	go func() { _ = mgr.Start(ctx, s.cfg.TLS.ACME) }()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.TLS.ACME.ChallengePort), mgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port), s.cfg, s.logger)
+	}()
+	return mgr
+}
+
+// startHTTPSListener starts the HTTPS listener, using ACME GetCertificate when
+// ACME is enabled, or a file-based CertLoader otherwise.
+func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error, h http.Handler, acmeMgr *acme.Manager) {
+	if !s.cfg.Listeners.HTTPS.Enabled {
+		return
+	}
 	if s.cfg.TLS.ACME.Enabled {
-		acmeMgr = acme.New()
-		acmeMgr.SetLogger(func(event string, fields map[string]any) {
-			s.logger.Warn(event, fields)
-		})
-		go func() { _ = acmeMgr.Start(ctx, s.cfg.TLS.ACME) }()
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.TLS.ACME.ChallengePort), acmeMgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port), s.cfg, s.logger)
+			errCh <- serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, nil, acmeMgr.GetCertificate, s.logger)
 		}()
+		return
 	}
+	if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
+		s.logger.Fatal("https_no_tls_cert", map[string]any{"err": "cert_file and key_file required"})
+	}
+	loader, err := keeltls.NewCertLoader(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile)
+	if err != nil {
+		s.logger.Fatal("tls_cert_load_failed", map[string]any{"err": err.Error()})
+	}
+	s.certLoader = loader
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		errCh <- serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, loader, nil, s.logger)
+	}()
+}
 
-	// --- Main listeners ---
+// startMainListeners launches the HTTP, HTTPS, and H3 application listeners.
+func (s *Server) startMainListeners(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error, h http.Handler, acmeMgr *acme.Manager) {
 	if s.cfg.Listeners.HTTP.Enabled {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), mainHandler, s.cfg, s.logger)
+			errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), h, s.cfg, s.logger)
 		}()
 	}
-
-	if s.cfg.Listeners.HTTPS.Enabled {
-		if s.cfg.TLS.ACME.Enabled {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				errCh <- serveHTTPS(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), mainHandler, s.cfg, nil, acmeMgr.GetCertificate, s.logger)
-			}()
-		} else {
-			if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
-				s.logger.Fatal("https_no_tls_cert", map[string]any{"err": "cert_file and key_file required"})
-			}
-			loader, err := keeltls.NewCertLoader(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile)
-			if err != nil {
-				s.logger.Fatal("tls_cert_load_failed", map[string]any{"err": err.Error()})
-			}
-			s.certLoader = loader
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				errCh <- serveHTTPS(ctx, shutdown, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), mainHandler, s.cfg, loader, nil, s.logger)
-			}()
-		}
-	}
-
+	s.startHTTPSListener(ctx, sd, wg, errCh, h, acmeMgr)
 	if s.cfg.Listeners.H3.Enabled {
 		if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
 			s.logger.Fatal("h3_no_tls_cert", map[string]any{"err": "cert_file and key_file required"})
@@ -368,13 +377,14 @@ func (s *Server) Run(ctx context.Context) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveH3(ctx, config.AddrFromPort(s.cfg.Listeners.H3.Port), mainHandler, s.cfg, s.logger)
+			errCh <- serveH3(ctx, config.AddrFromPort(s.cfg.Listeners.H3.Port), h, s.cfg, s.logger)
 		}()
 	}
+}
 
-	// Sidecar route registration.
-	s.startSidecar(ctx, mainRT)
-
+// startBackgroundLoops starts the metric and monitor goroutines that run for
+// the lifetime of the server.
+func (s *Server) startBackgroundLoops(ctx context.Context, wg *sync.WaitGroup, acmeMgr *acme.Manager) {
 	if s.cfg.Backpressure.SheddingEnabled {
 		wg.Add(1)
 		go func() {
@@ -382,8 +392,6 @@ func (s *Server) Run(ctx context.Context) {
 			mw.RunPressureLoop(ctx, s.readiness, s.cfg, s.logger)
 		}()
 	}
-
-	// Cert expiry metric loop: update keel_tls_cert_expiry_seconds while running.
 	if s.cfg.Listeners.HTTPS.Enabled {
 		if s.cfg.TLS.ACME.Enabled {
 			wg.Add(1)
@@ -399,17 +407,11 @@ func (s *Server) Run(ctx context.Context) {
 			}()
 		}
 	}
-
-	// Log drops metric loop: always started so a reload-added sink is
-	// automatically tracked without restarting the goroutine.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		runLogDropsLoop(ctx, s.httpSink.Load, s.met)
 	}()
-
-	// FIPS monitor loop: only started when fips.monitor is enabled.
-	// Logs a warning and increments a metric on each failed check (hourly).
 	if s.cfg.FIPS.Monitor {
 		wg.Add(1)
 		go func() {
@@ -417,21 +419,25 @@ func (s *Server) Run(ctx context.Context) {
 			runFIPSMonitorLoop(ctx, s.met)
 		}()
 	}
+}
 
-	// All initialization complete; mark the startup probe ready.
-	s.startup.Done()
-
-	sigErr := shutdown.WaitForStop(ctx)
-
-	if d := s.Cfg().Timeouts.PrestopSleep.Duration; d > 0 {
-		s.logger.Info("prestop_sleep", map[string]any{"dur": d.String()})
-		time.Sleep(d)
+// prestopSleep pauses for the configured pre-stop duration, giving upstream
+// load balancers time to drain connections before listeners close.
+func (s *Server) prestopSleep() {
+	d := s.Cfg().Timeouts.PrestopSleep.Duration
+	if d <= 0 {
+		return
 	}
+	s.logger.Info("prestop_sleep", map[string]any{"dur": d.String()})
+	time.Sleep(d)
+}
 
+// drainListeners cancels remaining goroutines, waits for them to finish, and
+// fatals on any listener or unexpected shutdown error.
+func (s *Server) drainListeners(cancel context.CancelFunc, wg *sync.WaitGroup, errCh <-chan error, sigErr error) {
 	if sigErr != nil {
 		cancel()
 	}
-
 	select {
 	case err := <-errCh:
 		cancel()
@@ -456,14 +462,7 @@ func (s *Server) registerDefaultRoutes(rt *router.Router) {
 	if !s.useDefaultRegistrar {
 		return
 	}
-	defaultH := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if req.URL == nil || req.URL.Path != "/" {
-			http.NotFound(w, req)
-			return
-		}
-		w.Header().Set("content-type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("keel: ok\n"))
-	})
+	defaultH := defaultKeeHandler()
 	if s.cfg.Listeners.HTTP.Enabled {
 		rt.Handle(s.cfg.Listeners.HTTP.Port, "/", defaultH)
 	}
@@ -492,12 +491,7 @@ func (s *Server) startSidecar(ctx context.Context, rt *router.Router) {
 	}
 	// signFn reads the atomic pointer on every request so SIGHUP key rotation
 	// takes effect immediately without re-creating the sidecar proxy.
-	signFn := func(req *http.Request) error {
-		if sg := s.signer.Load(); sg != nil {
-			return sg.SignRequest(req)
-		}
-		return nil
-	}
+	signFn := newSignFn(&s.signer)
 	h, err := sidecar.New(s.cfg, signFn)
 	if err == nil {
 		sidecar.StartHealthProbe(ctx, s.cfg.Sidecar, nil, s.readiness, s.logger)
@@ -552,8 +546,9 @@ func (s *Server) wrapMain(h http.Handler) http.Handler {
 	return h
 }
 
-func serveHTTP(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, log *logging.Logger) error {
-	srv := &http.Server{
+// newHTTPServer builds an *http.Server with timeouts and limits from cfg.
+func newHTTPServer(addr string, h http.Handler, cfg config.Config) *http.Server {
+	return &http.Server{
 		Addr:              addr,
 		Handler:           h,
 		MaxHeaderBytes:    cfg.Security.MaxHeaderBytes,
@@ -562,6 +557,77 @@ func serveHTTP(ctx context.Context, shutdown *lifecycle.Orchestrator, addr strin
 		WriteTimeout:      cfg.Timeouts.Write.Duration,
 		IdleTimeout:       cfg.Timeouts.Idle.Duration,
 	}
+}
+
+// buildHealthMux returns a *http.ServeMux with /healthz registered.
+func buildHealthMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	probes.RegisterHealth(mux)
+	return mux
+}
+
+// buildReadyMux returns a *http.ServeMux with /readyz registered.
+func buildReadyMux(r *probes.Readiness) *http.ServeMux {
+	mux := http.NewServeMux()
+	probes.RegisterReady(mux, r)
+	return mux
+}
+
+// buildStartupMux returns a *http.ServeMux with /startupz registered.
+func buildStartupMux(s *probes.Startup) *http.ServeMux {
+	mux := http.NewServeMux()
+	probes.RegisterStartup(mux, s)
+	return mux
+}
+
+// buildAdminMux returns a *http.ServeMux with all admin routes registered.
+func buildAdminMux(r *probes.Readiness, s *probes.Startup, metricsH, reloadH http.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	probes.RegisterHealth(mux)
+	probes.RegisterReady(mux, r)
+	probes.RegisterStartup(mux, s)
+	probes.RegisterFIPS(mux)
+	probes.RegisterPProf(mux)
+	mux.Handle("/metrics", metricsH)
+	mux.Handle("/admin/reload", reloadH)
+	mux.Handle("/version", version.Handler())
+	return mux
+}
+
+// applyTLSCertSource sets tlsCfg.GetCertificate from loader or getCert.
+func applyTLSCertSource(tlsCfg *cryptotls.Config, loader *keeltls.CertLoader, getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error)) {
+	if loader != nil {
+		tlsCfg.GetCertificate = loader.Get
+	} else {
+		tlsCfg.GetCertificate = getCert
+	}
+}
+
+// defaultKeeHandler returns the built-in "/" handler used by useDefaultRegistrar.
+func defaultKeeHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL == nil || req.URL.Path != "/" {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("content-type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("keel: ok\n"))
+	})
+}
+
+// newSignFn returns a function that signs outbound requests using the signer
+// stored in the atomic pointer. If the pointer is nil, the request is unsigned.
+func newSignFn(signer *atomic.Pointer[mw.JWTSigner]) func(*http.Request) error {
+	return func(req *http.Request) error {
+		if sg := signer.Load(); sg != nil {
+			return sg.SignRequest(req)
+		}
+		return nil
+	}
+}
+
+func serveHTTP(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, log *logging.Logger) error {
+	srv := newHTTPServer(addr, h, cfg)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
@@ -586,21 +652,9 @@ func serveHTTP(ctx context.Context, shutdown *lifecycle.Orchestrator, addr strin
 
 func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, loader *keeltls.CertLoader, getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error), log *logging.Logger) error {
 	tlsCfg := keeltls.BuildTLSConfig(cfg)
-	if loader != nil {
-		tlsCfg.GetCertificate = loader.Get
-	} else {
-		tlsCfg.GetCertificate = getCert
-	}
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           h,
-		MaxHeaderBytes:    cfg.Security.MaxHeaderBytes,
-		ReadHeaderTimeout: cfg.Timeouts.ReadHeader.Duration,
-		ReadTimeout:       cfg.Timeouts.Read.Duration,
-		WriteTimeout:      cfg.Timeouts.Write.Duration,
-		IdleTimeout:       cfg.Timeouts.Idle.Duration,
-		TLSConfig:         tlsCfg,
-	}
+	applyTLSCertSource(tlsCfg, loader, getCert)
+	srv := newHTTPServer(addr, h, cfg)
+	srv.TLSConfig = tlsCfg
 	httpx.ApplyHTTP2Policy(srv)
 
 	ln, err := net.Listen("tcp", addr)
@@ -625,70 +679,59 @@ func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr stri
 	return err
 }
 
-func runACMECertExpiryLoop(ctx context.Context, mgr *acme.Manager, met *metrics.Metrics) {
+// runTickLoop runs fn immediately then on every tick until ctx is done.
+func runTickLoop(ctx context.Context, interval time.Duration, fn func()) {
+	fn()
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			fn()
+		}
+	}
+}
+
+func tickACMECertExpiry(mgr *acme.Manager, met *metrics.Metrics) {
 	if secs, err := mgr.CertExpiry(); err == nil {
 		met.SetCertExpiry(secs)
 	}
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if secs, err := mgr.CertExpiry(); err == nil {
-				met.SetCertExpiry(secs)
-			}
-		}
-	}
 }
 
-func runCertExpiryLoop(ctx context.Context, certFile string, met *metrics.Metrics) {
+func tickFileCertExpiry(certFile string, met *metrics.Metrics) {
 	if secs, err := keeltls.CertExpirySeconds(certFile); err == nil {
 		met.SetCertExpiry(secs)
 	}
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if secs, err := keeltls.CertExpirySeconds(certFile); err == nil {
-				met.SetCertExpiry(secs)
-			}
-		}
+}
+
+func tickLogDrops(getSink func() *logging.HTTPSink, met *metrics.Metrics) {
+	if sink := getSink(); sink != nil {
+		met.SetLogDrops(sink.DropsTotal())
 	}
+}
+
+func tickFIPSMonitor(met *metrics.Metrics) {
+	if err := keelfips.Check(); err != nil {
+		met.IncFIPSMonitorFailure()
+	}
+}
+
+func runACMECertExpiryLoop(ctx context.Context, mgr *acme.Manager, met *metrics.Metrics) {
+	runTickLoop(ctx, time.Hour, func() { tickACMECertExpiry(mgr, met) })
+}
+
+func runCertExpiryLoop(ctx context.Context, certFile string, met *metrics.Metrics) {
+	runTickLoop(ctx, time.Hour, func() { tickFileCertExpiry(certFile, met) })
 }
 
 func runLogDropsLoop(ctx context.Context, getSink func() *logging.HTTPSink, met *metrics.Metrics) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if sink := getSink(); sink != nil {
-				met.SetLogDrops(sink.DropsTotal())
-			}
-		}
-	}
+	runTickLoop(ctx, 30*time.Second, func() { tickLogDrops(getSink, met) })
 }
 
 func runFIPSMonitorLoop(ctx context.Context, met *metrics.Metrics) {
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if err := keelfips.Check(); err != nil {
-				met.IncFIPSMonitorFailure()
-			}
-		}
-	}
+	runTickLoop(ctx, time.Hour, func() { tickFIPSMonitor(met) })
 }
 
 func serveH3(ctx context.Context, addr string, h http.Handler, cfg config.Config, log *logging.Logger) error {
