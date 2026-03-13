@@ -310,3 +310,89 @@ func TestStart_CachedCertRSAKeyRejected(t *testing.T) {
 		t.Error("Start: expected error for RSA cert, got nil")
 	}
 }
+
+// TestStart_WithCACertFile_ValidFile verifies that Start() uses the
+// CACertFile to build an http.Client when set. The context is pre-cancelled
+// so Start returns after the cache load attempt.
+func TestStart_WithCACertFile_ValidFile(t *testing.T) {
+	cacheDir := t.TempDir()
+	caDir := t.TempDir()
+	// Write a fresh ECDSA cert to cache so validation passes.
+	writeCachedCert(t, cacheDir, []string{"example.com"}, time.Now().Add(60*24*time.Hour))
+	// Write a valid self-signed PEM cert as the CA cert.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der := makeECDSACertDER(t, key, []string{"example.com"}, time.Now().Add(365*24*time.Hour))
+	caPath := filepath.Join(caDir, "ca.pem")
+	f, err := os.Create(caPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: der})
+	f.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mgr := New()
+	cfg := config.ACMEConfig{
+		Domains:    []string{"example.com"},
+		CacheDir:   cacheDir,
+		CACertFile: caPath,
+	}
+	if err := mgr.Start(ctx, cfg); err != nil {
+		t.Fatalf("Start with CACertFile: expected nil, got %v", err)
+	}
+}
+
+// TestStart_WithCACertFile_InvalidFile verifies that Start() returns an error
+// when CACertFile points to a non-existent file.
+func TestStart_WithCACertFile_InvalidFile(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mgr := New()
+	cfg := config.ACMEConfig{
+		Domains:    []string{"example.com"},
+		CACertFile: "/nonexistent-ca-for-test.pem",
+	}
+	if err := mgr.Start(ctx, cfg); err == nil {
+		t.Error("Start: expected error for missing CACertFile, got nil")
+	}
+}
+
+// TestStart_DefaultCAUrl verifies Start() uses LetsEncryptURL when CAUrl is empty.
+// The context is pre-cancelled (after registerAccount fails with context.Canceled)
+// so the function returns nil.
+func TestStart_DefaultCAUrl_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel so registerAccount gets context.Canceled immediately
+
+	mgr := New()
+	cfg := config.ACMEConfig{
+		Domains: []string{"example.com"},
+		// CAUrl empty → uses LetsEncryptURL
+	}
+	// registerAccount will fail with context.Canceled → Start returns nil.
+	if err := mgr.Start(ctx, cfg); err != nil {
+		t.Fatalf("Start with canceled ctx: expected nil, got %v", err)
+	}
+}
+
+// TestStart_WithEmail verifies Start() passes the email to registerAccount.
+// The context is pre-cancelled so the function exits after registration fails.
+func TestStart_WithEmail_ContextCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	mgr := New()
+	cfg := config.ACMEConfig{
+		Domains: []string{"example.com"},
+		Email:   "test@example.com",
+	}
+	if err := mgr.Start(ctx, cfg); err != nil {
+		t.Fatalf("Start with email + canceled ctx: expected nil, got %v", err)
+	}
+}

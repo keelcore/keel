@@ -93,6 +93,44 @@ func waitStatusNot404(t *testing.T, url string) {
 	t.Fatalf("timeout waiting for non-404 on %s", url)
 }
 
+// TestServer_HeapMaxBytesAndStatsDFail exercises Run() branches:
+//   - Backpressure.HeapMaxBytes > 0 → calls debug.SetMemoryLimit
+//   - Metrics.StatsD.Enabled + unreachable endpoint → logs warning and continues
+func TestServer_HeapMaxBytesAndStatsDFail(t *testing.T) {
+	cfg := config.Config{
+		Listeners: config.ListenersConfig{
+			HTTP:   config.ListenerConfig{Enabled: true, Port: 18080},
+			Health: config.ListenerConfig{Enabled: true, Port: 19091},
+			Ready:  config.ListenerConfig{Enabled: false, Port: 19092},
+			Admin:  config.ListenerConfig{Enabled: false, Port: 19999},
+		},
+		Security: config.SecurityConfig{OWASPHeaders: false},
+		Authn:    config.AuthnConfig{Enabled: false},
+		Backpressure: config.BackpressureConfig{
+			SheddingEnabled: false,
+			HeapMaxBytes:    1 << 30, // 1 GiB — triggers debug.SetMemoryLimit
+		},
+		Metrics: config.MetricsConfig{
+			StatsD: config.StatsDConfig{
+				Enabled:  true,
+				Endpoint: "127.0.0.1:1", // unreachable → statsd_dial_failed warning
+			},
+		},
+		Logging: config.LoggingConfig{JSON: true},
+	}
+
+	log := logging.New(logging.Config{JSON: true})
+	srv := core.NewServer(log, cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go srv.Run(ctx)
+
+	// Wait for health listener to come up.
+	waitStatus(t, "http://127.0.0.1:19091/healthz", 200)
+	cancel()
+}
+
 func itoa(n int) string {
 	// tiny local itoa to avoid importing strconv in tests
 	if n == 0 {
