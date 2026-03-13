@@ -112,75 +112,104 @@ func (m *Manager) HTTPHandler(httpsPort int) http.Handler {
 	})
 }
 
-// Start manages the ACME certificate lifecycle: account registration, initial
-// certificate obtainment, and background renewal. It blocks until ctx is done.
-func (m *Manager) Start(ctx context.Context, cfg config.ACMEConfig) error {
+// resolveDirectoryURL returns the ACME CA directory URL, defaulting to
+// Let's Encrypt when caURL is empty.
+func resolveDirectoryURL(caURL string) string {
+	if caURL == "" {
+		return xacme.LetsEncryptURL
+	}
+	return caURL
+}
+
+// buildACMEClient constructs an *xacme.Client from the account key and config,
+// optionally attaching an HTTP client that trusts a custom CA certificate.
+func buildACMEClient(accountKey *ecdsa.PrivateKey, cfg config.ACMEConfig) (*xacme.Client, error) {
+	client := &xacme.Client{Key: accountKey, DirectoryURL: resolveDirectoryURL(cfg.CAUrl)}
+	if cfg.CACertFile == "" {
+		return client, nil
+	}
+	hc, err := httpClientWithCA(cfg.CACertFile)
+	if err != nil {
+		return nil, fmt.Errorf("acme ca cert: %w", err)
+	}
+	client.HTTPClient = hc
+	return client, nil
+}
+
+// setupACMEClient loads or creates the account key and builds the ACME client.
+func (m *Manager) setupACMEClient(cfg config.ACMEConfig) (*xacme.Client, error) {
 	accountKey, err := loadOrCreateAccountKey(cfg.CacheDir)
 	if err != nil {
-		return fmt.Errorf("acme account key: %w", err)
+		return nil, fmt.Errorf("acme account key: %w", err)
 	}
+	return buildACMEClient(accountKey, cfg)
+}
 
-	directoryURL := cfg.CAUrl
-	if directoryURL == "" {
-		directoryURL = xacme.LetsEncryptURL
+// loadAndValidateCachedCert loads a previously-issued certificate from cacheDir.
+// A cache miss is silently ignored; a domain or key-type mismatch is fatal.
+func (m *Manager) loadAndValidateCachedCert(cfg config.ACMEConfig) error {
+	if cfg.CacheDir == "" {
+		return nil
 	}
-
-	client := &xacme.Client{Key: accountKey, DirectoryURL: directoryURL}
-
-	if cfg.CACertFile != "" {
-		httpClient, err := httpClientWithCA(cfg.CACertFile)
-		if err != nil {
-			return fmt.Errorf("acme ca cert: %w", err)
+	cached, err := loadCachedCert(cfg.CacheDir)
+	if err != nil {
+		return nil // cache miss: not an error
+	}
+	if verr := validateCert(cached, cfg.Domains); verr != nil {
+		if m.logErr != nil {
+			m.logErr("acme_cached_cert_invalid", map[string]any{"err": verr.Error()})
 		}
-		client.HTTPClient = httpClient
+		return verr
 	}
+	m.cert.Store(cached)
+	return nil
+}
 
-	// Load any previously-issued cert from cache_dir so it is served
-	// immediately on restart, without waiting for the ACME handshake.
-	// A cached cert that fails domain or key-type validation is a fatal
-	// misconfiguration: log it and return an error so the process exits.
-	if cfg.CacheDir != "" {
-		if cached, err := loadCachedCert(cfg.CacheDir); err == nil {
-			if verr := validateCert(cached, cfg.Domains); verr != nil {
-				if m.logErr != nil {
-					m.logErr("acme_cached_cert_invalid", map[string]any{"err": verr.Error()})
-				}
-				return verr
-			}
-			m.cert.Store(cached)
-		}
+// waitForRenewalWindow blocks until the renewal window for c is reached or ctx
+// is done. Returns false if ctx was cancelled, true when the delay elapsed.
+func waitForRenewalWindow(ctx context.Context, c *tls.Certificate) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(renewalDelay(c)):
+		return true
 	}
+}
 
-	if err := registerAccount(ctx, client, cfg.Email); err != nil {
-		if errors.Is(err, context.Canceled) {
-			return nil
-		}
-		return fmt.Errorf("acme register: %w", err)
-	}
-
-	// If the cached cert is not yet due for renewal, wait until it is.
-	if !certNeedsRenewal(m.cert.Load()) {
-		next := renewalDelay(m.cert.Load())
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(next):
-		}
-	}
-
+// runRenewalLoop repeatedly obtains/renews the certificate until ctx is done.
+func (m *Manager) runRenewalLoop(ctx context.Context, client *xacme.Client, cfg config.ACMEConfig) error {
 	for {
 		if err := m.obtainCert(ctx, client, cfg); err != nil && !errors.Is(err, context.Canceled) {
 			if m.logErr != nil {
 				m.logErr("acme_cert_obtain_failed", map[string]any{"err": err.Error()})
 			}
 		}
-		next := renewalDelay(m.cert.Load())
-		select {
-		case <-ctx.Done():
+		if !waitForRenewalWindow(ctx, m.cert.Load()) {
 			return nil
-		case <-time.After(next):
 		}
 	}
+}
+
+// Start manages the ACME certificate lifecycle: account registration, initial
+// certificate obtainment, and background renewal. It blocks until ctx is done.
+func (m *Manager) Start(ctx context.Context, cfg config.ACMEConfig) error {
+	client, err := m.setupACMEClient(cfg)
+	if err != nil {
+		return err
+	}
+	if err := m.loadAndValidateCachedCert(cfg); err != nil {
+		return err
+	}
+	if err := registerAccount(ctx, client, cfg.Email); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return fmt.Errorf("acme register: %w", err)
+	}
+	if !certNeedsRenewal(m.cert.Load()) && !waitForRenewalWindow(ctx, m.cert.Load()) {
+		return nil
+	}
+	return m.runRenewalLoop(ctx, client, cfg)
 }
 
 // Validate returns an error if cfg contains an invalid ACME configuration.
@@ -207,68 +236,90 @@ func registerAccount(ctx context.Context, client *xacme.Client, email string) er
 	return err
 }
 
-func (m *Manager) obtainCert(ctx context.Context, client *xacme.Client, cfg config.ACMEConfig) error {
-	ids := make([]xacme.AuthzID, len(cfg.Domains))
-	for i, d := range cfg.Domains {
+// buildAuthzIDs converts domain names to ACME authorization identifiers.
+func buildAuthzIDs(domains []string) []xacme.AuthzID {
+	ids := make([]xacme.AuthzID, len(domains))
+	for i, d := range domains {
 		ids[i] = xacme.AuthzID{Type: "dns", Value: d}
 	}
+	return ids
+}
 
-	order, err := client.AuthorizeOrder(ctx, ids)
+// generateCertMaterial creates a fresh ECDSA P-256 key and DER-encoded CSR for domains.
+func generateCertMaterial(domains []string) (*ecdsa.PrivateKey, []byte, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return fmt.Errorf("authorize order: %w", err)
+		return nil, nil, fmt.Errorf("generate cert key: %w", err)
 	}
+	csr, err := buildCSR(key, domains)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build csr: %w", err)
+	}
+	return key, csr, nil
+}
 
-	for _, authzURL := range order.AuthzURLs {
+// fulfillAllHTTP01 satisfies every http-01 authorization challenge in authzURLs.
+func (m *Manager) fulfillAllHTTP01(ctx context.Context, client *xacme.Client, authzURLs []string) error {
+	for _, authzURL := range authzURLs {
 		if err := m.fulfillHTTP01(ctx, client, authzURL); err != nil {
 			return err
 		}
 	}
+	return nil
+}
 
-	order, err = client.WaitOrder(ctx, order.URI)
+// finalizeCert generates key material, submits the CSR to the CA, and stores
+// the resulting certificate chain.
+func (m *Manager) finalizeCert(ctx context.Context, client *xacme.Client, order *xacme.Order, domains []string, cacheDir string) error {
+	key, csr, err := generateCertMaterial(domains)
 	if err != nil {
-		return fmt.Errorf("wait order: %w", err)
+		return err
 	}
-
-	certKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return fmt.Errorf("generate cert key: %w", err)
-	}
-
-	csr, err := buildCSR(certKey, cfg.Domains)
-	if err != nil {
-		return fmt.Errorf("build csr: %w", err)
-	}
-
 	derChain, _, err := client.CreateOrderCert(ctx, order.FinalizeURL, csr, true)
 	if err != nil {
 		return fmt.Errorf("create cert: %w", err)
 	}
-
-	return m.storeCert(cfg.CacheDir, cfg.Domains, certKey, derChain)
+	return m.storeCert(cacheDir, domains, key, derChain)
 }
 
-func (m *Manager) fulfillHTTP01(ctx context.Context, client *xacme.Client, authzURL string) error {
-	authz, err := client.GetAuthorization(ctx, authzURL)
+func (m *Manager) obtainCert(ctx context.Context, client *xacme.Client, cfg config.ACMEConfig) error {
+	order, err := client.AuthorizeOrder(ctx, buildAuthzIDs(cfg.Domains))
 	if err != nil {
-		return fmt.Errorf("get authorization: %w", err)
+		return fmt.Errorf("authorize order: %w", err)
 	}
-	if authz.Status == xacme.StatusValid {
-		return nil
+	if err := m.fulfillAllHTTP01(ctx, client, order.AuthzURLs); err != nil {
+		return err
 	}
+	order, err = client.WaitOrder(ctx, order.URI)
+	if err != nil {
+		return fmt.Errorf("wait order: %w", err)
+	}
+	return m.finalizeCert(ctx, client, order, cfg.Domains, cfg.CacheDir)
+}
 
+// selectHTTP01Challenge returns the http-01 challenge from authz.
+// Returns (nil, nil) if the authorization is already valid.
+// Returns an error if no http-01 challenge is present.
+func selectHTTP01Challenge(authz *xacme.Authorization) (*xacme.Challenge, error) {
+	if authz.Status == xacme.StatusValid {
+		return nil, nil
+	}
 	chal := http01Challenge(authz)
 	if chal == nil {
-		return fmt.Errorf("no http-01 challenge for %s", authz.Identifier.Value)
+		return nil, fmt.Errorf("no http-01 challenge for %s", authz.Identifier.Value)
 	}
+	return chal, nil
+}
 
+// acceptChallenge registers the key-auth token, signals the CA to validate,
+// and waits for the authorization to complete.
+func (m *Manager) acceptChallenge(ctx context.Context, client *xacme.Client, authz *xacme.Authorization, chal *xacme.Challenge) error {
 	keyAuth, err := client.HTTP01ChallengeResponse(chal.Token)
 	if err != nil {
 		return fmt.Errorf("key auth: %w", err)
 	}
-
 	m.SetToken(chal.Token, keyAuth)
 	defer m.DeleteToken(chal.Token)
-
 	if _, err := client.Accept(ctx, chal); err != nil {
 		return fmt.Errorf("accept challenge: %w", err)
 	}
@@ -276,6 +327,18 @@ func (m *Manager) fulfillHTTP01(ctx context.Context, client *xacme.Client, authz
 		return fmt.Errorf("wait authorization: %w", err)
 	}
 	return nil
+}
+
+func (m *Manager) fulfillHTTP01(ctx context.Context, client *xacme.Client, authzURL string) error {
+	authz, err := client.GetAuthorization(ctx, authzURL)
+	if err != nil {
+		return fmt.Errorf("get authorization: %w", err)
+	}
+	chal, err := selectHTTP01Challenge(authz)
+	if err != nil || chal == nil {
+		return err
+	}
+	return m.acceptChallenge(ctx, client, authz, chal)
 }
 
 func http01Challenge(authz *xacme.Authorization) *xacme.Challenge {
