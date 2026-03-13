@@ -92,28 +92,33 @@ function collect_and_upload() {
   gh release upload "${tag}" "${files[@]}" --clobber
 }
 
-# release_notes_flag returns --notes-from-tag for real vX.Y.Z tags so the
-# GitHub Release body is populated from the annotated tag message, and
-# --generate-notes for synthesized tags produced by workflow_dispatch runs.
-function release_notes_flag() {
-  local -r tag="${1}"
-  if [[ "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf '%s' '--notes-from-tag'
-  else
-    printf '%s' '--generate-notes'
-  fi
+# extract_changelog prints the body of the CHANGELOG.md section for version
+# (e.g. "0.9.7"), or nothing if the section is absent.
+function extract_changelog() {
+  local -r version="${1}"
+  awk '/^## \['"${version}"'\]/{found=1; next} found && /^## \[/{exit} found{print}' CHANGELOG.md 2>/dev/null
 }
 
 # ensure_release creates the GitHub Release for tag if it does not yet exist.
+# Notes are drawn from CHANGELOG.md when a matching section exists; otherwise
+# GitHub auto-generates notes from merged pull requests.
 function ensure_release() {
   local -r tag="${1}"
   if gh release view "${tag}" >/dev/null 2>&1; then
     return
   fi
   log "  Release ${tag} not found; creating"
-  local flag
-  flag="$(release_notes_flag "${tag}")"
-  gh release create "${tag}" "${flag}"
+  local version notes tmp
+  version="${tag#v}"
+  notes="$(extract_changelog "${version}")"
+  if [ -n "${notes}" ]; then
+    tmp="$(mktemp /tmp/keel-release-XXXXXX.md)"
+    printf '%s\n' "${notes}" >"${tmp}"
+    gh release create "${tag}" --title "${tag}" --notes-file "${tmp}"
+    rm -f "${tmp}"
+  else
+    gh release create "${tag}" --title "${tag}" --generate-notes
+  fi
   log "  Release ${tag} created"
 }
 
