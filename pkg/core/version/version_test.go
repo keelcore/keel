@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime/debug"
 	"testing"
 )
 
@@ -106,7 +107,11 @@ func TestFIPSRuntimeActive_GODEBUGTokenWhitespaceTrimmed(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Get
+// Get / getInfo
+//
+// Get is a thin wrapper around getInfo(debug.ReadBuildInfo()), so smoke tests
+// here verify the public surface. Branch coverage of the VCS logic is handled
+// by the getInfo tests below, which inject controlled *debug.BuildInfo values.
 // ---------------------------------------------------------------------------
 
 // Get returns an Info with non-empty Version and GoVersion fields.
@@ -128,40 +133,81 @@ func TestGet_BuildTagsNonNil(t *testing.T) {
 	}
 }
 
-// Get — override the ldflags variables to confirm VCS branch is NOT taken
-// when they are already set to non-"unknown" values.
-func TestGet_OverriddenLDFlags(t *testing.T) {
-	old1, old2 := Version, Commit
-	Version = "1.2.3"
-	Commit = "abc123"
-	defer func() {
-		Version = old1
-		Commit = old2
-	}()
-	info := Get()
-	if info.Version != "1.2.3" {
-		t.Errorf("expected Version=1.2.3, got %q", info.Version)
-	}
-	// Commit was set to non-"unknown" so VCS revision is not applied.
-	if info.Commit != "abc123" {
-		t.Errorf("expected Commit=abc123, got %q", info.Commit)
-	}
-}
+// ---------------------------------------------------------------------------
+// getInfo — VCS injection tests
+// ---------------------------------------------------------------------------
 
-// Get — set Commit and BuildDate to "unknown" so that VCS settings are applied.
-func TestGet_UnknownCommitUseVCS(t *testing.T) {
+// getInfo with ok=false skips the VCS loop and returns ldflags values as-is.
+func TestGetInfo_OkFalse_UsesLDFlags(t *testing.T) {
 	old1, old2 := Commit, BuildDate
-	Commit = "unknown"
-	BuildDate = "unknown"
+	Commit = "ldcommit"
+	BuildDate = "lddate"
 	defer func() {
 		Commit = old1
 		BuildDate = old2
 	}()
-	info := Get()
-	// Whether VCS metadata is present or not, Get must not panic and
-	// must return a non-empty GoVersion.
-	if info.GoVersion == "" {
-		t.Error("expected non-empty GoVersion")
+	info := getInfo(nil, false)
+	if info.Commit != "ldcommit" {
+		t.Errorf("expected Commit=ldcommit, got %q", info.Commit)
+	}
+	if info.BuildDate != "lddate" {
+		t.Errorf("expected BuildDate=lddate, got %q", info.BuildDate)
+	}
+}
+
+// getInfo with ok=true and Commit=="unknown" replaces commit from vcs.revision.
+func TestGetInfo_VCSRevision_OverridesUnknown(t *testing.T) {
+	old := Commit
+	Commit = "unknown"
+	defer func() { Commit = old }()
+	bi := &debug.BuildInfo{
+		Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "deadbeef"}},
+	}
+	info := getInfo(bi, true)
+	if info.Commit != "deadbeef" {
+		t.Errorf("expected Commit=deadbeef, got %q", info.Commit)
+	}
+}
+
+// getInfo with ok=true and Commit!="unknown" does not replace commit from vcs.revision.
+func TestGetInfo_VCSRevision_DoesNotOverrideLDFlag(t *testing.T) {
+	old := Commit
+	Commit = "pinned"
+	defer func() { Commit = old }()
+	bi := &debug.BuildInfo{
+		Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "deadbeef"}},
+	}
+	info := getInfo(bi, true)
+	if info.Commit != "pinned" {
+		t.Errorf("expected Commit=pinned, got %q", info.Commit)
+	}
+}
+
+// getInfo with ok=true and BuildDate=="unknown" replaces build date from vcs.time.
+func TestGetInfo_VCSTime_OverridesUnknown(t *testing.T) {
+	old := BuildDate
+	BuildDate = "unknown"
+	defer func() { BuildDate = old }()
+	bi := &debug.BuildInfo{
+		Settings: []debug.BuildSetting{{Key: "vcs.time", Value: "2024-01-01T00:00:00Z"}},
+	}
+	info := getInfo(bi, true)
+	if info.BuildDate != "2024-01-01T00:00:00Z" {
+		t.Errorf("expected BuildDate=2024-01-01T00:00:00Z, got %q", info.BuildDate)
+	}
+}
+
+// getInfo with ok=true and BuildDate!="unknown" does not replace it from vcs.time.
+func TestGetInfo_VCSTime_DoesNotOverrideLDFlag(t *testing.T) {
+	old := BuildDate
+	BuildDate = "2099-12-31"
+	defer func() { BuildDate = old }()
+	bi := &debug.BuildInfo{
+		Settings: []debug.BuildSetting{{Key: "vcs.time", Value: "2024-01-01T00:00:00Z"}},
+	}
+	info := getInfo(bi, true)
+	if info.BuildDate != "2099-12-31" {
+		t.Errorf("expected BuildDate=2099-12-31, got %q", info.BuildDate)
 	}
 }
 

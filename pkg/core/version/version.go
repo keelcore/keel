@@ -50,10 +50,20 @@ func fipsRuntimeActive(fipsBuild bool) bool {
 
 // Get returns the current build info, enriching commit/date from VCS metadata
 // embedded by the toolchain when -ldflags overrides are absent.
+// It delegates to getInfo so tests can inject controlled build metadata.
 func Get() Info {
+	return getInfo(debug.ReadBuildInfo())
+}
+
+// getInfo assembles an Info from the package-level ldflags variables and the
+// provided VCS build metadata. ok=false (e.g. no embedded VCS info) is safe:
+// the loop is skipped and ldflags values are used as-is. Commit and BuildDate
+// are only overridden by VCS data when they still hold the default "unknown"
+// sentinel, preserving any -ldflags override.
+func getInfo(info *debug.BuildInfo, ok bool) Info {
 	commit := Commit
 	buildDate := BuildDate
-	if info, ok := debug.ReadBuildInfo(); ok {
+	if ok {
 		for _, s := range info.Settings {
 			switch s.Key {
 			case "vcs.revision":
