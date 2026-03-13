@@ -244,25 +244,7 @@ func (s *Server) Run(ctx context.Context) {
 	for _, r := range s.registrars {
 		r.Register(mainRT)
 	}
-	if s.useDefaultRegistrar {
-		defaultH := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			if req.URL == nil || req.URL.Path != "/" {
-				http.NotFound(w, req)
-				return
-			}
-			w.Header().Set("content-type", "text/plain; charset=utf-8")
-			_, _ = w.Write([]byte("keel: ok\n"))
-		})
-		if s.cfg.Listeners.HTTP.Enabled {
-			mainRT.Handle(s.cfg.Listeners.HTTP.Port, "/", defaultH)
-		}
-		if s.cfg.Listeners.HTTPS.Enabled {
-			mainRT.Handle(s.cfg.Listeners.HTTPS.Port, "/", defaultH)
-		}
-		if s.cfg.Listeners.H3.Enabled {
-			mainRT.Handle(s.cfg.Listeners.H3.Port, "/", defaultH)
-		}
-	}
+	s.registerDefaultRoutes(mainRT)
 
 	// Probes: separate muxes, served ONLY on probe/admin listeners.
 	healthMux := http.NewServeMux()
@@ -391,31 +373,7 @@ func (s *Server) Run(ctx context.Context) {
 	}
 
 	// Sidecar route registration.
-	if s.cfg.Sidecar.Enabled && s.cfg.Sidecar.UpstreamURL != "" {
-		// Initialise the outbound signer (Fatal on startup error; Warn on reload error).
-		if s.cfg.Authn.MyID != "" && s.cfg.Authn.MySignatureKeyFile != "" {
-			sg, signerErr := mw.NewJWTSigner(s.cfg.Authn.MyID, s.cfg.Authn.MySignatureKeyFile)
-			if signerErr != nil {
-				s.logger.Fatal("jwt_signer_init_failed", map[string]any{"err": signerErr.Error()})
-			}
-			s.signer.Store(sg)
-		}
-		// signFn reads the atomic pointer on every request so SIGHUP key rotation
-		// takes effect immediately without re-creating the sidecar proxy.
-		signFn := func(req *http.Request) error {
-			if sg := s.signer.Load(); sg != nil {
-				return sg.SignRequest(req)
-			}
-			return nil
-		}
-		h, err := sidecar.New(s.cfg, signFn)
-		if err == nil {
-			sidecar.StartHealthProbe(ctx, s.cfg.Sidecar, nil, s.readiness, s.logger)
-			mainRT.Handle(s.cfg.Listeners.HTTP.Port, "/", h)
-		} else {
-			s.logger.Warn("sidecar_disabled", map[string]any{"err": err.Error()})
-		}
-	}
+	s.startSidecar(ctx, mainRT)
 
 	if s.cfg.Backpressure.SheddingEnabled {
 		wg.Add(1)
@@ -489,6 +447,63 @@ func (s *Server) Run(ctx context.Context) {
 		if sigErr != nil && !errors.Is(sigErr, context.Canceled) {
 			s.logger.Fatal("shutdown_error", map[string]any{"err": sigErr.Error()})
 		}
+	}
+}
+
+// registerDefaultRoutes adds the built-in "/" handler to rt for each enabled
+// listener when useDefaultRegistrar is true.
+func (s *Server) registerDefaultRoutes(rt *router.Router) {
+	if !s.useDefaultRegistrar {
+		return
+	}
+	defaultH := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.URL == nil || req.URL.Path != "/" {
+			http.NotFound(w, req)
+			return
+		}
+		w.Header().Set("content-type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("keel: ok\n"))
+	})
+	if s.cfg.Listeners.HTTP.Enabled {
+		rt.Handle(s.cfg.Listeners.HTTP.Port, "/", defaultH)
+	}
+	if s.cfg.Listeners.HTTPS.Enabled {
+		rt.Handle(s.cfg.Listeners.HTTPS.Port, "/", defaultH)
+	}
+	if s.cfg.Listeners.H3.Enabled {
+		rt.Handle(s.cfg.Listeners.H3.Port, "/", defaultH)
+	}
+}
+
+// startSidecar wires the reverse-proxy handler and upstream health probe when
+// sidecar mode is configured. It is a no-op when sidecar is disabled or
+// upstream_url is empty.
+func (s *Server) startSidecar(ctx context.Context, rt *router.Router) {
+	if !s.cfg.Sidecar.Enabled || s.cfg.Sidecar.UpstreamURL == "" {
+		return
+	}
+	// Initialise the outbound signer (Fatal on startup error; Warn on reload error).
+	if s.cfg.Authn.MyID != "" && s.cfg.Authn.MySignatureKeyFile != "" {
+		sg, signerErr := mw.NewJWTSigner(s.cfg.Authn.MyID, s.cfg.Authn.MySignatureKeyFile)
+		if signerErr != nil {
+			s.logger.Fatal("jwt_signer_init_failed", map[string]any{"err": signerErr.Error()})
+		}
+		s.signer.Store(sg)
+	}
+	// signFn reads the atomic pointer on every request so SIGHUP key rotation
+	// takes effect immediately without re-creating the sidecar proxy.
+	signFn := func(req *http.Request) error {
+		if sg := s.signer.Load(); sg != nil {
+			return sg.SignRequest(req)
+		}
+		return nil
+	}
+	h, err := sidecar.New(s.cfg, signFn)
+	if err == nil {
+		sidecar.StartHealthProbe(ctx, s.cfg.Sidecar, nil, s.readiness, s.logger)
+		rt.Handle(s.cfg.Listeners.HTTP.Port, "/", h)
+	} else {
+		s.logger.Warn("sidecar_disabled", map[string]any{"err": err.Error()})
 	}
 }
 
