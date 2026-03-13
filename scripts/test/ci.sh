@@ -23,6 +23,7 @@ function main() {
   log "Initializing test suite"
   ensure_gotestsum
   run_unit_tests
+  generate_coverage
   write_step_summary
   log "All tests passed"
 }
@@ -49,14 +50,17 @@ function ensure_gotestsum() {
 
 function run_unit_tests() {
   log "Running Go tests with race detection"
-  local pkgs coverpkg
+  local pkgs
   pkgs="$(go_pkgs)"
-  coverpkg="$(printf '%s\n' "${pkgs}" | grep -v '/examples/' | tr '\n' ',' | sed 's/,$//')"
   printf '%s\n' "${pkgs}" | xargs gotestsum \
     --junitfile test-results.xml \
     --format standard-verbose \
-    -- -race -coverprofile='coverage.txt' -covermode='atomic' \
-    "-coverpkg=${coverpkg}"
+    -- -race
+}
+
+function generate_coverage() {
+  log "Generating coverage report"
+  "$(dirname "${BASH_SOURCE[0]}")/coverage.sh" 'coverage.txt'
 }
 
 function write_step_summary() {

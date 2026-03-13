@@ -47,7 +47,12 @@ function log() {
   printf '%s\n' "${msg}" | tee -a "${LOG_FILE}" >&5
 }
 
-function validate_args() { :; }
+function validate_args() {
+  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected argument'
+    exit 1
+  fi
+}
 
 function require_env() {
   local missing=0
@@ -67,12 +72,7 @@ function measure_coverage() {
   local -r label="${3}"
   log "  Measuring coverage at ${label} (${sha})"
   git checkout --quiet "${sha}"
-  go test \
-    -coverprofile="${outfile}" \
-    -covermode=atomic \
-    -coverpkg=./... \
-    ./... \
-    > /dev/null 2>&1
+  "$(dirname "${BASH_SOURCE[0]}")/coverage.sh" "${outfile}" >/dev/null
   extract_pct "${outfile}"
 }
 

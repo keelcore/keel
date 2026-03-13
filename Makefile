@@ -2,7 +2,7 @@
 # Part of the KeelCore governance: Ripped. Hard. Shredded.
 
 .PHONY: all clean min max max-no-fips \
-        test test-unit test-consistency test-integrity test-compose test-k8s \
+        test test-unit test-consistency test-integrity test-compose test-k8s coverage \
         lint lint-go lint-helm lint-helm-validate lint-fmt \
         release-checksums release-sbom release-sign release-upload \
         colima-setup colima-deploy colima-test colima-teardown \
@@ -66,6 +66,10 @@ test: test-unit test-consistency test-integrity lint-helm lint-helm-validate
 test-unit:
 	@echo "🧪 Running unit tests..."
 	./scripts/test/ci.sh
+
+coverage:
+	@echo "📊 Generating coverage report..."
+	./scripts/test/coverage.sh
 
 test-consistency:
 	@echo "🧪 Running consistency suite..."
@@ -157,6 +161,7 @@ help:
 	@echo "  test-compose     Docker Compose integration tests (P3)"
 	@echo "  test-compose-keep  Same but leave compose stack running"
 	@echo "  test-k8s         kind k8s integration tests (requires Docker)"
+	@echo "  coverage         Generate coverage report (total %%, uncovered, total lines)"
 	@echo ""
 	@echo "Local k8s (Colima / P3.5):"
 	@echo "  colima-setup    Install deps + start local k8s via Colima"
