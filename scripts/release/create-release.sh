@@ -176,6 +176,24 @@ function detect_bump() {
   fi
 }
 
+function pre1_demote_bump() {
+  # When major version is 0, demote the bump level by one step.
+  # major -> minor, minor -> patch, patch -> none (no tag created).
+  # When major >= 1 the bump passes through unchanged.
+  local cur_ver="${1}" bump="${2}"
+  local cur_maj
+  cur_maj="$(semver_major "${cur_ver}")"
+  if [ "${cur_maj}" -ge 1 ]; then
+    printf '%s' "${bump}"
+    return 0
+  fi
+  case "${bump}" in
+    major) printf 'minor' ;;
+    minor) printf 'patch' ;;
+    patch) printf 'none'  ;;
+  esac
+}
+
 function semver_major() {
   printf '%s' "${1}" | cut -d. -f1
 }
@@ -304,8 +322,20 @@ function build_tag_subject() {
   local n
   case "${bump}" in
     major) n="$(count_fields "${removed}")"; printf 'removed %s config field(s)' "${n}" ;;
-    minor) n="$(count_fields "${added}")";   printf 'added %s config field(s)' "${n}"   ;;
-    patch) printf 'internal improvements; no config surface changes'                    ;;
+    minor)
+      if [ -n "${removed}" ]; then
+        n="$(count_fields "${removed}")"; printf 'removed %s config field(s) (pre-1.0 demotion)' "${n}"
+      else
+        n="$(count_fields "${added}")";   printf 'added %s config field(s)' "${n}"
+      fi
+      ;;
+    patch)
+      if [ -n "${added}" ]; then
+        n="$(count_fields "${added}")"; printf 'added %s config field(s) (pre-1.0 demotion)' "${n}"
+      else
+        printf 'internal improvements; no config surface changes'
+      fi
+      ;;
   esac
 }
 
@@ -421,6 +451,13 @@ function run_release() {
   removed="$(removed_fields "${old_fields}" "${new_fields}")"
   added="$(added_fields "${old_fields}" "${new_fields}")"
   bump="$(detect_bump "${removed}" "${added}")"
+  local effective_bump
+  effective_bump="$(pre1_demote_bump "${cur_ver}" "${bump}")"
+  if [ "${effective_bump}" = 'none' ]; then
+    log "No schema changes detected; pre-1.0 demotion yields no tag. Exiting."
+    exit 0
+  fi
+  bump="${effective_bump}"
   auto_ver="$(compute_version "${cur_ver}" "${bump}")"
 
   local proposed
