@@ -40,10 +40,12 @@ function validate_args() {
 function run_coverage() {
   local outfile="${1}"
   log "Generating coverage profile"
+  : > "${outfile}"
   local pkgs coverpkg
   pkgs="$(go_pkgs | grep -v '/examples/')"
   coverpkg="$(printf '%s\n' "${pkgs}" | tr '\n' ',' | sed 's/,$//')"
   printf '%s\n' "${pkgs}" | xargs go test \
+    -count=1 \
     -coverprofile="${outfile}" \
     -covermode=atomic \
     "-coverpkg=${coverpkg}"
