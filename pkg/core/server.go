@@ -39,6 +39,39 @@ type authnSnapshot struct {
 	signers []string
 }
 
+// listenerRunner abstracts the three serve* functions so tests can stub them
+// without binding real TCP ports.
+type listenerRunner interface {
+	serveHTTP(ctx context.Context, sd *lifecycle.Orchestrator, addr string,
+		h http.Handler, cfg config.Config, log *logging.Logger) error
+	serveHTTPS(ctx context.Context, sd *lifecycle.Orchestrator, addr string,
+		h http.Handler, cfg config.Config, loader *keeltls.CertLoader,
+		getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error),
+		log *logging.Logger) error
+	serveH3(ctx context.Context, addr string, h http.Handler,
+		cfg config.Config, log *logging.Logger) error
+}
+
+// realRunner is the production implementation of listenerRunner.
+type realRunner struct{}
+
+func (realRunner) serveHTTP(ctx context.Context, sd *lifecycle.Orchestrator, addr string,
+	h http.Handler, cfg config.Config, log *logging.Logger) error {
+	return serveHTTP(ctx, sd, addr, h, cfg, log)
+}
+
+func (realRunner) serveHTTPS(ctx context.Context, sd *lifecycle.Orchestrator, addr string,
+	h http.Handler, cfg config.Config, loader *keeltls.CertLoader,
+	getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error),
+	log *logging.Logger) error {
+	return serveHTTPS(ctx, sd, addr, h, cfg, loader, getCert, log)
+}
+
+func (realRunner) serveH3(ctx context.Context, addr string, h http.Handler,
+	cfg config.Config, log *logging.Logger) error {
+	return serveH3(ctx, addr, h, cfg, log)
+}
+
 type Server struct {
 	cfg      config.Config
 	cfgMu    sync.RWMutex
@@ -52,6 +85,7 @@ type Server struct {
 	met                 *metrics.Metrics
 	sd                  *statsd.Client
 	certLoader          *keeltls.CertLoader
+	runner              listenerRunner
 
 	// Remote sink lifecycle. runCtx is set once in Run and used by
 	// applyRemoteSink to derive sink goroutine contexts so they are
@@ -82,6 +116,7 @@ func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
 		readiness: probes.NewReadiness(),
 		startup:   probes.NewStartup(),
 		met:       metrics.New(),
+		runner:    realRunner{},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -326,7 +361,7 @@ func (s *Server) startACMEListener(ctx context.Context, sd *lifecycle.Orchestrat
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.TLS.ACME.ChallengePort), mgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port), s.cfg, s.logger)
+		errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.TLS.ACME.ChallengePort), mgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port), s.cfg, s.logger)
 	}()
 	return mgr
 }
@@ -341,7 +376,7 @@ func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestra
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, nil, acmeMgr.GetCertificate, s.logger)
+			errCh <- s.runner.serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, nil, acmeMgr.GetCertificate, s.logger)
 		}()
 		return
 	}
@@ -356,7 +391,7 @@ func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestra
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		errCh <- serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, loader, nil, s.logger)
+		errCh <- s.runner.serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, loader, nil, s.logger)
 	}()
 }
 
@@ -366,7 +401,7 @@ func (s *Server) startMainListeners(ctx context.Context, sd *lifecycle.Orchestra
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), h, s.cfg, s.logger)
+			errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), h, s.cfg, s.logger)
 		}()
 	}
 	s.startHTTPSListener(ctx, sd, wg, errCh, h, acmeMgr)
@@ -377,7 +412,7 @@ func (s *Server) startMainListeners(ctx context.Context, sd *lifecycle.Orchestra
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveH3(ctx, config.AddrFromPort(s.cfg.Listeners.H3.Port), h, s.cfg, s.logger)
+			errCh <- s.runner.serveH3(ctx, config.AddrFromPort(s.cfg.Listeners.H3.Port), h, s.cfg, s.logger)
 		}()
 	}
 }
