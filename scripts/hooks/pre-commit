@@ -43,7 +43,9 @@ function validate_args() {
 }
 
 function staged_text_files() {
-  git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(md|sh|go)$' | filter_src || true
+  git diff --cached --name-only --diff-filter=ACMR \
+    | grep -E '\.(md|sh|go|yml|yaml|toml|json)$|^\.gitignore$|^\.gitattributes$' \
+    | filter_src || true
 }
 
 function check_newlines() {

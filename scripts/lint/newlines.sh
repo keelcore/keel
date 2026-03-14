@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # newlines.sh
-# Check that every tracked .md, .sh, and .go file ends with a trailing newline.
+# Check that every tracked text source file ends with a trailing newline.
+# Covered types: .md .sh .go .yml .yaml .toml .json .gitignore .gitattributes
 # Exits 1 if violations are found (CI mode).
 # Pass --fix to repair violations in place instead of failing.
 #
@@ -46,7 +47,9 @@ function validate_args() {
 }
 
 function tracked_files() {
-  git ls-files '*.md' '*.sh' '*.go' | filter_src
+  git ls-files '*.md' '*.sh' '*.go' \
+               '*.yml' '*.yaml' '*.toml' '*.json' \
+               '.gitignore' '.gitattributes' | filter_src
 }
 
 function missing_newline() {
