@@ -36,7 +36,9 @@ function validate_args() {
 }
 
 function tracked_md_files() {
-  git ls-files '*.md' | filter_src
+  git ls-files '*.md' | filter_src | while IFS= read -r f; do
+    [ -f "${f}" ] && [ ! -L "${f}" ] && printf '%s\n' "${f}"
+  done
 }
 
 function lint_markdown() {
