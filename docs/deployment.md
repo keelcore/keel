@@ -1,14 +1,18 @@
 # Keel Deployment Guide
 
-This document covers all deployment patterns: library mode (embedding Keel in your Go service), the Helm chart (all modes, values reference, ServiceMonitor, NetworkPolicy, PDB), and the Docker Compose test harness.
+This document covers all deployment patterns: library mode (embedding Keel in your Go service), the Helm chart (all
+modes, values reference, ServiceMonitor, NetworkPolicy, PDB), and the Docker Compose test harness.
 
 ---
 
 ## 1. Library Mode: Embedding Keel in Your Go Service
 
-Library mode is the tightest integration. Your Go application links Keel as a dependency, registers its own HTTP handlers, and calls `srv.Run(ctx)`. Keel starts the listeners, wires up TLS, authn, OWASP middleware, health endpoints, tracing, and metrics — all configured by the shared config struct.
+Library mode is the tightest integration. Your Go application links Keel as a dependency, registers its own HTTP
+handlers, and calls `srv.Run(ctx)`. Keel starts the listeners, wires up TLS, authn, OWASP middleware, health endpoints,
+tracing, and metrics — all configured by the shared config struct.
 
 **When to choose library mode:**
+
 - Your service is already written in Go.
 - You want the lowest possible request latency (no proxy hop).
 - You want to use Keel's middleware independently on your own handlers.
@@ -16,7 +20,8 @@ Library mode is the tightest integration. Your Go application links Keel as a de
 
 ### 1.1 Wrap the Keel Config in Your App Config
 
-Keel's configuration struct is designed to nest cleanly inside your application's own configuration. You declare an `AppConfig` struct that embeds `keelconfig.Config` under a `keel:` YAML key:
+Keel's configuration struct is designed to nest cleanly inside your application's own configuration. You declare an
+`AppConfig` struct that embeds `keelconfig.Config` under a `keel:` YAML key:
 
 ```go
 import keelconfig "github.com/keelcore/keel/pkg/config"
@@ -93,7 +98,8 @@ if err := srv.Run(ctx); err != nil {
 
 ### 1.3 Using Keel Middleware Independently
 
-Keel exports its middleware pipeline so you can apply individual middleware to handlers outside of the main server, or compose them in a different order:
+Keel exports its middleware pipeline so you can apply individual middleware to handlers outside of the main server, or
+compose them in a different order:
 
 ```go
 import "github.com/keelcore/keel/pkg/core/mw"
@@ -175,7 +181,9 @@ srv := keel.New(
 srv.Run(ctx)
 ```
 
-**Built-in default route:** If no user route claims the root path on the HTTP port, Keel serves a built-in default response. This guarantees that the service responds to health checks and smoke tests even before you add your own routes. You can override it by registering a handler for `/`.
+**Built-in default route:** If no user route claims the root path on the HTTP port, Keel serves a built-in default
+response. This guarantees that the service responds to health checks and smoke tests even before you add your own routes.
+You can override it by registering a handler for `/`.
 
 ---
 
@@ -183,9 +191,12 @@ srv.Run(ctx)
 
 ### 2.1 What Helm Does
 
-Helm is the package manager for Kubernetes. A Helm chart is a template for a set of Kubernetes YAML manifests (Deployments, Services, ConfigMaps, Secrets, etc.). Helm lets you parameterize these manifests using a `values.yaml` file, so you can deploy the same chart to development, staging, and production with different settings.
+Helm is the package manager for Kubernetes. A Helm chart is a template for a set of Kubernetes YAML manifests
+(Deployments, Services, ConfigMaps, Secrets, etc.). Helm lets you parameterize these manifests using a `values.yaml`
+file, so you can deploy the same chart to development, staging, and production with different settings.
 
-The Keel Helm chart supports three deployment modes (library, sidecar intra-pod, sidecar out-of-pod) and generates all the Kubernetes resources needed for each.
+The Keel Helm chart supports three deployment modes (library, sidecar intra-pod, sidecar out-of-pod) and generates all
+the Kubernetes resources needed for each.
 
 ### 2.2 Image Flavors
 
@@ -203,6 +214,7 @@ image:
 | `custom` | user-defined | varies | When you build your own binary with custom tags and want to use the Keel chart |
 
 For `custom`, set:
+
 ```yaml
 image:
   flavor: custom
@@ -246,7 +258,8 @@ secrets:
 
 ### 2.4 Sidecar Mode — Intra-Pod
 
-In intra-pod sidecar mode, Keel runs as a sidecar container in the same pod as your application. The application listens on `localhost:<port>` over plain HTTP; Keel owns all external-facing ports.
+In intra-pod sidecar mode, Keel runs as a sidecar container in the same pod as your application. The application listens
+on `localhost:<port>` over plain HTTP; Keel owns all external-facing ports.
 
 ```yaml
 # values.yaml
@@ -266,11 +279,13 @@ sidecar:
   upstream_url: http://127.0.0.1:3000   # Keel proxies to this URL
 ```
 
-The chart generates a Pod with two containers: your app container and Keel. The app container is not exposed via the Service — only Keel's ports are exposed.
+The chart generates a Pod with two containers: your app container and Keel. The app container is not exposed via the
+Service — only Keel's ports are exposed.
 
 ### 2.5 Sidecar Mode — Out-of-Pod
 
-In out-of-pod sidecar mode, Keel runs as a standalone pod and proxies to an upstream running on a different host (legacy VM, another namespace, external API).
+In out-of-pod sidecar mode, Keel runs as a standalone pod and proxies to an upstream running on a different host (legacy
+VM, another namespace, external API).
 
 ```yaml
 # values.yaml
@@ -428,9 +443,13 @@ extraVolumeMounts: []
 
 ### 2.7 ServiceMonitor (Prometheus Operator)
 
-**What a ServiceMonitor is:** The Prometheus Operator is a Kubernetes operator that manages Prometheus instances. Instead of configuring Prometheus scrape targets directly in a ConfigMap, you create `ServiceMonitor` custom resources that the operator picks up and translates into Prometheus scrape configs. This lets you manage monitoring configuration as Kubernetes-native resources.
+**What a ServiceMonitor is:** The Prometheus Operator is a Kubernetes operator that manages Prometheus instances. Instead
+of configuring Prometheus scrape targets directly in a ConfigMap, you create `ServiceMonitor` custom resources that the
+operator picks up and translates into Prometheus scrape configs. This lets you manage monitoring configuration as
+Kubernetes-native resources.
 
 Enable the ServiceMonitor in Helm:
+
 ```yaml
 serviceMonitor:
   enabled: true
@@ -440,6 +459,7 @@ serviceMonitor:
 ```
 
 The chart generates:
+
 ```yaml
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -460,15 +480,19 @@ spec:
 
 ### 2.8 NetworkPolicy
 
-**What a NetworkPolicy is:** A Kubernetes NetworkPolicy restricts which pods can send network traffic to which other pods. Without any NetworkPolicy, all pods in a cluster can communicate with all other pods (flat network). NetworkPolicies add a firewall layer.
+**What a NetworkPolicy is:** A Kubernetes NetworkPolicy restricts which pods can send network traffic to which other pods.
+Without any NetworkPolicy, all pods in a cluster can communicate with all other pods (flat network). NetworkPolicies add
+a firewall layer.
 
 Enable and configure:
+
 ```yaml
 networkPolicy:
   enabled: true
 ```
 
 The chart generates a NetworkPolicy that:
+
 - Allows ingress to HTTP/HTTPS ports from anywhere (or from a specified ingress controller namespace).
 - Allows ingress to health/ready ports from the kubelet (any node IP).
 - Allows ingress to the admin port only from within the same namespace.
@@ -478,7 +502,9 @@ Customize for your environment by using `extraVolumes` and pod annotations if yo
 
 ### 2.9 PodDisruptionBudget
 
-**What a PDB is:** A PodDisruptionBudget tells Kubernetes how many pods of a given Deployment can be unavailable at once during a "voluntary disruption" — node drain, cluster upgrade, or manual scale-down. Without a PDB, a node drain could simultaneously evict all replicas of your service, causing downtime.
+**What a PDB is:** A PodDisruptionBudget tells Kubernetes how many pods of a given Deployment can be unavailable at once
+during a "voluntary disruption" — node drain, cluster upgrade, or manual scale-down. Without a PDB, a node drain could
+simultaneously evict all replicas of your service, causing downtime.
 
 ```yaml
 podDisruptionBudget:
@@ -486,7 +512,8 @@ podDisruptionBudget:
   minAvailable: 1   # At least 1 replica must be available at all times
 ```
 
-With `replicaCount: 2` and `minAvailable: 1`, a node drain can only evict one pod at a time, waiting for the replacement pod to become ready before evicting the second.
+With `replicaCount: 2` and `minAvailable: 1`, a node drain can only evict one pod at a time, waiting for the replacement
+pod to become ready before evicting the second.
 
 ### 2.10 Scaling Signals
 
@@ -510,6 +537,7 @@ For more sophisticated scaling using Keel metrics (requires KEDA or Prometheus A
 ```
 
 Example KEDA ScaledObject:
+
 ```yaml
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -533,11 +561,14 @@ spec:
 
 ## 3. Docker Compose Test Harness
 
-The Docker Compose test harness runs Keel together with a mock upstream, Prometheus, an OpenTelemetry collector, and Jaeger for end-to-end integration testing. It is the canonical way to run integration tests locally and in CI.
+The Docker Compose test harness runs Keel together with a mock upstream, Prometheus, an OpenTelemetry collector, and
+Jaeger for end-to-end integration testing. It is the canonical way to run integration tests locally and in CI.
 
 ### 3.1 Why Docker Compose for Testing
 
-Unit tests verify individual functions in isolation. Integration tests verify that the components work together correctly: Keel must actually accept a TLS connection, validate a JWT, proxy the request to the upstream, emit a trace, and expose the right Prometheus metric. Docker Compose lets you run the full stack locally with a single command.
+Unit tests verify individual functions in isolation. Integration tests verify that the components work together correctly:
+Keel must actually accept a TLS connection, validate a JWT, proxy the request to the upstream, emit a trace, and expose
+the right Prometheus metric. Docker Compose lets you run the full stack locally with a single command.
 
 ### 3.2 Full Compose File
 
@@ -616,11 +647,16 @@ services:
 
 ### 3.3 Docker Compose Networking
 
-**How Docker Compose networking works:** By default, Docker Compose creates a private network for all services in the same Compose file. Services can reach each other using their service names as hostnames. For example, the `keel` service can reach the `upstream` service at `http://upstream:3000`.
+**How Docker Compose networking works:** By default, Docker Compose creates a private network for all services in the
+same Compose file. Services can reach each other using their service names as hostnames. For example, the `keel` service
+can reach the `upstream` service at `http://upstream:3000`.
 
-This is why the Keel config in `tests/fixtures/keel.yaml` uses `upstream_url: http://upstream:3000` — `upstream` resolves to the upstream container's IP on the Compose network. On the host machine, you reach them via `localhost:<mapped-port>`.
+This is why the Keel config in `tests/fixtures/keel.yaml` uses `upstream_url: http://upstream:3000` — `upstream`
+resolves to the upstream container's IP on the Compose network. On the host machine, you reach them via
+`localhost:<mapped-port>`.
 
-**Host port mappings:** The `ports` directives map `<host>:<container>` ports. `"8443:8443"` means port 8443 on your Mac/Linux machine maps to port 8443 inside the Keel container.
+**Host port mappings:** The `ports` directives map `<host>:<container>` ports. `"8443:8443"` means port 8443 on your
+Mac/Linux machine maps to port 8443 inside the Keel container.
 
 ### 3.4 Running the Test Harness
 
@@ -635,18 +671,22 @@ KEEL_COMPOSE_TESTS=1 go test ./tests/compose/...
 make test-compose
 ```
 
-The `KEEL_COMPOSE_TESTS=1` guard prevents the integration tests from running in unit test mode (where Docker is not available).
+The `KEEL_COMPOSE_TESTS=1` guard prevents the integration tests from running in unit test mode (where Docker is not
+available).
 
 ### 3.5 Test Fixtures
 
 Test certificates are generated by:
+
 ```sh
 ./tests/fixtures/gen-certs.sh
 ```
 
-The output (`tests/fixtures/certs/`) is gitignored — never commit test certificates to the repository. Each developer or CI job generates their own test certificates.
+The output (`tests/fixtures/certs/`) is gitignored — never commit test certificates to the repository. Each developer or
+CI job generates their own test certificates.
 
 The fixtures directory contains:
+
 - `tests/fixtures/keel.yaml` — Keel config for the test harness (sidecar mode, pointing to upstream)
 - `tests/fixtures/secrets/keel-secrets.yaml` — Test secrets (test signing keys, test cert paths)
 - `tests/fixtures/prometheus.yml` — Prometheus scrape config

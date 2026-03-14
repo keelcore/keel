@@ -1,6 +1,7 @@
 # Keel Configuration Reference
 
-This document is the authoritative reference for every configuration knob in Keel. It covers the YAML schema, environment variable overrides, the secrets file pattern, validation rules, and hot-reload behavior.
+This document is the authoritative reference for every configuration knob in Keel. It covers the YAML schema, environment
+variable overrides, the secrets file pattern, validation rules, and hot-reload behavior.
 
 If you are new to Keel, read this document alongside the [README](../README.md) to understand how the pieces connect.
 
@@ -10,7 +11,7 @@ If you are new to Keel, read this document alongside the [README](../README.md) 
 
 Keel loads configuration in **four layers**, each one able to override the previous:
 
-```
+```text
 Layer 1: Built-in defaults (compiled in)
     ↓ overridden by
 Layer 2: keel.yaml (primary config file, path from --config or KEEL_CONFIG)
@@ -22,15 +23,21 @@ Layer 4: KEEL_* environment variables
 
 **Why this design?**
 
-This layered approach is the standard "twelve-factor app" pattern for configuration. The YAML file captures the structural configuration that you want to version-control (ports, timeouts, feature flags). The secrets file captures sensitive material (TLS keys, signing keys) that you deliver via Kubernetes Secrets or Vault, never checked into source control. Environment variables let you override any value at deploy time without rebuilding an image — critical for CI/CD pipelines.
+This layered approach is the standard "twelve-factor app" pattern for configuration. The YAML file captures the
+structural configuration that you want to version-control (ports, timeouts, feature flags). The secrets file captures
+sensitive material (TLS keys, signing keys) that you deliver via Kubernetes Secrets or Vault, never checked into source
+control. Environment variables let you override any value at deploy time without rebuilding an image — critical for
+CI/CD pipelines.
 
-The library unmarshals YAML onto a struct that is pre-populated with defaults, so any key you omit in your YAML retains its default value. You only write what you want to change.
+The library unmarshals YAML onto a struct that is pre-populated with defaults, so any key you omit in your
+YAML retains its default value. You only write what you want to change.
 
 ---
 
 ## 1. YAML Config File
 
-The config file path is set with `--config <path>` or `KEEL_CONFIG=<path>`. If neither is set, Keel starts with only built-in defaults and ENV overrides.
+The config file path is set with `--config <path>` or `KEEL_CONFIG=<path>`. If neither is set, Keel starts with only
+built-in defaults and ENV overrides.
 
 The full schema with every key and its default value:
 
@@ -360,9 +367,11 @@ fips:
 
 ## 2. Environment Variable Overrides
 
-Every scalar config value has a corresponding `KEEL_*` environment variable. ENV vars are applied last in the merge order, so they always win.
+Every scalar config value has a corresponding `KEEL_*` environment variable. ENV vars are applied last in the merge
+order, so they always win.
 
-**Why ENV vars?** They let you change behavior at deploy time — for example, enabling debug logging in staging without modifying the config file — and they work naturally with Kubernetes ConfigMaps, Helm `--set`, and CI/CD systems.
+**Why ENV vars?** They let you change behavior at deploy time — for example, enabling debug logging in staging without
+modifying the config file — and they work naturally with Kubernetes ConfigMaps, Helm `--set`, and CI/CD systems.
 
 | ENV var | YAML path | Default | Notes |
 |---|---|---|---|
@@ -411,17 +420,23 @@ Every scalar config value has a corresponding `KEEL_*` environment variable. ENV
 | `KEEL_MAX_CONCURRENT` | `limits.max_concurrent` | `0` | 0 = unlimited |
 | `KEEL_QUEUE_DEPTH` | `limits.queue_depth` | `0` | 0 = no queue |
 
-**Duration string format:** All timeout and duration values accept Go duration strings: `"5s"`, `"1m"`, `"500ms"`, `"1h30m"`. Do not use bare integers — they will not parse.
+**Duration string format:** All timeout and duration values accept Go duration strings: `"5s"`, `"1m"`, `"500ms"`,
+`"1h30m"`. Do not use bare integers — they will not parse.
 
 ---
 
 ## 3. Secrets File
 
-The secrets file is a second YAML file, loaded after the primary config file and before ENV vars. Its values override matching keys from the primary config.
+The secrets file is a second YAML file, loaded after the primary config file and before ENV vars. Its values override
+matching keys from the primary config.
 
-**Why a separate file?** Because the primary config file (`keel.yaml`) is checked into source control. Secrets (TLS private keys, signing keys, API tokens) must never be in source control. The secrets file is delivered at runtime via Kubernetes Secrets, Vault agent injection, or a secrets manager, and is never committed to the repo.
+**Why a separate file?** Because the primary config file (`keel.yaml`) is checked into source control. Secrets (TLS
+private keys, signing keys, API tokens) must never be in source control. The secrets file is delivered at runtime via
+Kubernetes Secrets, Vault agent injection, or a secrets manager, and is never committed to the repo.
 
-**Kubernetes pattern:** The Helm chart creates a Kubernetes Secret from your `values.yaml` secret values, mounts it as a volume at `/etc/keel/secrets`, and sets `KEEL_SECRETS` to point to `keel-secrets.yaml` within that mount. The pod YAML never contains the raw secret values.
+**Kubernetes pattern:** The Helm chart creates a Kubernetes Secret from your `values.yaml` secret values, mounts it as a
+volume at `/etc/keel/secrets`, and sets `KEEL_SECRETS` to point to `keel-secrets.yaml` within that mount. The pod YAML
+never contains the raw secret values.
 
 ```yaml
 # keel-secrets.yaml
@@ -438,9 +453,12 @@ authn:
   my_signature_key_file: /etc/keel/secrets/my-signing.key   # Keel's own private key
 ```
 
-**`*_file` key convention:** Any config key that ends in `_file` is treated as a filesystem path. Keel reads the file from disk at startup and again on SIGHUP reload. The file contents are the actual secret value — for example, `my_signature_key_file` contains the raw PEM private key text, not a reference to another path.
+**`*_file` key convention:** Any config key that ends in `_file` is treated as a filesystem path. Keel reads the file
+from disk at startup and again on SIGHUP reload. The file contents are the actual secret value — for example,
+`my_signature_key_file` contains the raw PEM private key text, not a reference to another path.
 
 **Helm secrets wiring:**
+
 ```yaml
 # values.yaml (Helm)
 secrets:
@@ -452,39 +470,58 @@ secrets:
 
 ## 4. Config Validation
 
-Keel validates configuration at startup and **fails fast** with a clear error message if the configuration is invalid. The philosophy is: a misconfigured server that silently starts is more dangerous than one that refuses to start with an actionable error.
+Keel validates configuration at startup and **fails fast** with a clear error message if the configuration is invalid.
+The philosophy is: a misconfigured server that silently starts is more dangerous than one that refuses to start with an
+actionable error.
 
 **Strict YAML parsing — unknown fields are rejected:**
-Keel uses `KnownFields(true)` when parsing every YAML file. Any key in your `keel.yaml` or `keel-secrets.yaml` that does not correspond to a recognized config field causes an immediate parse error. This catches typos and copy-paste mistakes before they silently have no effect. For example, `listners:` (misspelled) or `sidecar.upstrem_url:` (wrong key) will fail with a clear error at startup rather than being silently ignored.
+Keel uses `KnownFields(true)` when parsing every YAML file. Any key in your `keel.yaml` or `keel-secrets.yaml` that
+does not correspond to a recognized config field causes an immediate parse error. This catches typos and copy-paste
+mistakes before they silently have no effect. For example, `listners:` (misspelled) or `sidecar.upstrem_url:` (wrong
+key) will fail with a clear error at startup rather than being silently ignored.
 
 Validation checks include:
 
-- **HTTPS/H3 enabled without TLS material:** If `listeners.https.enabled: true` or `listeners.h3.enabled: true`, then either `tls.cert_file` + `tls.key_file` must be set, or `tls.acme.enabled: true` must be set. Otherwise Keel cannot serve HTTPS.
+- **HTTPS/H3 enabled without TLS material:** If `listeners.https.enabled: true` or `listeners.h3.enabled: true`, then
+  either `tls.cert_file` + `tls.key_file` must be set, or `tls.acme.enabled: true` must be set. Otherwise Keel cannot
+  serve HTTPS.
 
-- **ACME + manual cert conflict:** If `tls.acme.enabled: true`, then `tls.cert_file` and `tls.key_file` must be empty. ACME manages the certificate entirely; pointing Keel at a manual cert creates ambiguity about which cert is authoritative.
+- **ACME + manual cert conflict:** If `tls.acme.enabled: true`, then `tls.cert_file` and `tls.key_file` must be empty.
+  ACME manages the certificate entirely; pointing Keel at a manual cert creates ambiguity about which cert is
+  authoritative.
 
-- **ACME domains empty:** If `tls.acme.enabled: true` but `tls.acme.domains` is empty, Keel cannot request a certificate because it does not know what domain name to certify.
+- **ACME domains empty:** If `tls.acme.enabled: true` but `tls.acme.domains` is empty, Keel cannot request a certificate
+  because it does not know what domain name to certify.
 
-- **Watermark ordering:** `backpressure.high_watermark` must be strictly greater than `backpressure.low_watermark`. If they are equal or inverted, the hysteresis mechanism cannot function — Keel would either never shed load or never recover from shedding.
+- **Watermark ordering:** `backpressure.high_watermark` must be strictly greater than `backpressure.low_watermark`. If
+  they are equal or inverted, the hysteresis mechanism cannot function — Keel would either never shed load or never
+  recover from shedding.
 
-- **Unreadable secrets file:** If `KEEL_SECRETS` points to a path that does not exist or is not readable, Keel fails at startup rather than starting without secrets.
+- **Unreadable secrets file:** If `KEEL_SECRETS` points to a path that does not exist or is not readable, Keel fails at
+  startup rather than starting without secrets.
 
-- **Compiled-out features in config:** If a feature is enabled in config (e.g., `tracing.otlp.enabled: true`) but the binary was built with the corresponding opt-out tag (e.g., `no_otel`), Keel fails at startup with an error indicating the mismatch.
+- **Compiled-out features in config:** If a feature is enabled in config (e.g., `tracing.otlp.enabled: true`) but the
+  binary was built with the corresponding opt-out tag (e.g., `no_otel`), Keel fails at startup with an error indicating
+  the mismatch.
 
 **Dry-run validation:**
+
 ```sh
 keel --validate --config keel.yaml --secrets keel-secrets.yaml
 ```
 
-`--validate` checks the configuration without starting any listeners. Exits 0 on success, non-zero with a human-readable error on failure. Use this in CI to catch configuration errors before deploying.
+`--validate` checks the configuration without starting any listeners. Exits 0 on success, non-zero with a
+human-readable error on failure. Use this in CI to catch configuration errors before deploying.
 
 ---
 
 ## 5. SIGHUP Hot Reload
 
-Keel supports reloading most configuration at runtime without restarting the process or dropping connections. This is useful for rotating TLS certificates, updating signing keys, and adjusting log levels in production.
+Keel supports reloading most configuration at runtime without restarting the process or dropping connections. This is
+useful for rotating TLS certificates, updating signing keys, and adjusting log levels in production.
 
 **How to trigger:**
+
 - Send `SIGHUP` to the Keel process: `kill -HUP <pid>`
 - Or POST to the admin port: `curl -X POST http://localhost:9999/admin/reload`
 
@@ -492,10 +529,12 @@ Keel supports reloading most configuration at runtime without restarting the pro
 
 1. Keel re-reads the YAML config file and secrets file from their original paths.
 2. The new config is validated using the same rules as startup validation.
-3. If validation fails, Keel logs the error and **keeps running with the old config**. This is intentional — a reload that would break the server is rejected silently so the process stays up.
+3. If validation fails, Keel logs the error and **keeps running with the old config**. This is intentional — a reload
+   that would break the server is rejected silently so the process stays up.
 4. If validation passes, Keel applies changes to the running process.
 
 **What can be reloaded (no restart needed):**
+
 - Log level and JSON format (`logging.level`, `logging.json`)
 - Remote log sink endpoint and protocol (`logging.remote_sink.*`) — old sink goroutine is cancelled, new one started
 - Authn signing keys (`authn.trusted_signers`, `authn.trusted_signers_file`) — file is re-read from disk
@@ -504,15 +543,21 @@ Keel supports reloading most configuration at runtime without restarting the pro
 - Pre-stop sleep duration (`timeouts.prestop_sleep`)
 - Memory backpressure limits (`backpressure.*`)
 - Upstream URL (`sidecar.upstream_url`)
-- TLS certificate and key (zero-downtime cert rotation — new connections use the new cert; in-flight TLS sessions are not affected)
+- TLS certificate and key (zero-downtime cert rotation — new connections use the new cert; in-flight TLS sessions are
+  not affected)
 
 **What requires a restart (cannot be hot-reloaded):**
+
 - Listener ports (changing `listeners.http.port` etc.)
 - Protocol bindings (adding/removing HTTPS, H3, or admin listener)
 - Build-tag-controlled features
 
 **`/admin/reload` response:**
+
 - `200 OK` — reload succeeded, new config is active.
 - `422 Unprocessable Entity` — reload failed validation; old config is still active. Body contains the validation error.
 
-**Why support reload at all?** TLS certificate rotation is the primary driver. Production certificates expire; ideally you rotate them without any downtime or service interruption. With SIGHUP + cert hot reload, a certificate manager (cert-manager, Vault, acme.sh) can write a new certificate to disk and trigger reload. No pod restart, no dropped connections, no deployment pipeline involvement.
+**Why support reload at all?** TLS certificate rotation is the primary driver. Production certificates expire; ideally
+you rotate them without any downtime or service interruption. With SIGHUP + cert hot reload, a certificate manager
+(cert-manager, Vault, acme.sh) can write a new certificate to disk and trigger reload. No pod restart, no dropped
+connections, no deployment pipeline involvement.

@@ -5,7 +5,7 @@ We **love even more** when people send a Pull Request (especially together with 
 
 The happiest path for everyone: **you do the work → we review & merge quickly**.
 
-### Why we strongly prefer PRs over long issue discussions
+## Why we strongly prefer PRs over long issue discussions
 
 - You keep your momentum instead of waiting for "maybe" feedback
 - We see your **actual intended solution** (saves tons of back-and-forth)
@@ -39,14 +39,16 @@ Because this is an open repo, external contributors **cannot push branches direc
 ### TL;DR — sentences that make maintainers smile
 
 > "I already had a fix ready, so I forked → branched → pushed → opened this PR. Fixes #42."
-
+>
 > "Started on this yesterday — here's a working PoC. Happy to iterate!"
 
 That energy usually gets your contribution landed quickly ❤️
 
 ### Bonus: even lazier next time
 
-- After your first PR lands, you can keep your fork around and `git remote add upstream https://github.com/ORIGINAL-OWNER/REPO.git` so you can easily pull latest changes (`git fetch upstream && git rebase upstream/main`)
+- After your first PR lands, you can keep your fork around and
+  `git remote add upstream https://github.com/ORIGINAL-OWNER/REPO.git` so you can easily pull latest changes
+  (`git fetch upstream && git rebase upstream/main`)
 - GitHub's "Open pull request" button from an issue page will auto-suggest forking if you haven't already
 
 Thank you for being **productively lazy** — it keeps this project moving!

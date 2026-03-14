@@ -8,9 +8,12 @@ This document describes the test strategy, layer boundaries, and how to run each
 
 Unit tests do not cross system boundaries.
 
-A system boundary is anything that requires a network peer, OS service, or external process: an ACME CA server, an OPA policy engine, a remote logging endpoint, an upstream HTTP service, a syslog daemon. Tests that need any of those belong in integration tests, not unit tests.
+A system boundary is anything that requires a network peer, OS service, or external process: an ACME CA server, an OPA
+policy engine, a remote logging endpoint, an upstream HTTP service, a syslog daemon. Tests that need any of those belong
+in integration tests, not unit tests.
 
 **Unit tests cover:**
+
 - Config parsing and validation (all fields, all error branches)
 - Data transformations and serialization
 - State machine transitions (circuit breaker, reload lifecycle)
@@ -19,6 +22,7 @@ A system boundary is anything that requires a network peer, OS service, or exter
 - Pure logic functions with no I/O
 
 **Integration tests cover:**
+
 - ACME end-to-end certificate issuance (pebble CA)
 - OPA policy evaluation against a real OPA process
 - Remote logging sink reachability
@@ -26,7 +30,9 @@ A system boundary is anything that requires a network peer, OS service, or exter
 - Syslog emission to a real syslog daemon
 - Compose and Kubernetes deployment smoke tests
 
-The reason for this split is contract drift. Mocks replicate the mock author's understanding of a contract at a point in time. When the real system changes its behavior, mocks silently continue to pass. Integration tests against real tools catch those regressions.
+The reason for this split is contract drift. Mocks replicate the mock author's understanding of a contract at a point in
+time. When the real system changes its behavior, mocks silently continue to pass. Integration tests against real tools
+catch those regressions.
 
 ---
 
@@ -57,6 +63,7 @@ KEEL_COMPOSE_TESTS=1 make test-compose
 ```
 
 Install pebble for ACME tests:
+
 ```sh
 go install github.com/letsencrypt/pebble/cmd/pebble@v1.0.1
 ```

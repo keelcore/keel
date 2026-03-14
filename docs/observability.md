@@ -1,8 +1,11 @@
 # Keel Observability Reference
 
-This document covers everything Keel exposes to help you understand what it is doing at runtime: health probes, distributed tracing, Prometheus metrics, StatsD, structured logging, operational endpoints, readiness dependency registration, and SLO signal patterns.
+This document covers everything Keel exposes to help you understand what it is doing at runtime: health probes,
+distributed tracing, Prometheus metrics, StatsD, structured logging, operational endpoints, readiness dependency
+registration, and SLO signal patterns.
 
-If you are new to these concepts, the bridging explanations throughout explain not just what each feature does but why it is designed the way it is.
+If you are new to these concepts, the bridging explanations throughout explain not just what each feature does
+but why it is designed the way it is.
 
 ---
 
@@ -10,10 +13,14 @@ If you are new to these concepts, the bridging explanations throughout explain n
 
 A service that cannot be observed cannot be operated. Keel treats observability as a core requirement, not an add-on, because:
 
-- **Kubernetes requires probes.** Without correct health endpoints, Kubernetes cannot know when to restart a crashed pod or when to stop sending traffic to a pod that is initializing.
-- **Distributed tracing is table stakes.** In a microservice architecture, a request may pass through five services before completing. Without trace context propagation, a slow request is nearly impossible to debug.
-- **Prometheus metrics are how SREs sleep at night.** Without the right gauges and counters, you cannot write alerts, cannot create dashboards, and cannot know if your service is meeting its error rate or latency SLOs.
-- **Structured logging makes grep useful.** JSON log lines can be queried with Loki, Splunk, Elasticsearch, or any log aggregator. Plain text log lines cannot be reliably parsed at scale.
+- **Kubernetes requires probes.** Without correct health endpoints, Kubernetes cannot know when to restart a
+  crashed pod or when to stop sending traffic to a pod that is initializing.
+- **Distributed tracing is table stakes.** In a microservice architecture, a request may pass through five
+  services before completing. Without trace context propagation, a slow request is nearly impossible to debug.
+- **Prometheus metrics are how SREs sleep at night.** Without the right gauges and counters, you cannot write
+  alerts, cannot create dashboards, and cannot know if your service is meeting its error rate or latency SLOs.
+- **Structured logging makes grep useful.** JSON log lines can be queried with Loki, Splunk, Elasticsearch, or
+  any log aggregator. Plain text log lines cannot be reliably parsed at scale.
 
 ---
 
@@ -21,7 +28,11 @@ A service that cannot be observed cannot be operated. Keel treats observability 
 
 Keel exposes three separate health endpoints, on three separate ports, for the three different Kubernetes probe types.
 
-**Why separate ports?** Kubernetes health probes originate from the kubelet (the node agent), not from the pod's service endpoints. If health endpoints shared a port with main traffic, a misconfigured NetworkPolicy could block kubelet probes and cause Kubernetes to incorrectly mark healthy pods as failed. Separate ports also let you apply different authentication rules — main traffic might require a JWT token; health endpoints should always be unauthenticated.
+**Why separate ports?** Kubernetes health probes originate from the kubelet (the node agent), not from the
+pod's service endpoints. If health endpoints shared a port with main traffic, a misconfigured NetworkPolicy
+could block kubelet probes and cause Kubernetes to incorrectly mark healthy pods as failed. Separate ports also
+let you apply different authentication rules — main traffic might require a JWT token; health endpoints should
+always be unauthenticated.
 
 | Endpoint | Port | Config key | Purpose |
 |---|---|---|---|
@@ -31,29 +42,42 @@ Keel exposes three separate health endpoints, on three separate ports, for the t
 
 ### 1.1 Liveness (`/healthz`)
 
-Returns `200 OK` whenever the process is running and its event loop is healthy. Returns non-200 only if the process is in an unrecoverable state.
+Returns `200 OK` whenever the process is running and its event loop is healthy. Returns non-200 only if the
+process is in an unrecoverable state.
 
-**What Kubernetes does with this:** If liveness returns non-200, Kubernetes kills the pod and restarts it. The liveness probe is the "are you dead?" check. It should almost never fail for a healthy process — do not put business logic checks in the liveness probe. A liveness probe that fails too aggressively will cause Kubernetes to restart healthy pods.
+**What Kubernetes does with this:** If liveness returns non-200, Kubernetes kills the pod and restarts it. The
+liveness probe is the "are you dead?" check. It should almost never fail for a healthy process — do not put
+business logic checks in the liveness probe. A liveness probe that fails too aggressively will cause Kubernetes
+to restart healthy pods.
 
 ### 1.2 Readiness (`/readyz`)
 
 Returns `200 OK` when Keel is ready to serve traffic. Returns `503 Service Unavailable` when:
+
 - Keel is still initializing (before first ready state).
 - Memory backpressure has triggered load shedding (`backpressure.shedding_enabled: true`).
 - Upstream is unreachable (sidecar mode) — Keel has observed enough failures to flip the circuit.
 - Any registered readiness check returns an error (see Section 7 below).
 
-**What Kubernetes does with this:** When readiness returns non-200, Kubernetes removes the pod from the Service's endpoint list. Traffic stops routing to that pod. When readiness returns 200 again, the pod is re-added. The readiness probe is the "are you ready for work?" check — it is appropriate to put dependency checks here (database connectivity, cache availability).
+**What Kubernetes does with this:** When readiness returns non-200, Kubernetes removes the pod from the
+Service's endpoint list. Traffic stops routing to that pod. When readiness returns 200 again, the pod is
+re-added. The readiness probe is the "are you ready for work?" check — it is appropriate to put dependency
+checks here (database connectivity, cache availability).
 
-In sidecar mode, `/readyz` also checks upstream reachability. If the upstream health probe (`sidecar.upstream_health_path`) fails `failure_threshold` times, `/readyz` returns 503.
+In sidecar mode, `/readyz` also checks upstream reachability. If the upstream health probe
+(`sidecar.upstream_health_path`) fails `failure_threshold` times, `/readyz` returns 503.
 
 ### 1.3 Startup (`/startupz`)
 
 Returns `200 OK` once the process has completed initialization. Returns `503` until then.
 
-**What Kubernetes does with this:** During the startup probe window, Kubernetes does not run the liveness probe. This prevents Kubernetes from killing a legitimately slow-starting pod (e.g., one that runs database migrations at startup) before it has had a chance to finish initializing. The startup probe is the "are you done starting?" check. Once it returns 200, Kubernetes starts running the liveness probe.
+**What Kubernetes does with this:** During the startup probe window, Kubernetes does not run the liveness
+probe. This prevents Kubernetes from killing a legitimately slow-starting pod (e.g., one that runs database
+migrations at startup) before it has had a chance to finish initializing. The startup probe is the "are you
+done starting?" check. Once it returns 200, Kubernetes starts running the liveness probe.
 
 **Example Kubernetes probe configuration:**
+
 ```yaml
 livenessProbe:
   httpGet:
@@ -88,27 +112,37 @@ startupProbe:
 
 ### 2.1 What Distributed Tracing Is
 
-In a microservice architecture, a single user request might flow through many services: API gateway → auth service → business logic service → database proxy → cache. If the overall request takes 3 seconds, which service is responsible for the slowdown?
+In a microservice architecture, a single user request might flow through many services: API gateway → auth
+service → business logic service → database proxy → cache. If the overall request takes 3 seconds, which
+service is responsible for the slowdown?
 
-Distributed tracing answers this question. Each service creates a "span" — a record of the time it spent on a particular operation — and links it to the parent span from the service that called it. The result is a tree of spans, called a "trace," that shows the full call path and timing for every step.
+Distributed tracing answers this question. Each service creates a "span" — a record of the time it spent on a
+particular operation — and links it to the parent span from the service that called it. The result is a tree of
+spans, called a "trace," that shows the full call path and timing for every step.
 
-A trace has a globally unique `trace_id`. Every span within the trace shares that `trace_id` and has its own `span_id`. Parent-child relationships between spans are recorded via `parent_span_id`.
+A trace has a globally unique `trace_id`. Every span within the trace shares that `trace_id` and has its own
+`span_id`. Parent-child relationships between spans are recorded via `parent_span_id`.
 
 ### 2.2 Trace Context Propagation
 
-Keel propagates trace context using the W3C Trace Context standard (`traceparent` header). This runs unconditionally — it does not require `no_otel` to be absent and has no config toggle.
+Keel propagates trace context using the W3C Trace Context standard (`traceparent` header). This runs
+unconditionally — it does not require `no_otel` to be absent and has no config toggle.
 
 **On every inbound request:**
+
 1. If a valid `traceparent` header is present, Keel extracts the `trace_id` and preserves it for the lifetime of the request.
 2. Keel generates a fresh `span_id` for this hop (16 hex chars, random).
-3. Keel sets a `traceparent` response header: `00-<trace_id>-<new_span_id>-01`, so callers can continue the trace on their side.
+3. Keel sets a `traceparent` response header: `00-<trace_id>-<new_span_id>-01`, so callers can continue the
+   trace on their side.
 4. Both values are stored in the request context (see §2.5).
 
 If no inbound `traceparent` is present, both `trace_id` and `span_id` are freshly generated.
 
-**In sidecar mode:** Keel forwards the `traceparent` header to the upstream so the upstream's spans join the same trace, giving end-to-end visibility across the proxy boundary.
+**In sidecar mode:** Keel forwards the `traceparent` header to the upstream so the upstream's spans join the
+same trace, giving end-to-end visibility across the proxy boundary.
 
-**In library mode:** Your application code can access the current span via the OpenTelemetry SDK and add its own child spans.
+**In library mode:** Your application code can access the current span via the OpenTelemetry SDK and add its
+own child spans.
 
 ### 2.3 Span Attributes
 
@@ -134,9 +168,12 @@ tracing:
     insecure: true                    # true = plaintext HTTP; false = HTTPS (default false)
 ```
 
-Keel uses the **OTLP/HTTP** exporter (not gRPC). The standard OTLP/HTTP port is **4318**; the gRPC port 4317 is not used. Most collectors (OpenTelemetry Collector, Jaeger, Grafana Agent) listen on both ports by default.
+Keel uses the **OTLP/HTTP** exporter (not gRPC). The standard OTLP/HTTP port is **4318**; the gRPC port 4317
+is not used. Most collectors (OpenTelemetry Collector, Jaeger, Grafana Agent) listen on both ports by default.
 
-`insecure: true` is appropriate for in-cluster collectors on the same namespace that do not terminate TLS. For collectors accessible over the internet or outside the cluster network, use `insecure: false` and configure the collector with a TLS certificate.
+`insecure: true` is appropriate for in-cluster collectors on the same namespace that do not terminate TLS. For
+collectors accessible over the internet or outside the cluster network, use `insecure: false` and configure the
+collector with a TLS certificate.
 
 ### 2.5 Context Keys in Library Mode
 
@@ -162,12 +199,19 @@ These values are injected by Keel's middleware pipeline before your handler runs
 
 ### 3.1 What Prometheus Metrics Are
 
-Prometheus is a time-series database and monitoring system. Your service exposes a `/metrics` endpoint that Prometheus scrapes on a regular interval (typically every 15 or 30 seconds). The endpoint returns a plain-text format that Prometheus parses and stores.
+Prometheus is a time-series database and monitoring system. Your service exposes a `/metrics` endpoint that
+Prometheus scrapes on a regular interval (typically every 15 or 30 seconds). The endpoint returns a plain-text
+format that Prometheus parses and stores.
 
 **Metric types:**
-- **Counter:** A monotonically increasing number that only goes up (or resets to zero on process restart). Used for things like "total requests processed." You query counters as rates — `rate(keel_requests_total[5m])` = requests per second over the last 5 minutes.
-- **Gauge:** A number that can go up and down. Used for current state — "current in-flight requests," "current heap pressure."
-- **Histogram:** A distribution of observations, bucketed by value. Used for latencies and sizes. Allows you to query percentiles — "what is the 99th percentile request duration?"
+
+- **Counter:** A monotonically increasing number that only goes up (or resets to zero on process restart).
+  Used for things like "total requests processed." You query counters as rates —
+  `rate(keel_requests_total[5m])` = requests per second over the last 5 minutes.
+- **Gauge:** A number that can go up and down. Used for current state — "current in-flight requests," "current
+  heap pressure."
+- **Histogram:** A distribution of observations, bucketed by value. Used for latencies and sizes. Allows you
+  to query percentiles — "what is the 99th percentile request duration?"
 
 ### 3.2 Keel Metrics Reference
 
@@ -267,11 +311,13 @@ See [docs/deployment.md](deployment.md) for the full Helm chart values that wire
 **Build-time opt-out:** `no_statsd`
 **Config keys:** `metrics.statsd.enabled`, `metrics.statsd.endpoint`, `metrics.statsd.prefix`
 
-Keel can emit counters, gauges, and timers to a StatsD server over UDP. This allows integration with systems that predate Prometheus (Graphite, Datadog, InfluxDB via Telegraf).
+Keel can emit counters, gauges, and timers to a StatsD server over UDP. This allows integration with systems
+that predate Prometheus (Graphite, Datadog, InfluxDB via Telegraf).
 
 All metric names are prefixed with `metrics.statsd.prefix` (default: `keel`). For example, `keel.requests.total`.
 
 **Configuration:**
+
 ```yaml
 metrics:
   statsd:
@@ -280,9 +326,13 @@ metrics:
     prefix: keel
 ```
 
-Keel emits in **DogStatsD format** — tags are appended as `|#key:value,key:value`. This is compatible with Datadog, InfluxDB (via Telegraf), and any StatsD server that understands the DogStatsD extension. Tag keys within each metric are sorted alphabetically for deterministic output.
+Keel emits in **DogStatsD format** — tags are appended as `|#key:value,key:value`. This is compatible with
+Datadog, InfluxDB (via Telegraf), and any StatsD server that understands the DogStatsD extension. Tag keys
+within each metric are sorted alphabetically for deterministic output.
 
-StatsD is a "fire and forget" UDP protocol — Keel does not wait for acknowledgement. If the StatsD server is unavailable, metric datagrams are silently dropped. This is intentional: observability should never cause the primary service to fail.
+StatsD is a "fire and forget" UDP protocol — Keel does not wait for acknowledgement. If the StatsD server is
+unavailable, metric datagrams are silently dropped. This is intentional: observability should never cause the
+primary service to fail.
 
 ---
 
@@ -292,7 +342,10 @@ StatsD is a "fire and forget" UDP protocol — Keel does not wait for acknowledg
 
 ### 5.1 Why JSON Logging
 
-JSON log lines can be indexed, queried, and aggregated by any log management system (Loki, Elasticsearch/OpenSearch, Splunk, CloudWatch Logs Insights). Plain text log lines require fragile regex parsers. With JSON, you can run queries like `{app="keel"} | json | status >= 400` in Loki and get all error responses instantly.
+JSON log lines can be indexed, queried, and aggregated by any log management system (Loki,
+Elasticsearch/OpenSearch, Splunk, CloudWatch Logs Insights). Plain text log lines require fragile regex
+parsers. With JSON, you can run queries like `{app="keel"} | json | status >= 400` in Loki and get all error
+responses instantly.
 
 Set `logging.json: false` during local development if you prefer human-readable output.
 
@@ -443,7 +496,8 @@ Log output is tee'd to stdout regardless of which protocol is configured.
 
 ## 6. Operational Endpoints (Admin Port)
 
-The admin port (`9999`) provides operational endpoints for operators. Never expose this port publicly — restrict it to internal network access or protect it with a NetworkPolicy.
+The admin port (`9999`) provides operational endpoints for operators. Never expose this port publicly —
+restrict it to internal network access or protect it with a NetworkPolicy.
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -454,6 +508,7 @@ The admin port (`9999`) provides operational endpoints for operators. Never expo
 | `/admin/reload` | POST | Trigger a config + secrets reload (same effect as SIGHUP). Returns 200 on success, 422 with error body on validation failure |
 
 **Example `/version` response:**
+
 ```json
 {
   "version": "1.2.3",
@@ -466,24 +521,31 @@ The admin port (`9999`) provides operational endpoints for operators. Never expo
 ```
 
 **Using pprof:** To take a 30-second CPU profile:
+
 ```sh
 go tool pprof http://localhost:9999/debug/pprof/profile?seconds=30
 ```
 
 To take a heap snapshot:
+
 ```sh
 go tool pprof http://localhost:9999/debug/pprof/heap
 ```
 
-Pprof is invaluable for diagnosing memory leaks and CPU bottlenecks. It should only be accessible on the internal admin port — the pprof data can reveal sensitive information about your application's internals.
+Pprof is invaluable for diagnosing memory leaks and CPU bottlenecks. It should only be accessible on the
+internal admin port — the pprof data can reveal sensitive information about your application's internals.
 
 ---
 
 ## 7. Readiness Dependency Registration
 
-Keel allows you to register custom readiness checks — functions that Keel calls to determine whether your application's dependencies are available. These checks feed into `/readyz` and the memory backpressure system.
+Keel allows you to register custom readiness checks — functions that Keel calls to determine whether your
+application's dependencies are available. These checks feed into `/readyz` and the memory backpressure system.
 
-**Why register checks?** If your service depends on a database and the database is unavailable, your service cannot serve requests — it should report not-ready so Kubernetes removes it from the load balancer pool. Rather than building this logic into your application, you register a check with Keel and Keel handles the `/readyz` response automatically.
+**Why register checks?** If your service depends on a database and the database is unavailable, your service
+cannot serve requests — it should report not-ready so Kubernetes removes it from the load balancer pool.
+Rather than building this logic into your application, you register a check with Keel and Keel handles the
+`/readyz` response automatically.
 
 ```go
 srv := keel.New(
@@ -505,11 +567,13 @@ srv := keel.New(
 ```
 
 **Check behavior:**
+
 - Checks are called in parallel to minimize the impact on `/readyz` response time.
 - If any check returns an error, `/readyz` returns 503 with a JSON body indicating which checks failed.
 - Checks have an implicit timeout — a check that hangs is treated as failing.
 
 **Example `/readyz` failure response:**
+
 ```json
 {
   "status": "not ready",
@@ -524,7 +588,8 @@ srv := keel.New(
 
 ## 8. SLO Signals
 
-Service Level Objectives (SLOs) are target values for reliability metrics (error rate, latency). Keel's metrics are designed to make SLO measurement straightforward.
+Service Level Objectives (SLOs) are target values for reliability metrics (error rate, latency). Keel's
+metrics are designed to make SLO measurement straightforward.
 
 ### 8.1 Error Rate SLO
 

@@ -82,7 +82,7 @@ loaded as context. See [docs/ai-tooling.md](ai-tooling.md).
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-```
+```text
 type(scope): short description
 
 Optional longer description explaining the why, not the what.
@@ -94,7 +94,8 @@ Allowed types: `feat`, `fix`, `chore`, `docs`, `test`, `refactor`, `perf`,
 `ci`, `build`, `release`, `hotfix`, `revert`.
 
 Examples:
-```
+
+```text
 feat(authz): add external authz middleware with OPA and HTTP transports
 fix(tls): handle cert reload failure without dropping existing connections
 docs(config-reference): add ext_authz section
@@ -139,7 +140,7 @@ the trailer. Run `scripts/ci/dco-check.sh` locally (with `BASE_SHA` and
 
 Branches must use one of the allowed prefixes:
 
-```
+```text
 feat/   fix/   chore/   docs/   test/   refactor/
 perf/   ci/    build/   release/  hotfix/  revert/
 ```

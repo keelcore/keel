@@ -100,7 +100,7 @@ jobs:
         run: make test-consistency
 
   # ---------------------------------------------------------------------------
-  # Lint — go vet + staticcheck.
+  # Lint — aggregates: go vet + staticcheck, markdownlint, trailing newlines.
   # ---------------------------------------------------------------------------
   lint:
     name: Lint
@@ -116,10 +116,10 @@ jobs:
           cache: true
       - name: Install staticcheck
         run: make setup-staticcheck
+      - name: Install markdownlint
+        run: make setup-markdownlint
       - name: Lint
-        run: make lint-go
-      - name: Check trailing newlines
-        run: make lint-newlines
+        run: make lint
 
   # ---------------------------------------------------------------------------
   # Unit Tests — compile and run on all three supported platforms.

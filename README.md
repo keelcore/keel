@@ -17,7 +17,9 @@
 [![Helm](https://img.shields.io/badge/helm-chart-success)](docs/deployment.md)
 [![FIPS](https://img.shields.io/badge/FIPS-compatible-blue)](docs/FIPS.md)
 
-A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops. **Not nginx. Not HAProxy.** This is the smallest, most secure subset of features *fully app-integrated*—built to be **durable for 10+ years** and a goal of "30,000 GitHub star" boring.
+A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops. **Not nginx. Not HAProxy.** This is the
+smallest, most secure subset of features *fully app-integrated*—built to be **durable for 10+ years** and a goal of
+"30,000 GitHub star" boring.
 
 ---
 
@@ -46,12 +48,18 @@ A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops
 
 ## 0. Call to Action
 
-- **Minimal size, maximal performance + functionality**: scratch-style images in the **~5–8 MB** range while still being a good Kubernetes/observability citizen.
-- **Keel-haul legacy services into compliance**: run Keel as a sidecar envelope around legacy HTTP/HTTPS apps to force modern security posture without rewriting the app.
-- **AuthZ for every legacy service via OPA or any HTTP policy engine**: delegate authorization decisions to an external policy engine — no application code changes required.
-- **Memory backpressure prevents OOM and signals the load balancer**: Keel monitors heap usage and flips `/readyz` before the process is OOM-killed, forcing the LB to drain traffic gracefully.
-- **Maximum flexibility without feature sprawl**: defaults are built-in and on; you opt out at build time to reach a smaller/stricter subset.
-- **Build on top, not alongside**: use Keel as a Go library to build your own service with production-grade TLS, authn, observability, and lifecycle already wired in.
+- **Minimal size, maximal performance + functionality**: scratch-style images in the **~5–8 MB** range while
+  still being a good Kubernetes/observability citizen.
+- **Keel-haul legacy services into compliance**: run Keel as a sidecar envelope around legacy HTTP/HTTPS apps to force
+  modern security posture without rewriting the app.
+- **AuthZ for every legacy service via OPA or any HTTP policy engine**: delegate authorization decisions to an external
+  policy engine — no application code changes required.
+- **Memory backpressure prevents OOM and signals the load balancer**: Keel monitors heap usage and flips `/readyz` before
+  the process is OOM-killed, forcing the LB to drain traffic gracefully.
+- **Maximum flexibility without feature sprawl**: defaults are built-in and on; you opt out at build time to reach a
+  smaller/stricter subset.
+- **Build on top, not alongside**: use Keel as a Go library to build your own service with production-grade TLS, authn,
+  observability, and lifecycle already wired in.
 
 ---
 
@@ -80,6 +88,7 @@ We picked **golang** because it hits the best "ops-to-footprint" ratio for a dep
 ## 2. Stated Objective: 10+ Year Durability
 
 This project optimizes for:
+
 - **Longevity**: stable APIs, conservative dependencies, strong upgrade story.
 - **Small prod footprint**: core image target **~5–8 MB** (scratch-style + CA certs where needed).
 - **Security posture by default**: TLS 1.3-only, safe defaults, documented hardening, proactive vulnerability handling.
@@ -96,7 +105,8 @@ All major features are **built-in by default**. There is **no command-line featu
 
 ### 3.1 CI Discipline: Scripts-First
 
-All CI must use provided **POSIX bash scripts** to the maximum extent possible. CI config files must not contain long chains of inline `run:` lines.
+All CI must use provided **POSIX bash scripts** to the maximum extent possible. CI config files must not contain long
+chains of inline `run:` lines.
 
 **Rule:** CI invokes comprehensive scripts from `./scripts/` (e.g., `./scripts/ci/build.sh`, `./scripts/test/ci.sh`, `./scripts/release.sh`).
 
@@ -119,6 +129,7 @@ Build tags are **negative** ("remove X"), so defaults stay on:
 | `no_acme` | ACME/Let's Encrypt certificate management |
 
 Example:
+
 ```sh
 go build -tags 'no_h3,no_statsd' ./cmd/keel
 ```
@@ -158,17 +169,24 @@ requestID := r.Context().Value(ctxkeys.RequestID).(string)
 traceID   := r.Context().Value(ctxkeys.TraceID).(string)
 ```
 
-See [docs/deployment.md — Library Mode](docs/deployment.md#1-library-mode-embedding-keel-in-your-go-service) for the complete walkthrough.
+See [docs/deployment.md — Library Mode](docs/deployment.md#1-library-mode-embedding-keel-in-your-go-service) for the
+complete walkthrough.
 
 #### 3.3.2 Sidecar Mode (Envelope / Reverse-Proxy)
 
 Keel runs as a sidecar and proxies to an upstream service. Two upstream topologies are explicitly supported:
 
-**Intra-pod (localhost upstream):** Keel and the app share a pod. The app listens on `localhost:<port>` over plain HTTP; Keel owns all external-facing ports and applies TLS, authn, OWASP hardening, observability, and backpressure. The pod network namespace is the trust boundary — no TLS is needed on the loopback leg.
+**Intra-pod (localhost upstream):** Keel and the app share a pod. The app listens on `localhost:<port>` over plain HTTP;
+Keel owns all external-facing ports and applies TLS, authn, OWASP hardening, observability, and backpressure. The pod
+network namespace is the trust boundary — no TLS is needed on the loopback leg.
 
-**Out-of-pod (remote upstream):** Keel proxies to a service running outside the pod — a legacy VM, a third-party API endpoint, or a service in another namespace not covered by a service mesh. In this topology Keel establishes a TLS or mTLS connection to the upstream, presenting a client certificate if the upstream requires mutual authentication (see [docs/security.md — Upstream TLS and mTLS](docs/security.md#55-upstream-tls-and-mtls)).
+**Out-of-pod (remote upstream):** Keel proxies to a service running outside the pod — a legacy VM, a third-party API
+endpoint, or a service in another namespace not covered by a service mesh. In this topology Keel establishes a TLS or
+mTLS connection to the upstream, presenting a client certificate if the upstream requires mutual authentication (see
+[docs/security.md — Upstream TLS and mTLS](docs/security.md#55-upstream-tls-and-mtls)).
 
-**Keel-hauling:** both topologies allow forcing old HTTP/HTTPS services into modern security compliance without rewriting them.
+**Keel-hauling:** both topologies allow forcing old HTTP/HTTPS services into modern security compliance
+without rewriting them.
 
 #### 3.3.3 ACME Edge Mode (Standalone TLS Terminator)
 
@@ -176,18 +194,20 @@ When ACME is enabled, Keel manages its own certificate via Let's Encrypt (or any
 
 **Critical constraint:** The ACME http-01 challenge requires a route at:
 
-```
+```text
 GET http://<domain>/.well-known/acme-challenge/<token>
 ```
 
-This route **must be served over plain HTTP on port 80**, even if Keel redirects all other HTTP traffic to HTTPS. Keel handles this automatically:
+This route **must be served over plain HTTP on port 80**, even if Keel redirects all other HTTP traffic to
+HTTPS. Keel handles this automatically:
 
 1. Plain HTTP listener on port 80 is kept alive.
 2. `/.well-known/acme-challenge/` path is registered **before** any redirect or authn middleware.
 3. All other HTTP paths are 301-redirected to HTTPS.
 4. Certificate renewal is automatic; Keel reloads the cert without restart or dropped connections.
 
-ACME must not be combined with the `no_acme` build tag. ACME requires `cert_file`/`key_file` to be left empty (Keel manages them).
+ACME must not be combined with the `no_acme` build tag. ACME requires `cert_file`/`key_file` to be left empty (Keel
+manages them).
 
 ---
 
@@ -195,9 +215,15 @@ ACME must not be combined with the `no_acme` build tag. ACME requires `cert_file
 
 Both layers are default-on and independently opt-outable at build time.
 
-**OWASP middleware** (`no_owasp` to opt out) injects canonical security headers on every response (`X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`, `Strict-Transport-Security`, etc.) and enforces request size and timeout limits. See [docs/security.md — OWASP Middleware](docs/security.md#1-owasp-hardening-middleware) for the full header list with explanations of each one.
+**OWASP middleware** (`no_owasp` to opt out) injects canonical security headers on every response
+(`X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`, `Strict-Transport-Security`, etc.) and enforces
+request size and timeout limits. See [docs/security.md — OWASP Middleware](docs/security.md#1-owasp-hardening-middleware)
+for the full header list with explanations of each one.
 
-**Authn layer** (`no_authn` to opt out) validates incoming JWT bearer tokens (HS256, RS256, ES256) and optionally maps mTLS client certificate identities to principals. `trusted_signers` is the list of keys Keel trusts; `trusted_ids` is the allowlist of principal identifiers. In sidecar mode, Keel re-signs outbound requests as its own identity (`my_id`). See [docs/security.md — Authentication Layer](docs/security.md#2-authentication-layer) for the full trust model.
+**Authn layer** (`no_authn` to opt out) validates incoming JWT bearer tokens (HS256, RS256, ES256) and optionally maps
+mTLS client certificate identities to principals. `trusted_signers` is the list of keys Keel trusts; `trusted_ids` is
+the allowlist of principal identifiers. In sidecar mode, Keel re-signs outbound requests as its own identity (`my_id`).
+See [docs/security.md — Authentication Layer](docs/security.md#2-authentication-layer) for the full trust model.
 
 ---
 
@@ -217,7 +243,8 @@ srv.Run(ctx)
 
 ### 5.2 Built-In Default Route
 
-If no user route claims `port 80` + `/`, Keel serves a built-in default response. This guarantees deterministic "it boots" behavior.
+If no user route claims `port 80` + `/`, Keel serves a built-in default response. This guarantees deterministic "it
+boots" behavior.
 
 ### 5.3 Middleware Export
 
@@ -245,7 +272,8 @@ srv := keel.New(
 
 ### 5.5 Admin Reload Endpoint
 
-`POST /admin/reload` triggers the same hot reload as SIGHUP. Returns 200 on success or 422 if the new config is invalid (old config stays active).
+`POST /admin/reload` triggers the same hot reload as SIGHUP. Returns 200 on success or 422 if the new config is invalid
+(old config stays active).
 
 ---
 
@@ -269,6 +297,7 @@ cfg := AppConfig{Keel: keelconfig.Defaults()}
 ```
 
 After loading:
+
 ```go
 keel, err := keelconfig.From(&cfg.Keel)
 cfg.Keel = keel
@@ -316,35 +345,46 @@ keel:
     level: info
 ```
 
-See [docs/deployment.md](docs/deployment.md) for the complete library mode walkthrough, Helm chart reference, and Docker Compose test harness.
+See [docs/deployment.md](docs/deployment.md) for the complete library mode walkthrough, Helm chart reference, and Docker
+Compose test harness.
 
 ---
 
 ## Security Governance
 
 - Vulnerability reporting and CVE policy: [SECURITY.md](SECURITY.md)
-- SBOM and provenance attached to each GitHub Release — see [Supply Chain Verification](docs/security.md#7-supply-chain-verification) for consumer verification instructions.
+- SBOM and provenance attached to each GitHub Release — see
+  [Supply Chain Verification](docs/security.md#7-supply-chain-verification) for consumer verification instructions.
 - FIPS compliance guide: [docs/FIPS.md](docs/FIPS.md)
-- Emergency CI bypass procedure: [docs/break-glass.md](docs/break-glass.md) — authorisation requirements, minimal-fix discipline, and the 48-hour post-incident checklist for pushing directly to `main` when a critical production issue cannot wait for normal CI gates.
+- Emergency CI bypass procedure: [docs/break-glass.md](docs/break-glass.md) — authorisation requirements, minimal-fix
+  discipline, and the 48-hour post-incident checklist for pushing directly to `main` when a critical production issue
+  cannot wait for normal CI gates.
 
 ## Engineering Governance
 
-Keel follows the [keelcore/standards](https://github.com/keelcore/standards) engineering governance framework, pinned as a git submodule at `.standards/`. The standards cover coding discipline, CI supply-chain rules, bash script portability, observability requirements, security posture, and runtime/deployment requirements.
+Keel follows the [keelcore/standards](https://github.com/keelcore/standards) engineering governance framework, pinned as
+a git submodule at `.standards/`. The standards cover coding discipline, CI supply-chain rules, bash script portability,
+observability requirements, security posture, and runtime/deployment requirements.
 
-The submodule is consumed by AI coding tools (Claude Code, Cursor, GitHub Copilot) and human contributors alike — the same rules apply to both. To update the pinned standards version:
+The submodule is consumed by AI coding tools (Claude Code, Cursor, GitHub Copilot) and human contributors alike — the
+same rules apply to both. To update the pinned standards version:
 
 ```bash
 git submodule update --remote .standards
 git add .standards && git commit -m "chore: update standards"
 ```
 
-See [docs/governance.md](docs/governance.md) for the full explanation: what the submodule contains, why the submodule pattern was chosen over copy-paste, how to initialize it after a fresh clone, and how to propose changes upstream.
+See [docs/governance.md](docs/governance.md) for the full explanation: what the submodule contains, why the submodule
+pattern was chosen over copy-paste, how to initialize it after a fresh clone, and how to propose changes upstream.
 
 ---
 
 ## Community
 
-Keel is an open-source project and welcomes contributions of all kinds — from documentation fixes to new middleware layers. The table below covers the contribution workflow, the people who maintain the project, and the community norms everyone is asked to follow. If you already have a fix in mind, [docs/LAZY.md](docs/LAZY.md) is the fastest path to a merged PR.
+Keel is an open-source project and welcomes contributions of all kinds — from documentation fixes to new middleware
+layers. The table below covers the contribution workflow, the people who maintain the project, and the community norms
+everyone is asked to follow. If you already have a fix in mind, [docs/LAZY.md](docs/LAZY.md) is the fastest path to a
+merged PR.
 
 | Document | Contents |
 |---|---|
@@ -362,4 +402,5 @@ Keel is an open-source project and welcomes contributions of all kinds — from 
 - Not nginx/haproxy.
 - Not a full-blown WAF.
 
-Keel provides a **minimal, security-first subset** of features that are fully app-integrated. For perimeter DDoS defense, use a dedicated solution in front of Keel.
+Keel provides a **minimal, security-first subset** of features that are fully app-integrated. For perimeter
+DDoS defense, use a dedicated solution in front of Keel.

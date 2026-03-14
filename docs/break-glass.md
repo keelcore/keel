@@ -1,10 +1,12 @@
 # Break-Glass Procedure
 
-This document describes emergency procedures for bypassing normal CI/CD gates when a critical production issue requires an immediate fix.
+This document describes emergency procedures for bypassing normal CI/CD gates when a critical production issue requires
+an immediate fix.
 
 ## When to Use
 
 Break-glass is appropriate only when:
+
 - A critical security vulnerability or data-loss bug is in production
 - The normal PR + CI pipeline cannot be completed in time
 - The risk of delay exceeds the risk of bypassing safeguards
@@ -14,6 +16,7 @@ Break-glass is **not** appropriate for feature releases, non-critical bugs, or c
 ## Authorization
 
 Break-glass requires explicit approval from **two** of the following:
+
 - Repository owner
 - A designated maintainer listed in CODEOWNERS
 
@@ -31,6 +34,7 @@ Document the authorization (Slack thread, email, or GitHub issue) before proceed
 ## Post-Incident
 
 Within 48 hours of the break-glass event:
+
 - [ ] Incident post-mortem filed
 - [ ] Regression test merged
 - [ ] CI pipeline verified green on the fix commit

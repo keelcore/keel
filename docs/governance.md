@@ -1,12 +1,15 @@
 # Governance Standards
 
-Keel enforces a shared set of engineering standards across the keelcore organization via a **git submodule** at `.standards/`. This document explains what that means, why we do it that way, and how to work with it day-to-day.
+Keel enforces a shared set of engineering standards across the keelcore organization via a **git submodule** at
+`.standards/`. This document explains what that means, why we do it that way, and how to work with it day-to-day.
 
 ---
 
 ## What Is `.standards/`?
 
-`.standards/` is a pinned reference to the [`keelcore/standards`](https://github.com/keelcore/standards) repository. It is a **git submodule** — not a copy of the files. The `keel` repository records the exact commit SHA of the standards it was last updated to. This means:
+`.standards/` is a pinned reference to the [`keelcore/standards`](https://github.com/keelcore/standards) repository. It
+is a **git submodule** — not a copy of the files. The `keel` repository records the exact commit SHA of the standards it
+was last updated to. This means:
 
 - Standards updates are **deliberate** (`git submodule update --remote`, reviewed, committed).
 - Every contributor on every clone gets **exactly the same version** of the standards.
@@ -14,7 +17,7 @@ Keel enforces a shared set of engineering standards across the keelcore organiza
 
 The submodule root contains:
 
-```
+```text
 .standards/
   governance/        ← The canonical standards documents
     bash.md          ← Bash script portability and structure rules
@@ -38,7 +41,8 @@ The submodule root contains:
 
 ## Why a Submodule (Not Copy-Paste)?
 
-Engineering teams often copy standards documents into each repo. That pattern degrades over time: the copies drift, the authoritative version becomes unclear, and updates require touching every repo manually.
+Engineering teams often copy standards documents into each repo. That pattern degrades over time: the copies
+drift, the authoritative version becomes unclear, and updates require touching every repo manually.
 
 The submodule pattern solves this by making the relationship explicit and mechanical:
 
@@ -50,7 +54,9 @@ The submodule pattern solves this by making the relationship explicit and mechan
 | Consistency across repos | No guarantee | All repos on the same SHA see the same text |
 | AI tool consumption | Stale copies confuse tools | Single path, always current for each repo's pinned SHA |
 
-The submodule is also consumed by AI coding assistants (Claude Code, Cursor, GitHub Copilot) via the adapter files in `.standards/adapters/`. This means the AI sees the same governance rules that human contributors follow — standards are not just documentation, they are active constraints on every code change.
+The submodule is also consumed by AI coding assistants (Claude Code, Cursor, GitHub Copilot) via the adapter files in
+`.standards/adapters/`. This means the AI sees the same governance rules that human contributors follow — standards are
+not just documentation, they are active constraints on every code change.
 
 ---
 
@@ -90,7 +96,9 @@ git add .standards
 git commit -m "chore: update standards to latest"
 ```
 
-After committing, every subsequent `git submodule update --init --recursive` by other contributors will land on the same new SHA. Pin updates go through normal PR review — a standards bump is a deliberate engineering decision, not an automatic background fetch.
+After committing, every subsequent `git submodule update --init --recursive` by other contributors will land on the same
+new SHA. Pin updates go through normal PR review — a standards bump is a deliberate engineering decision, not an
+automatic background fetch.
 
 ### Checking which version of the standards is pinned
 
@@ -100,17 +108,20 @@ git submodule status .standards
 
 Output example:
 
-```
+```text
  a3f8c1d2e4b6... .standards (v1.4.2-3-ga3f8c1d)
 ```
 
-The leading space means the submodule is checked out at the pinned commit. A `+` prefix means the local checkout is ahead of the pinned commit (you have run `--remote` but not yet committed the pointer update). A `-` prefix means the submodule has not been initialized.
+The leading space means the submodule is checked out at the pinned commit. A `+` prefix means the local checkout is
+ahead of the pinned commit (you have run `--remote` but not yet committed the pointer update). A `-` prefix means the
+submodule has not been initialized.
 
 ---
 
 ## Architecture Decision Records (ADRs)
 
-The standards repo documents its own design decisions as numbered ADRs under `.standards/docs/adr/`. Key decisions relevant to Keel contributors:
+The standards repo documents its own design decisions as numbered ADRs under `.standards/docs/adr/`. Key decisions
+relevant to Keel contributors:
 
 | ADR | Summary |
 |---|---|
@@ -133,12 +144,16 @@ Standards changes are proposed via RFCs in `.standards/docs/rfc/`. To propose a 
 1. Open an issue or RFC in the `keelcore/standards` repository.
 2. If architectural (touches ADR territory), it goes through the ARB process described in [ADR-0003](.standards/docs/adr/0003-architecture-governance-process.md).
 3. Corrections and clarifications are patch bumps and can be merged by maintainers without ARB.
-4. After the PR is merged and a new version is tagged in `keelcore/standards`, update the submodule pointer in `keel` (and any other repos that consume it) via the update process above.
+4. After the PR is merged and a new version is tagged in `keelcore/standards`, update the submodule pointer in `keel`
+   (and any other repos that consume it) via the update process above.
 
-Do not make standards changes directly in `.standards/` within the `keel` repo — that directory is owned by the submodule. Local edits to `.standards/` are silently discarded on the next `git submodule update`.
+Do not make standards changes directly in `.standards/` within the `keel` repo — that directory is owned by the
+submodule. Local edits to `.standards/` are silently discarded on the next `git submodule update`.
 
 ---
 
 ## Emergency (Break-Glass) Procedures
 
-If CI or production requires a governance exception, follow the break-glass procedure documented in [.standards/docs/break-glass.md](.standards/docs/break-glass.md). Break-glass events are logged, time-bounded, and require post-incident review. They are not a mechanism for bypassing standards permanently.
+If CI or production requires a governance exception, follow the break-glass procedure documented in
+[.standards/docs/break-glass.md](.standards/docs/break-glass.md). Break-glass events are logged, time-bounded, and
+require post-incident review. They are not a mechanism for bypassing standards permanently.

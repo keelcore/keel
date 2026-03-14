@@ -36,7 +36,7 @@ Examples of unacceptable behavior:
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported
 to the project maintainers at the contact addresses listed in
 [docs/MAINTAINERS.md](MAINTAINERS.md), or via the CNCF Code of Conduct Committee
-at conduct@cncf.io.
+at [conduct@cncf.io](mailto:conduct@cncf.io).
 
 All complaints will be reviewed and investigated promptly and fairly. Maintainers are
 obligated to maintain confidentiality with regard to the reporter of an incident.

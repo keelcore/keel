@@ -4,12 +4,12 @@
 .PHONY: all clean min max max-no-fips \
         build integration-test unit-test \
         test test-unit test-consistency test-integrity test-compose test-k8s coverage \
-        lint lint-go lint-helm lint-helm-validate lint-fmt lint-newlines \
+        lint lint-go lint-helm lint-helm-validate lint-fmt lint-newlines lint-md \
         release-checksums release-checksums-verify release-sbom release-sign release-upload \
         release-rename release-docker release-helm-push release-ci \
         colima-setup colima-deploy colima-test colima-teardown \
         gen-certs gen-schema create-release install-hooks fresh-repo help \
-        setup-helm setup-bats setup-pebble setup-kind setup-staticcheck setup-syft setup-cosign \
+        setup-helm setup-bats setup-pebble setup-kind setup-staticcheck setup-syft setup-cosign setup-markdownlint \
         setup-docker-macos setup-kubeconform setup-ghcr \
         ci-pr-policy ci-secret-scan ci-dco ci-coverage-delta ci-smoke-windows \
         bats-integrity bats-example ci-build-example dist-chmod \
@@ -33,7 +33,7 @@ max-no-fips:
 	./scripts/build/ci_max_no_fips.sh
 
 ## Lint Targets
-lint: lint-fmt lint-go
+lint: lint-fmt lint-go lint-newlines lint-md
 
 lint-fmt:
 	@echo "🔍 Running gofmt check..."
@@ -42,6 +42,10 @@ lint-fmt:
 lint-go:
 	@echo "🔍 Running Go lint..."
 	./scripts/lint/go.sh
+
+lint-md:
+	@echo "🔍 Running markdown lint..."
+	./scripts/lint/md.sh
 
 lint-helm:
 	@echo "🔍 Running Helm lint..."
@@ -174,6 +178,10 @@ setup-pebble:
 setup-kind:
 	@echo "🔧 Installing kind and creating cluster..."
 	./scripts/ci/setup-kind.sh
+
+setup-markdownlint:
+	@echo "🔧 Installing markdownlint-cli..."
+	./scripts/ci/setup-markdownlint.sh
 
 setup-staticcheck:
 	@echo "🔧 Installing staticcheck..."
@@ -334,6 +342,7 @@ help:
 	@echo "  lint            gofmt check + go vet + staticcheck"
 	@echo "  lint-fmt        gofmt -s check only"
 	@echo "  lint-go         go vet + staticcheck only"
+	@echo "  lint-md         markdownlint-cli check on all tracked .md files"
 	@echo "  lint-helm       Helm chart lint (no cluster required)"
 	@echo "  lint-helm-validate  Helm template schema validation via kubeconform (no cluster required)"
 	@echo ""
@@ -355,6 +364,7 @@ help:
 	@echo "  setup-bats        Install bats-core"
 	@echo "  setup-pebble      Install pebble ACME test server"
 	@echo "  setup-kind        Install kind and create cluster"
+	@echo "  setup-markdownlint Install markdownlint-cli"
 	@echo "  setup-staticcheck Install staticcheck linter"
 	@echo "  setup-syft        Install syft SBOM tool"
 	@echo "  setup-cosign      Install cosign signing tool"

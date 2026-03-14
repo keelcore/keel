@@ -24,6 +24,7 @@ function main() {
   validate_args "${@:-}"
   check_fmt
   check_newlines
+  check_md_lint
   check_legal_drift
   check_schema
   check_helm
@@ -63,6 +64,20 @@ function check_newlines() {
     log 'Run scripts/lint/newlines.sh --fix, review, and re-stage.'
     exit 1
   fi
+}
+
+function staged_md_files() {
+  git diff --cached --name-only --diff-filter=ACMR | grep '\.md$' | filter_src || true
+}
+
+function check_md_lint() {
+  local files
+  files="$(staged_md_files)"
+  [ -z "${files}" ] && return 0
+  log '.md files changed — running markdownlint'
+  printf '%s\n' "${files}" | xargs markdownlint --config \
+    "$(git rev-parse --show-toplevel)/.markdownlint.json"
+  log '✅ Markdown lint passed'
 }
 
 function check_legal_drift() {

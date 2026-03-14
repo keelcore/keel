@@ -72,7 +72,7 @@ at `HEAD`. The schema lists every fully-flattened dotted YAML field path in
 
 ## Normal Release Flow
 
-```
+```sh
 git checkout main && git pull --ff-only
 # ... merge your work ...
 ./scripts/release/create-release.sh
