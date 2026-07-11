@@ -51,6 +51,16 @@ type Metrics struct {
 	certExpirySecs      int64 // atomic; seconds until TLS cert expiry
 	logDrops            int64 // atomic; cumulative remote-log drop count
 	fipsMonitorFailures int64 // atomic; cumulative FIPS monitor check failures
+	mu                  sync.Mutex
+	collectors          []Collector // embedder series, appended to the exposition
+}
+
+// Register adds an embedder Collector whose series are appended to the /metrics
+// exposition after keel's own. Register before Run; safe for concurrent use.
+func (m *Metrics) Register(c Collector) {
+	m.mu.Lock()
+	m.collectors = append(m.collectors, c)
+	m.mu.Unlock()
 }
 
 // New creates a zeroed Metrics instance.
@@ -118,6 +128,12 @@ func (m *Metrics) writeTo(w io.Writer) {
 		fmt.Fprintf(w, "# HELP keel_fips_monitor_failures_total Cumulative FIPS monitor check failures detected by the background loop.\n")
 		fmt.Fprintf(w, "# TYPE keel_fips_monitor_failures_total counter\n")
 		fmt.Fprintf(w, "keel_fips_monitor_failures_total %d\n", v)
+	}
+	m.mu.Lock()
+	cs := append([]Collector(nil), m.collectors...)
+	m.mu.Unlock()
+	for _, c := range cs {
+		c.Collect(w)
 	}
 }
 

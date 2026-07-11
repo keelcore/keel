@@ -545,6 +545,11 @@ func (s *Server) metricsHandler() http.Handler {
 	return http.NotFoundHandler()
 }
 
+// Metrics returns the server's metrics store so an embedder can register custom
+// Collectors whose series render on the built-in /metrics endpoint alongside
+// keel's own, through the same responder. Register before Run.
+func (s *Server) Metrics() *metrics.Metrics { return s.met }
+
 func (s *Server) wrapMain(h http.Handler) http.Handler {
 	if s.cfg.Security.OWASPHeaders {
 		h = mw.OWASP(s.cfg, h)
