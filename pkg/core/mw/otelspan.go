@@ -65,6 +65,10 @@ type otelWriter struct {
 	status int
 }
 
+// Unwrap exposes the wrapped writer so http.ResponseController can reach the connection's Flusher —
+// required for live streaming (SSE) passthrough through this middleware.
+func (ow *otelWriter) Unwrap() http.ResponseWriter { return ow.ResponseWriter }
+
 func (ow *otelWriter) WriteHeader(code int) {
 	ow.status = code
 	ow.ResponseWriter.WriteHeader(code)

@@ -47,6 +47,10 @@ type limitedResponseWriter struct {
 	remaining int64
 }
 
+// Unwrap exposes the wrapped writer so http.ResponseController can reach the connection's Flusher —
+// required for live streaming (SSE) passthrough through this middleware.
+func (lw *limitedResponseWriter) Unwrap() http.ResponseWriter { return lw.ResponseWriter }
+
 func (lw *limitedResponseWriter) Write(b []byte) (int, error) {
 	if lw.remaining <= 0 {
 		return 0, nil

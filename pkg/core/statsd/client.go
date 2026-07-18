@@ -65,6 +65,10 @@ type statusCapture struct {
 	status int
 }
 
+// Unwrap exposes the wrapped writer so http.ResponseController can reach the connection's Flusher —
+// required for live streaming (SSE) passthrough through this middleware.
+func (sc *statusCapture) Unwrap() http.ResponseWriter { return sc.ResponseWriter }
+
 func (sc *statusCapture) WriteHeader(code int) {
 	sc.status = code
 	sc.ResponseWriter.WriteHeader(code)

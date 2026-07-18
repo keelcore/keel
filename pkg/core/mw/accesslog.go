@@ -60,6 +60,10 @@ type accessWriter struct {
 	bytesOut int64
 }
 
+// Unwrap exposes the wrapped writer so http.ResponseController can reach the connection's Flusher —
+// required for live streaming (SSE) passthrough through this middleware.
+func (aw *accessWriter) Unwrap() http.ResponseWriter { return aw.ResponseWriter }
+
 func (aw *accessWriter) WriteHeader(code int) {
 	aw.status = code
 	aw.ResponseWriter.WriteHeader(code)
