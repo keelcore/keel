@@ -107,6 +107,36 @@ type Server struct {
 	// SIGHUP reloads; expPtr is read per-request via the OTelSpan middleware.
 	tracingMu sync.Mutex
 	expPtr    atomic.Pointer[tracing.Exporter]
+
+	// Listener-readiness bind barrier. bindWG counts the probe listeners (health, ready, admin,
+	// startup); each signals Done once its socket is bound. listenersServing flips true once they
+	// have ALL bound, so /readyz reports NOT ready during the bind window — k8s readiness means
+	// "ready to serve", including the admin/probe paths, not merely "process spawned the goroutine".
+	bindWG           sync.WaitGroup
+	listenersServing atomic.Bool
+}
+
+// registerListenerReadinessCheck makes /readyz report NOT ready until every probe listener has bound
+// its socket. Run registers it BEFORE the listeners start, so the very first /readyz already
+// reflects the bind gate. The check reads listenersServing, flipped by startListenerReadinessGate.
+func (s *Server) registerListenerReadinessCheck() {
+	s.readiness.AddCheck("listeners", func() error {
+		if !s.listenersServing.Load() {
+			return errors.New("probe listeners binding")
+		}
+		return nil
+	})
+}
+
+// startListenerReadinessGate flips listenersServing true once every probe listener has signalled its
+// bind (bindWG). Run starts it AFTER the listeners are spawned, so the barrier count is complete
+// before the wait. A listener that fails to bind never signals, so readiness stays not-ready — which
+// is correct: the errCh error drives shutdown.
+func (s *Server) startListenerReadinessGate() {
+	go func() {
+		s.bindWG.Wait()
+		s.listenersServing.Store(true)
+	}()
 }
 
 func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
@@ -318,33 +348,40 @@ func (s *Server) newACMEManager() *acme.Manager {
 // startProbeListeners launches goroutines for the health, ready, admin, and
 // startup probe listeners according to the listener config.
 func (s *Server) startProbeListeners(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error, healthMux, readyMux, adminMux *http.ServeMux) {
+	// Each enabled probe listener joins the readiness bind barrier: bindWG.Add(1) here, Done via the
+	// onBound signal once its socket is bound, so /readyz gates on the admin/probe paths accepting
+	// connections (not merely on the goroutine being spawned).
 	if s.cfg.Listeners.Health.Enabled {
 		wg.Add(1)
+		s.bindWG.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Health.Port), healthMux, s.cfg, s.logger)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Health.Port), healthMux, s.cfg, s.logger, s.bindWG.Done)
 		}()
 	}
 	if s.cfg.Listeners.Ready.Enabled {
 		wg.Add(1)
+		s.bindWG.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Ready.Port), readyMux, s.cfg, s.logger)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Ready.Port), readyMux, s.cfg, s.logger, s.bindWG.Done)
 		}()
 	}
 	if s.cfg.Listeners.Admin.Enabled {
 		wg.Add(1)
+		s.bindWG.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Admin.Port), adminMux, s.cfg, s.logger)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Admin.Port), adminMux, s.cfg, s.logger, s.bindWG.Done)
 		}()
 	}
 	if s.cfg.Listeners.Startup.Enabled {
 		startupMux := buildStartupMux(s.startup)
 		wg.Add(1)
+		s.bindWG.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Startup.Port), startupMux, s.cfg, s.logger)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Startup.Port), startupMux, s.cfg, s.logger, s.bindWG.Done)
 		}()
 	}
 }
@@ -667,12 +704,23 @@ func newSignFn(signer *atomic.Pointer[mw.JWTSigner]) func(*http.Request) error {
 }
 
 func serveHTTP(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, log *logging.Logger) error {
+	return serveHTTPBound(ctx, shutdown, addr, h, cfg, log, nil)
+}
+
+// serveHTTPBound is serveHTTP with a bind signal: onBound (when non-nil) is invoked AFTER the socket
+// is bound (net.Listen has succeeded) and BEFORE Serve. It lets a caller barrier on real bind
+// completion — the readiness gate uses it so /readyz reports ready only once the probe listeners
+// are actually accepting connections, not merely spawned.
+func serveHTTPBound(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, log *logging.Logger, onBound func()) error {
 	srv := newHTTPServer(addr, h, cfg)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
 	log.Info("listener_up", map[string]any{"addr": addr, "tls": false, "proto": "http/1.1"})
+	if onBound != nil {
+		onBound()
+	}
 
 	go func() {
 		<-ctx.Done()
