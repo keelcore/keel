@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# setup-bats.sh
-# Install bats-core on a CI runner. Supports Linux (apt) and macOS (brew).
+# scripts/test/setup-bats.sh
+# Install bats-core on a developer machine or CI runner.
 # No-op if bats is already present.
 
 # bash configuration:
@@ -16,41 +16,41 @@ set -o pipefail
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  if command -v bats >/dev/null 2>&1; then
-    log "bats already installed: $(bats --version)"
-    return 0
-  fi
   install_bats
-  log "bats installed: $(bats --version)"
 }
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_setup_bats.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/setup_bats.log' >&5
 }
 
-function validate_args() { :; }
+function validate_args() {
+  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected argument'
+    exit 1
+  fi
+}
 
 function install_bats() {
+  if command -v bats > /dev/null 2>&1; then
+    log "✅ bats already installed ($(bats --version))"
+    return 0
+  fi
   case "$(uname -s)" in
-    Linux)  apt_install_bats  ;;
-    Darwin) brew_install_bats ;;
+    Darwin)
+      log '⚓ Installing bats via brew...'
+      brew install bats-core
+      ;;
+    Linux)
+      log '⚓ Installing bats via apt-get...'
+      sudo apt-get install -y bats
+      ;;
     *)
-      log "ERROR: setup-bats.sh does not support this platform: $(uname -s)"
+      log "❌ Unsupported OS: $(uname -s). Install bats manually: https://bats-core.readthedocs.io/"
       exit 1
       ;;
   esac
-}
-
-function apt_install_bats() {
-  log "Installing bats-core via apt"
-  sudo apt-get update -qq
-  sudo apt-get install -y bats
-}
-
-function brew_install_bats() {
-  log "Installing bats-core via brew"
-  brew install bats-core
+  log '✅ bats installed'
 }
 
 main "${@:-}"

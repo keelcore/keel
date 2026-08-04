@@ -56,7 +56,7 @@ function validate_args() {
 
 function require_env() {
   local missing=0
-  for var in BASE_SHA; do
+  for var in BASE_SHA HEAD_SHA; do
     if [ -z "${!var:-}" ]; then
       log "ERROR: ${var} is required"
       missing=1

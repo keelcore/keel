@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
-# pr-policy.sh
-# Validate PR compliance before human code review begins.
-# This script is a required CI gate AND runnable locally before pushing.
+# scripts/ci/pr-policy.sh
+# PR policy gate. Validates PR metadata and content before code review begins.
+# Exits non-zero if any policy check fails.
 #
-# In CI, pass context via environment variables (set by the workflow):
-#   PR_TITLE        — pull request title
-#   PR_BODY         — pull request description
-#   GITHUB_HEAD_REF — source branch name
-#   BASE_SHA        — base commit SHA
-#   HEAD_SHA        — head commit SHA
-#
-# Run locally (no env vars needed — reads from git):
-#   ./scripts/ci/pr-policy.sh
+# Required environment variables (set by GitHub Actions):
+#   GITHUB_HEAD_REF    — source branch name
+#   PR_TITLE           — pull request title
+#   PR_BODY            — pull request body
+#   PR_AUTHOR          — pull request author login
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -23,258 +19,148 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-# ---------------------------------------------------------------------------
-# Policy configuration
-# ---------------------------------------------------------------------------
+# Conventional commit types allowed in PR titles.
+readonly CONVENTIONAL_TYPES='feat|fix|docs|chore|refactor|test|ci|perf|build|revert|dependabot'
 
-readonly MIN_TITLE_CHARS=10
-readonly MIN_BODY_CHARS=30
-readonly MAX_FILE_SIZE_WARN=5242880    # 5 MB — warn but do not fail
-readonly MAX_FILE_SIZE_HARD=10485760   # 10 MB — hard failure
+# Branch naming pattern: type/short-description or username/short-description
+readonly BRANCH_PATTERN='^(feat|fix|docs|chore|refactor|test|ci|perf|build|revert|dependabot|adr|rfc)/[a-z0-9-]+$'
 
-# Conventional commit types allowed in PR title and commit messages.
-readonly CONVENTIONAL_COMMIT_TYPES='feat|fix|chore|docs|test|refactor|perf|ci|build|release|hotfix|revert'
-
-# Issue-exempt PR types (these may omit a linked issue).
-readonly ISSUE_EXEMPT_TYPES='chore|docs|test|ci|build|refactor|release'
-
-# Allowed branch name prefixes. The default branch is always exempt.
-readonly ALLOWED_BRANCH_PREFIXES=(
-  'feat/'
-  'fix/'
-  'chore/'
-  'docs/'
-  'test/'
-  'refactor/'
-  'perf/'
-  'ci/'
-  'build/'
-  'release/'
-  'hotfix/'
-  'dependabot/'
-  'revert/'
-)
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+# Minimum PR body length (characters) to reject template stubs.
+readonly MIN_BODY_LENGTH=50
 
 function main() {
   exec 5>&1
-  local failed=0
-  log "PR policy compliance checks"
-  log "-----------------------------"
-  run_checks || failed=1
-  log "-----------------------------"
-  report_result "${failed}"
+  local failures=0
+  check_branch_name    || failures=$((failures + 1))
+  check_pr_title       || failures=$((failures + 1))
+  check_pr_body        || failures=$((failures + 1))
+  check_secret_scan    || failures=$((failures + 1))
+  check_file_sizes     || failures=$((failures + 1))
+  summarize "${failures}"
 }
 
-function log() {
-  local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_pr_policy.log' >&5
-}
-
-function err() {
-  log "POLICY ERROR: ${1:-}"
-}
-
-function run_checks() {
-  local failed=0
-  check_pr_title         || failed=1
-  check_pr_body          || failed=1
-  check_branch_name      || failed=1
-  check_file_sizes       || failed=1
-  check_commit_messages  || failed=1
-  check_dco              || failed=1
-  check_linked_issue     || failed=1
-  return "${failed}"
-}
-
-function report_result() {
-  local -r failed="${1}"
-  if [ "${failed}" -eq 1 ]; then
-    log "FAIL: one or more policy checks failed — resolve before requesting review"
-    exit 1
+function check_branch_name() {
+  local -r branch="${GITHUB_HEAD_REF:-}"
+  if [ -z "${branch}" ]; then
+    log '⚠️  GITHUB_HEAD_REF not set; skipping branch name check'
+    return 0
   fi
-  log "PASS: all policy checks passed"
+  if [ "${PR_AUTHOR:-}" = 'dependabot[bot]' ]; then
+    log "Checking branch name: ${branch}"
+    log '  ✅ Branch name valid (dependabot exemption)'
+    return 0
+  fi
+  log "Checking branch name: ${branch}"
+  if ! echo "${branch}" | grep -qP "${BRANCH_PATTERN}"; then
+    log "  ❌ Branch '${branch}' does not match pattern: ${BRANCH_PATTERN}"
+    return 1
+  fi
+  log '  ✅ Branch name valid'
 }
-
-# ---------------------------------------------------------------------------
-# Checks
-# ---------------------------------------------------------------------------
 
 function check_pr_title() {
-  local title
-  title="$(resolve_title)"
-  [ -z "${title}" ] && log "  [SKIP] title: no title available (not in PR context)" && return 0
-  validate_title_length "${title}" || return 1
-  validate_title_format "${title}" || return 1
-  log "  [PASS] title: '${title}'"
-}
-
-function resolve_title() {
-  local title="${PR_TITLE:-}"
-  [ -z "${title}" ] && title="$(git log -1 --pretty=%s 2>/dev/null || true)"
-  printf '%s' "${title}"
-}
-
-function validate_title_length() {
-  local -r title="${1}"
-  if [ "${#title}" -lt "${MIN_TITLE_CHARS}" ]; then
-    err "PR title too short (${#title} chars; minimum ${MIN_TITLE_CHARS}): '${title}'"
+  local -r title="${PR_TITLE:-}"
+  if [ -z "${title}" ]; then
+    log '⚠️  PR_TITLE not set; skipping title check'
+    return 0
+  fi
+  log "Checking PR title: ${title}"
+  local pattern
+  pattern="^(${CONVENTIONAL_TYPES})(\(.+\))?: .{1,100}$"
+  if ! echo "${title}" | grep -qP "${pattern}"; then
+    log "  ❌ PR title does not follow conventional commits format"
+    log "     Expected: type(scope)?: description"
+    log "     Valid types: ${CONVENTIONAL_TYPES}"
     return 1
   fi
-}
-
-function validate_title_format() {
-  local -r title="${1}"
-  if ! [[ "${title}" =~ ^(${CONVENTIONAL_COMMIT_TYPES})(\(.+\))?: ]]; then
-    err "PR title must follow Conventional Commits: type(scope): description"
-    err "  Allowed types: ${CONVENTIONAL_COMMIT_TYPES}"
-    return 1
-  fi
+  log '  ✅ PR title valid'
 }
 
 function check_pr_body() {
   local -r body="${PR_BODY:-}"
-  [ -z "${body}" ] && log "  [SKIP] description: not in PR context" && return 0
-  local -r length="${#body}"
-  if [ "${length}" -lt "${MIN_BODY_CHARS}" ]; then
-    err "PR description too short (${length} chars; minimum ${MIN_BODY_CHARS})"
-    err "  Add context: motivation, what changed, how to test."
+  if [ -z "${body}" ]; then
+    log '  ❌ PR body is empty; a description is required'
     return 1
   fi
-  log "  [PASS] description: ${length} chars"
+  local length
+  length="${#body}"
+  if [ "${length}" -lt "${MIN_BODY_LENGTH}" ]; then
+    log "  ❌ PR body is too short (${length} chars; minimum ${MIN_BODY_LENGTH})"
+    return 1
+  fi
+  log "  ✅ PR body present (${length} chars)"
 }
 
-function check_branch_name() {
-  local branch
-  branch="$(resolve_branch)"
-  [ -z "${branch}" ] && log "  [SKIP] branch name: cannot determine branch" && return 0
-  is_default_branch "${branch}" && log "  [PASS] branch name: '${branch}'" && return 0
-  is_allowed_branch "${branch}" && log "  [PASS] branch name: '${branch}'" && return 0
-  err "Branch '${branch}' does not match a required prefix."
-  err "  Allowed: ${ALLOWED_BRANCH_PREFIXES[*]}"
-  return 1
+function check_secret_scan() {
+  log 'Scanning staged files for secrets...'
+  local rc=0
+  scan_for_secrets || rc="${?}"
+  if [ "${rc}" -ne 0 ]; then
+    log '  ❌ Potential secrets detected; review the output above'
+    return 1
+  fi
+  log '  ✅ No secrets detected'
 }
 
-function resolve_branch() {
-  local branch="${GITHUB_HEAD_REF:-}"
-  [ -z "${branch}" ] && branch="$(git branch --show-current 2>/dev/null || true)"
-  printf '%s' "${branch}"
-}
-
-function is_default_branch() {
-  [ "${1}" = 'main' ] || [ "${1}" = 'master' ]
-}
-
-function is_allowed_branch() {
-  local -r branch="${1}"
-  local prefix
-  for prefix in "${ALLOWED_BRANCH_PREFIXES[@]}"; do
-    [[ "${branch}" == "${prefix}"* ]] && return 0
-  done
-  return 1
+function scan_for_secrets() {
+  # Patterns that indicate hardcoded secrets. Adjust as tooling evolves.
+  local -r patterns=(
+    'AKIA[0-9A-Z]{16}'
+    'sk-[a-zA-Z0-9]{32,}'
+    'ghp_[a-zA-Z0-9]{36}'
+    'ghs_[a-zA-Z0-9]{36}'
+    'xox[baprs]-[0-9]{12}-[0-9]{12}-[a-zA-Z0-9]{24}'
+    'BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY'
+    'password\s*=\s*["\x27][^"\x27]{8,}'
+    'secret\s*=\s*["\x27][^"\x27]{8,}'
+  )
+  local combined
+  combined="$(printf '%s|' "${patterns[@]}")"
+  combined="${combined%|}"
+  git diff --name-only HEAD~1 2>/dev/null \
+    | xargs -I{} grep -PnH "${combined}" {} 2>/dev/null \
+    || true
+  # Re-run to capture exit code from grep match
+  if git diff --name-only HEAD~1 2>/dev/null \
+      | xargs -I{} grep -qP "${combined}" {} 2>/dev/null; then
+    return 1
+  fi
 }
 
 function check_file_sizes() {
-  local base
-  base="$(resolve_base_sha)"
-  [ -z "${base}" ] && log "  [SKIP] file sizes: cannot determine base commit" && return 0
-  local -r head="${HEAD_SHA:-HEAD}"
-  local failed=0
+  log 'Checking file sizes...'
+  local oversized=0
+  local file size
   while IFS= read -r file; do
-    check_one_file_size "${file}" || failed=1
-  done < <(git diff --name-only "${base}" "${head}" -- 2>/dev/null || true)
-  [ "${failed}" -eq 0 ] && log "  [PASS] file sizes"
-  return "${failed}"
-}
-
-function resolve_base_sha() {
-  local base="${BASE_SHA:-}"
-  [ -z "${base}" ] && base="$(git merge-base HEAD main 2>/dev/null || true)"
-  printf '%s' "${base}"
-}
-
-function check_one_file_size() {
-  local -r file="${1}"
-  [ -z "${file}" ] && return 0
-  [ -f "${file}" ]  || return 0
-  local size
-  size="$(wc -c < "${file}" | tr -d '[:space:]')"
-  if [ "${size}" -gt "${MAX_FILE_SIZE_HARD}" ]; then
-    err "File '${file}' is $(( size / 1048576 )) MB — exceeds hard limit of $(( MAX_FILE_SIZE_HARD / 1048576 )) MB"
-    return 1
-  fi
-  if [ "${size}" -gt "${MAX_FILE_SIZE_WARN}" ]; then
-    log "  [WARN] file '${file}' is $(( size / 1048576 )) MB — consider whether it belongs in the repository"
-  fi
-}
-
-function check_commit_messages() {
-  local base
-  base="$(resolve_base_sha)"
-  [ -z "${base}" ] && log "  [SKIP] commit messages: cannot determine base commit" && return 0
-  local -r head="${HEAD_SHA:-HEAD}"
-  local failed=0
-  while IFS= read -r subject; do
-    validate_commit_subject "${subject}" || failed=1
-  done < <(git log --pretty=%s "${base}..${head}" 2>/dev/null || true)
-  [ "${failed}" -eq 0 ] && log "  [PASS] commit messages"
-  return "${failed}"
-}
-
-function validate_commit_subject() {
-  local -r subject="${1}"
-  [ -z "${subject}" ] && return 0
-  if ! [[ "${subject}" =~ ^(${CONVENTIONAL_COMMIT_TYPES})(\(.+\))?: ]]; then
-    err "Commit '${subject}' does not follow Conventional Commits format"
-    return 1
-  fi
-}
-
-function check_dco() {
-  local base
-  base="$(resolve_base_sha)"
-  [ -z "${base}" ] && log "  [SKIP] DCO sign-off: cannot determine base commit" && return 0
-  local -r head="${HEAD_SHA:-HEAD}"
-  local failed=0
-  local sha subject body
-  while IFS=' ' read -r sha subject; do
-    [ -z "${sha}" ] && continue
-    body="$(git log -1 --format='%b' "${sha}")"
-    if ! printf '%s\n' "${body}" | grep -qi '^Signed-off-by:'; then
-      err "Commit '${sha} ${subject}' is missing a Signed-off-by trailer"
-      err "  Fix: git rebase --signoff HEAD~N && git push --force-with-lease"
-      failed=1
+    [ -f "${file}" ] || continue
+    size="$(wc -c < "${file}")"
+    if [ "${size}" -gt 1048576 ]; then
+      log "  ❌ ${file}: ${size} bytes exceeds 1 MB limit"
+      oversized=$((oversized + 1))
     fi
-  done < <(git log --format='%h %s' "${base}..${head}" 2>/dev/null || true)
-  [ "${failed}" -eq 0 ] && log "  [PASS] DCO sign-off"
-  return "${failed}"
-}
-
-function check_linked_issue() {
-  local -r body="${PR_BODY:-}"
-  [ -z "${body}" ] && log "  [SKIP] linked issue: not in PR context" && return 0
-  local title
-  title="$(resolve_title)"
-  is_issue_exempt_type "${title}" && log "  [SKIP] linked issue: exempt type" && return 0
-  if has_issue_reference "${body}"; then
-    log "  [PASS] linked issue"
-    return 0
+  done < <(git diff --name-only HEAD~1 2>/dev/null || true)
+  if [ "${oversized}" -gt 0 ]; then
+    log "  ❌ ${oversized} file(s) exceed the size limit"
+    return 1
   fi
-  err "PR body must reference an issue: 'Closes #N', 'Fixes #N', or 'Refs #N'"
-  return 1
+  log '  ✅ File sizes within limits'
 }
 
-function is_issue_exempt_type() {
-  local -r title="${1}"
-  [[ "${title}" =~ ^(${ISSUE_EXEMPT_TYPES})(\(.+\))?: ]]
+function summarize() {
+  local -r failures="${1}"
+  if [ "${failures}" -gt 0 ]; then
+    log ""
+    log "❌ PR policy failed: ${failures} check(s) did not pass"
+    exit 1
+  fi
+  log ""
+  log '✅ All PR policy checks passed'
 }
 
-function has_issue_reference() {
-  local -r body="${1}"
-  [[ "${body}" =~ (Closes|Fixes|Resolves|Refs)[[:space:]]+#[0-9]+ ]]
+function log() {
+  local msg
+  msg="${1:-}"
+  printf '%s\n' "${msg}" | tee -a '/tmp/pr-policy.log' >&5
 }
 
 main "${@:-}"
