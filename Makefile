@@ -1,20 +1,19 @@
-# Keel Master Orchestrator
-# Part of the KeelCore governance: Ripped. Hard. Shredded.
+# Consumer Makefile — delegates canonical targets to .standards/templates/Makefile.canonical.
+# Originally cloned from the pre-include-era templates/Makefile; migrated
+# by migrate-makefile.sh. The original is preserved at Makefile.pre-migrate.bak.
 
-.PHONY: all clean min max max-no-fips \
-        build integration-test unit-test \
-        test test-unit test-consistency test-integrity test-compose test-k8s coverage \
-        lint lint-go lint-helm lint-helm-validate lint-fmt lint-newlines lint-md \
-        release-checksums release-checksums-verify release-sbom release-sign release-upload \
-        release-rename release-docker release-helm-push release-ci \
-        colima-setup colima-deploy colima-test colima-teardown \
-        gen-certs gen-schema create-release install-hooks fresh-repo help \
-        setup-helm setup-bats setup-pebble setup-kind setup-staticcheck setup-syft setup-cosign setup-markdownlint \
-        setup-docker-macos setup-kubeconform setup-ghcr \
-        ci-pr-policy ci-secret-scan ci-dco ci-coverage-delta ci-smoke-windows \
-        bats-integrity bats-example ci-build-example dist-chmod \
-        audit check-legal-drift size-report roadmap-issues \
-        k8s-cluster-test k8s-helm-deploy k8s-kind-load k8s-kind-setup k8s-kind-teardown
+ifeq (,$(wildcard .standards/templates/Makefile.canonical))
+$(error .standards/templates/Makefile.canonical not found. Run: git submodule update --init --recursive)
+endif
+
+include .standards/templates/Makefile.canonical
+
+## Consumer-specific content (preserved from the original Makefile).
+## Targets whose recipes matched canonical were removed by the migration.
+## Targets that drifted from canonical (see migration report) remain below
+## and should be reconciled by hand.
+
+.PHONY: all clean min max max-no-fips build integration-test unit-test test-unit test-consistency test-integrity test-compose test-k8s coverage lint-go lint-helm lint-helm-validate lint-fmt lint-newlines lint-md release-checksums release-checksums-verify release-sbom release-sign release-upload release-rename release-docker release-helm-push release-ci colima-setup colima-deploy colima-test colima-teardown gen-certs gen-schema create-release install-hooks fresh-repo help help-local pre-commit keel-schema-regen setup-helm setup-bats setup-pebble setup-kind setup-staticcheck setup-syft setup-cosign setup-markdownlint setup-docker-macos setup-kubeconform setup-ghcr ci-pr-policy ci-secret-scan ci-dco ci-coverage-delta ci-smoke-windows bats-integrity bats-example ci-build-example dist-chmod audit check-legal-drift size-report roadmap-issues k8s-cluster-test k8s-helm-deploy k8s-kind-load k8s-kind-setup k8s-kind-teardown
 
 # Default target: build the shredded minimalist binary
 all: min
@@ -32,16 +31,9 @@ max-no-fips:
 	@echo "⚓ Building Ripped (Full Feature/No-FIPS)..."
 	./scripts/build/ci_max_no_fips.sh
 
-## Lint Targets
-lint: lint-fmt lint-go lint-newlines lint-md
-
 lint-fmt:
 	@echo "🔍 Running gofmt check..."
 	./scripts/lint/fmt.sh
-
-lint-go:
-	@echo "🔍 Running Go lint..."
-	./scripts/lint/go.sh
 
 lint-md:
 	@echo "🔍 Running markdown lint..."
@@ -72,16 +64,9 @@ release-upload:
 	@echo "🚀 Uploading release artifacts..."
 	RELEASE_TAG=$(TAG) ./scripts/release/upload.sh
 
-## Testing Targets
-test: test-unit test-consistency test-integrity lint-helm lint-helm-validate
-
 test-unit:
 	@echo "🧪 Running unit tests..."
 	./scripts/test/ci.sh
-
-coverage:
-	@echo "📊 Generating coverage report..."
-	./scripts/test/coverage.sh
 
 test-consistency:
 	@echo "🧪 Running consistency suite..."
@@ -140,10 +125,15 @@ create-release:
 	./scripts/release/create-release.sh $(if $(FORCE),--force $(FORCE),)
 
 ## Repo Setup Targets
-install-hooks:
-	@echo "🪝 Installing git hooks..."
-	ln -sf "$(CURDIR)/scripts/hooks/pre-commit" .git/hooks/pre-commit
-	@echo "✅ Hooks installed"
+## Pre-commit composition: keel's schema-regen runs before the canonical
+## pre-commit checks (format + lint + governance-gate). Pure prerequisite
+## aggregator on the canonical `pre-commit` target — same pattern as `help`.
+## install-hooks is inherited from canonical; it installs a hook that runs
+## `make pre-commit`, so this prerequisite fires at commit time.
+pre-commit: keel-schema-regen
+keel-schema-regen:
+	@echo "📐 Regenerating + staging config schema (keel-specific)..."
+	bash scripts/hooks/schema-regen.sh
 
 fresh-repo: install-hooks
 	@echo "📦 Installing Go tools..."
@@ -157,19 +147,10 @@ unit-test: test-unit
 
 integration-test: test-integrity
 
-## Audit Target
-audit:
-	@echo "🔍 Running CI/Makefile audit..."
-	./scripts/ci/audit-make-targets.sh
-
 ## Setup Targets
 setup-helm:
 	@echo "🔧 Installing Helm..."
 	./scripts/ci/setup-helm.sh
-
-setup-bats:
-	@echo "🔧 Installing bats-core..."
-	./scripts/ci/setup-bats.sh
 
 setup-pebble:
 	@echo "🔧 Installing pebble..."
@@ -179,39 +160,15 @@ setup-kind:
 	@echo "🔧 Installing kind and creating cluster..."
 	./scripts/ci/setup-kind.sh
 
-setup-markdownlint:
-	@echo "🔧 Installing markdownlint-cli..."
-	./scripts/ci/setup-markdownlint.sh
-
 setup-staticcheck:
 	@echo "🔧 Installing staticcheck..."
 	go install honnef.co/go/tools/cmd/staticcheck@latest
-
-setup-syft:
-	@echo "🔧 Installing syft..."
-	./scripts/release/install-syft.sh
 
 setup-cosign:
 	@echo "🔧 Installing cosign..."
 	./scripts/release/install-cosign.sh
 
 ## CI Gate Targets
-ci-pr-policy:
-	@echo "🔍 Running PR policy check..."
-	./scripts/ci/pr-policy.sh
-
-ci-secret-scan:
-	@echo "🔍 Running secret scan..."
-	./scripts/ci/secret-scan.sh
-
-ci-dco:
-	@echo "🔍 Running DCO sign-off check..."
-	./scripts/ci/dco-check.sh
-
-ci-coverage-delta:
-	@echo "📊 Checking coverage delta..."
-	./scripts/test/coverage-delta.sh
-
 ci-smoke-windows:
 	@echo "🪟 Running Windows smoke test..."
 	./scripts/build/ci_smoke_windows.sh
@@ -280,21 +237,12 @@ setup-ghcr:
 	@echo "🔧 Setting up GHCR credentials..."
 	./scripts/release/setup-ghcr.sh
 
-## Additional Lint Targets
-lint-newlines:
-	@echo "🔍 Checking trailing newlines..."
-	./scripts/lint/newlines.sh
-
 ## Additional Release Targets
 release-ci:
 	@echo "🚀 Running release CI pipeline..."
 	./scripts/release/ci.sh
 
 ## Additional Utility Targets
-check-legal-drift:
-	@echo "⚖️  Checking legal file drift..."
-	./scripts/check-legal-drift.sh
-
 size-report:
 	@echo "📏 Generating binary size report..."
 	./scripts/build/size-report.sh
@@ -308,12 +256,14 @@ dist-chmod:
 	@echo "🔑 Making dist binaries executable..."
 	chmod +x dist/keel-*
 
-clean:
-	@echo "🧹 Cleaning dist/ and build artifacts..."
-	rm -rf dist/
-	go clean
+## help composes keel's curated summary (help-local) with the canonical
+## auto-generated target list. help-local is a pure prerequisite aggregator
+## (no recipe on `help` itself), so Make runs help-local first, then the
+## canonical `help` recipe — no recipe-override, and governance-refresh treats
+## the aggregator as non-drifting.
+help: help-local
 
-help:
+help-local:
 	@echo "Keel Build System"
 	@echo "Usage: make [target]"
 	@echo ""
