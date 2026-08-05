@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/lint/forbid-suppressions.sh
+# scripts/lint/forbid-lint-suppressions.sh
 # Fail if any repo-owned source file contains a lint-suppression directive
 # (shellcheck disable, markdownlint disable/capture). Per feedback_never_bypass_lint:
 # refactor code so the warning no longer applies; never silence the linter.

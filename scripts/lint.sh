@@ -68,12 +68,12 @@ function run_go_lint() {
 function run_forbid_suppressions() {
   # Enforces feedback_never_bypass_lint: no shellcheck-disable / markdownlint-disable
   # directives in tracked files. Skipped if the consumer doesn't carry the check.
-  if [ ! -x 'scripts/lint/forbid-suppressions.sh' ]; then
-    log 'Skipping suppression-directive check (forbid-suppressions.sh not present)'
+  if [ ! -x 'scripts/lint/forbid-lint-suppressions.sh' ]; then
+    log 'Skipping suppression-directive check (forbid-lint-suppressions.sh not present)'
     return 0
   fi
   log 'Checking for lint-suppression directives...'
-  bash scripts/lint/forbid-suppressions.sh
+  bash scripts/lint/forbid-lint-suppressions.sh
 }
 
 function run_adr_check() {
