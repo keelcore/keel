@@ -7,8 +7,8 @@ cutting releases, and representing the project in CNCF processes.
 
 ## Current Maintainers
 
-| Name | GitHub | Affiliation | Role |
-|---|---|---|---|
+| Name            | GitHub                                           | Affiliation | Role            |
+| --------------- | ------------------------------------------------ | ----------- | --------------- |
 | JP Charlton Jr. | [@PaulCharlton](https://github.com/PaulCharlton) | Independent | Lead Maintainer |
 
 ## Becoming a Maintainer
@@ -41,8 +41,8 @@ retain their commit history attribution and are acknowledged in release notes bu
 not have active repository permissions.
 
 | Name | GitHub | Period |
-|---|---|---|
-| — | — | — |
+| ---- | ------ | ------ |
+| —    | —      | —      |
 
 ## Contact
 

@@ -26,7 +26,7 @@ smallest, most secure subset of features *fully app-integrated*—built to be **
 ## Documentation
 
 | Document | Contents |
-|---|---|
+| --- | --- |
 | [docs/config-reference.md](docs/config-reference.md) | Complete YAML schema, ENV vars, secrets file pattern, validation rules, hot reload |
 | [docs/security.md](docs/security.md) | OWASP middleware, authn (JWT + mTLS), external authz (OPA / custom HTTP), memory backpressure, concurrency limits, TLS policy, upstream security |
 | [docs/observability.md](docs/observability.md) | Health probes, distributed tracing, Prometheus metrics, StatsD, structured logging, access log schema, admin endpoints, SLO signals |
@@ -75,7 +75,7 @@ We picked **golang** because it hits the best "ops-to-footprint" ratio for a dep
 ### 1.1 Size + HTTPS Comparison (Illustrative)
 
 | Option | Typical minimal prod container size | HTTPS/TLS story | Notes |
-|---|------------------------------------:|---|---|
+| --- | ------------------------------------: | --- | --- |
 | **golang** | **~5-8 MB** | Built-in `crypto/tls`; easy to make TLS1.3-only | Best "small + capable + boring" combo |
 | Rust | ~5–15 MB | Strong crates (`rustls`, `hyper/axum`) | Great, but more build complexity |
 | Zig | ~10–30+ MB | You bring TCP/TLS/HTTP(S) plumbing | Not "that small" once you add HTTP(S) |
@@ -115,7 +115,7 @@ chains of inline `run:` lines.
 Build tags are **negative** ("remove X"), so defaults stay on:
 
 | Tag | Removes |
-|---|---|
+| --- | --- |
 | `no_otel` | OTLP/OpenTelemetry tracing |
 | `no_prom` | Prometheus `/metrics` |
 | `no_statsd` | StatsD output |
@@ -387,7 +387,7 @@ everyone is asked to follow. If you already have a fix in mind, [docs/LAZY.md](d
 merged PR.
 
 | Document | Contents |
-|---|---|
+| --- | --- |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Full contribution guide — dev setup, coding standards, Conventional Commits format, testing checklist, and PR process |
 | [docs/LAZY.md](docs/LAZY.md) | Quick-path contribution guide — fork → branch → PR in five minutes for contributors who already have a fix ready |
 | [docs/MAINTAINERS.md](docs/MAINTAINERS.md) | Current maintainers, the path to maintainership, and ongoing maintainer responsibilities |

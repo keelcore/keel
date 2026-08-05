@@ -374,7 +374,7 @@ order, so they always win.
 modifying the config file — and they work naturally with Kubernetes ConfigMaps, Helm `--set`, and CI/CD systems.
 
 | ENV var | YAML path | Default | Notes |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `KEEL_CONFIG` | — | `""` | Path to the primary YAML config file |
 | `KEEL_SECRETS` | — | `""` | Path to the secrets YAML file |
 | `KEEL_HTTP_ENABLED` | `listeners.http.enabled` | `true` | |

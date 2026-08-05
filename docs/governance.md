@@ -47,7 +47,7 @@ drift, the authoritative version becomes unclear, and updates require touching e
 The submodule pattern solves this by making the relationship explicit and mechanical:
 
 | Concern | Copy-paste | Submodule |
-|---|---|---|
+| --- | --- | --- |
 | Canonical source | Unclear (who's "right"?) | Always `keelcore/standards` |
 | Updates | Manual, error-prone, often skipped | `git submodule update --remote`, one commit |
 | Version pinning | None (you have whatever you pasted) | Exact commit SHA, locked in `.gitmodules` and `keel`'s tree |
@@ -124,7 +124,7 @@ The standards repo documents its own design decisions as numbered ADRs under `.s
 relevant to Keel contributors:
 
 | ADR | Summary |
-|---|---|
+| --- | --- |
 | [ADR-0001](.standards/docs/adr/0001-standards-as-submodule-and-package.md) | Why standards are distributed as a submodule (and optionally as a language package) rather than as inline documentation |
 | [ADR-0002](.standards/docs/adr/0002-coverage-baseline-in-repo.md) | Why code coverage baselines are stored in the repository rather than in CI secrets or external dashboards |
 | [ADR-0003](.standards/docs/adr/0003-architecture-governance-process.md) | The DACI + RFC + ARB process for architecture changes — who decides what, and how |

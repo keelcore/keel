@@ -31,8 +31,8 @@ All adapters are symlinks into `.standards/adapters/`. They are committed to the
 
 ### Claude Code
 
-| Symlink | Target |
-|---|---|
+| Symlink     | Target                                 |
+| ----------- | -------------------------------------- |
 | `CLAUDE.md` | `.standards/adapters/claude/CLAUDE.md` |
 
 **Source:** [adapters/claude/CLAUDE.md](https://github.com/keelcore/standards/blob/main/adapters/claude/CLAUDE.md)
@@ -43,11 +43,11 @@ is needed.
 
 ### Cursor
 
-| Symlink | Target |
-|---|---|
+| Symlink                    | Target                                  |
+| -------------------------- | --------------------------------------- |
 | `.cursor/rules/coding.mdc` | `.standards/adapters/cursor/coding.mdc` |
-| `.cursor/rules/ci.mdc` | `.standards/adapters/cursor/ci.mdc` |
-| `.cursor/rules/bash.mdc` | `.standards/adapters/cursor/bash.mdc` |
+| `.cursor/rules/ci.mdc`     | `.standards/adapters/cursor/ci.mdc`     |
+| `.cursor/rules/bash.mdc`   | `.standards/adapters/cursor/bash.mdc`   |
 
 **Sources:** [adapters/cursor/](https://github.com/keelcore/standards/blob/main/adapters/cursor/)
 
@@ -57,8 +57,8 @@ most relevant one in its UI without truncating a single large document.
 
 ### GitHub Copilot
 
-| Symlink | Target |
-|---|---|
+| Symlink                           | Target                                                |
+| --------------------------------- | ----------------------------------------------------- |
 | `.github/copilot-instructions.md` | `.standards/adapters/copilot/copilot-instructions.md` |
 
 **Source:** [adapters/copilot/copilot-instructions.md](https://github.com/keelcore/standards/blob/main/adapters/copilot/copilot-instructions.md)
@@ -90,13 +90,13 @@ propose changes upstream.
 
 Each adapter references the governance documents most relevant to AI-assisted work. The full governance set is:
 
-| Standard | What it governs |
-|---|---|
-| [`governance/coding.md`](https://github.com/keelcore/standards/blob/main/governance/coding.md) | Scope control, surgical edits, no speculative cleanup, safety, reviewability |
-| [`governance/ci.md`](https://github.com/keelcore/standards/blob/main/governance/ci.md) | CI workflow structure, supply-chain security, coverage, least-privilege permissions |
-| [`governance/bash.md`](https://github.com/keelcore/standards/blob/main/governance/bash.md) | `set -euo pipefail`, logging, `validate_args` pattern, portability |
-| [`governance/observability.md`](https://github.com/keelcore/standards/blob/main/governance/observability.md) | Metrics naming, log field conventions, trace propagation, alerting rules |
-| [`governance/security.md`](https://github.com/keelcore/standards/blob/main/governance/security.md) | IAM, encryption at rest and in transit, key management, data classification |
-| [`governance/runtime.md`](https://github.com/keelcore/standards/blob/main/governance/runtime.md) | Container base images, resource limits, orchestration, compliance controls |
-| [`governance/api-management.md`](https://github.com/keelcore/standards/blob/main/governance/api-management.md) | API versioning, rate limiting, quota design, gateway patterns |
-| [`governance/platform.md`](https://github.com/keelcore/standards/blob/main/governance/platform.md) | DNS, TLS policy, WAF, networking architecture governance process |
+| Standard                                                                                                       | What it governs                                                                     |
+| -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| [`governance/coding.md`](https://github.com/keelcore/standards/blob/main/governance/coding.md)                 | Scope control, surgical edits, no speculative cleanup, safety, reviewability        |
+| [`governance/ci.md`](https://github.com/keelcore/standards/blob/main/governance/ci.md)                         | CI workflow structure, supply-chain security, coverage, least-privilege permissions |
+| [`governance/bash.md`](https://github.com/keelcore/standards/blob/main/governance/bash.md)                     | `set -euo pipefail`, logging, `validate_args` pattern, portability                  |
+| [`governance/observability.md`](https://github.com/keelcore/standards/blob/main/governance/observability.md)   | Metrics naming, log field conventions, trace propagation, alerting rules            |
+| [`governance/security.md`](https://github.com/keelcore/standards/blob/main/governance/security.md)             | IAM, encryption at rest and in transit, key management, data classification         |
+| [`governance/runtime.md`](https://github.com/keelcore/standards/blob/main/governance/runtime.md)               | Container base images, resource limits, orchestration, compliance controls          |
+| [`governance/api-management.md`](https://github.com/keelcore/standards/blob/main/governance/api-management.md) | API versioning, rate limiting, quota design, gateway patterns                       |
+| [`governance/platform.md`](https://github.com/keelcore/standards/blob/main/governance/platform.md)             | DNS, TLS policy, WAF, networking architecture governance process                    |

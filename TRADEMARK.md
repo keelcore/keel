@@ -2,8 +2,8 @@
 
 ## ⚓ The Keel Identity
 
-"Keel" is the exclusive trademark of the **KeelCore** project. While our code is open-source under the **Apache License 2.0**,
-our name represents a specific standard of "shredded" efficiency and rock-hard security.
+"Keel" is the exclusive trademark of the **KeelCore** project. While our code is open-source under the
+**Apache License 2.0**, our name represents a specific standard of "shredded" efficiency and rock-hard security.
 
 ## 1. Governance Philosophy
 
@@ -28,5 +28,5 @@ You **must** rename your project and may not use "Keel" as the primary brand if:
 
 ## 4. The Shred-Check Requirement
 
-If your version of the software does not pass the official build and binary size verification in `./scripts/build/`, it is
-not "Keel." It is a derivative work and must be labeled as such (e.g., "Generic-Server, based on Keel code").
+If your version of the software does not pass the official build and binary size verification in `./scripts/build/`,
+it is not "Keel." It is a derivative work and must be labeled as such (e.g., "Generic-Server, based on Keel code").

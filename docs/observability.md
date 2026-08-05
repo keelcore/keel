@@ -35,7 +35,7 @@ let you apply different authentication rules — main traffic might require a JW
 always be unauthenticated.
 
 | Endpoint | Port | Config key | Purpose |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `GET /healthz` | `9091` | `listeners.health` | Liveness: is the process alive? |
 | `GET /readyz` | `9092` | `listeners.ready` | Readiness: is the process ready for traffic? |
 | `GET /startupz` | `9093` | `listeners.startup` | Startup: has the process finished initializing? |
@@ -149,7 +149,7 @@ own child spans.
 Keel creates one span per inbound request with the following attributes:
 
 | Attribute | Value |
-|---|---|
+| --- | --- |
 | `http.method` | GET, POST, etc. |
 | `http.route` | Matched route pattern (e.g., `/api/v1/users/{id}`) |
 | `http.status_code` | Response status code |
@@ -216,7 +216,7 @@ format that Prometheus parses and stores.
 ### 3.2 Keel Metrics Reference
 
 | Metric | Type | Labels | Description |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `keel_requests_total` | Counter | `method`, `route`, `status_code` | Total requests received, broken down by HTTP method, matched route, and response status code |
 | `keel_request_duration_seconds` | Histogram | `method`, `route`, `status_code` | End-to-end request latency from first byte received to last byte sent |
 | `keel_requests_inflight` | Gauge | — | Current number of requests actively being processed |
@@ -376,7 +376,7 @@ Every inbound HTTP request produces one access log entry:
 ```
 
 | Field | Description |
-|---|---|
+| --- | --- |
 | `ts` | RFC3339 timestamp with millisecond precision (UTC) |
 | `level` | Always `info` for access log entries |
 | `msg` | Always `access` for access log entries |
@@ -398,7 +398,7 @@ Every inbound HTTP request produces one access log entry:
 ### 5.3 Log Levels
 
 | Level | When to use |
-|---|---|
+| --- | --- |
 | `debug` | Very verbose. Includes middleware decision details, config parsing steps. Only for active debugging — never in production. |
 | `info` | Normal operation. Access logs, startup/shutdown messages, reload events. This is the production default. |
 | `warn` | Unexpected but non-fatal events. Upstream health probe failures before circuit trips, config reload rejections. |
@@ -454,7 +454,7 @@ preserved by setting `cfg.Out = nil` to signal Reconfigure.
 **Key guarantees**
 
 | Situation | Behaviour |
-|---|---|
+| --- | --- |
 | Config file missing at startup | Error logged to stdout via bootstrap logger; process exits 1 |
 | `logging.level` invalid in config | Warning logged; previous level preserved |
 | Remote sink unreachable at startup | Warning logged; stdout-only logging continues |
@@ -500,7 +500,7 @@ The admin port (`9999`) provides operational endpoints for operators. Never expo
 restrict it to internal network access or protect it with a NetworkPolicy.
 
 | Endpoint | Method | Description |
-|---|---|---|
+| --- | --- | --- |
 | `/version` | GET | Returns JSON with binary version, build tags, FIPS mode status, Go version, and process start time |
 | `/health/fips` | GET | Returns `{"fips_active": true}` or `{"fips_active": false}`. Useful for verifying FIPS build compliance |
 | `/metrics` | GET | Prometheus metrics endpoint (all Keel metrics) |

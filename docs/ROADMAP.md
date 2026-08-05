@@ -168,7 +168,7 @@ through that policy. This means:
 **Concrete gap as of 2026-03-12:**
 
 | Call site | File | Gap |
-|---|---|---|
+| --- | --- | --- |
 | `httpClientWithCA` | `pkg/core/acme/manager.go` | Raw `&tls.Config{RootCAs: pool}` — no MinVersion, no curve policy |
 | Remote log HTTP sink | `pkg/core/server.go` | Uses `http.DefaultTransport` — no TLS policy |
 | ext-authz HTTP transport | `pkg/core/mw/ext_authz.go` | Default `http.Client` — no TLS policy |

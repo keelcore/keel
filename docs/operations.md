@@ -68,7 +68,7 @@ value and why it exists.
 ## 3. POSIX / macOS Signal Support
 
 | Signal | Behavior |
-|---|---|
+| --- | --- |
 | `SIGTERM` | Begin graceful shutdown sequence |
 | `SIGINT` | Begin graceful shutdown sequence (same as SIGTERM; typically triggered by Ctrl+C in a terminal) |
 | `SIGHUP` | Reload config and secrets files from disk. See Section 5 (Hot Reload). |
@@ -110,7 +110,7 @@ kubectl exec -it <pod-name> -- kill -HUP 1
 On Windows, there are no POSIX signals. Keel handles the Windows equivalent events:
 
 | Windows Event | Behavior |
-|---|---|
+| --- | --- |
 | `CTRL_C_EVENT` | Graceful shutdown (equivalent to SIGINT) |
 | `CTRL_BREAK_EVENT` | Graceful shutdown |
 | Console close | Graceful shutdown |
@@ -461,7 +461,7 @@ All listed domains must resolve to this host at issuance time and at each renewa
 `cache_dir` is the key to restart-safe operation. Keel writes three files there:
 
 | File | Contents | Written |
-|---|---|---|
+| --- | --- | --- |
 | `account.pem` | ECDSA P-256 ACME account private key | Once, on first run |
 | `cert.crt` | PEM certificate chain (leaf + intermediates) | After each issuance/renewal |
 | `cert.key` | PEM EC private key for the certificate | After each issuance/renewal |
@@ -543,7 +543,7 @@ section documents what is implemented, one intentional deviation, and known limi
 **Implemented and compliant**
 
 | RFC 8555 requirement | Section | How satisfied |
-|---|---|---|
+| --- | --- | --- |
 | HTTPS for all ACME requests | §6.1 | Let's Encrypt production URL is HTTPS by default; `ca_url` should be HTTPS for any non-loopback CA |
 | JWS request signing (ES256, ECDSA P-256 account key) | §6.2 | `golang.org/x/crypto/acme` |
 | `nonce` in every JWS protected header | §6.2, §6.5 | `golang.org/x/crypto/acme` |

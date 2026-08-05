@@ -58,7 +58,7 @@ The table below maps each keel capability to the three communities that feel its
 from it as a brownfield sidecar.
 
 | Feature | Top Community #1 | Top Community #2 | Top Community #3 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **otel** | SRE teams retrofitting tracing onto legacy services — recompile forbidden, app team unavailable | Platform orgs standardizing OTel across heterogeneous fleets — keel injects spans uniformly without touching each service | FinTech audit/compliance teams who need request trace provenance at the boundary, not from app instrumentation they don't control |
 | **prom** | K8s platform teams with brownfield services that have zero `/metrics` — keel exposes HTTP golden signals without touching app code | SREs who get paged blind because their service has no scrape target; keel gives them latency/error rate immediately | DataDog/New Relic migrants moving to Prometheus — keel provides a scrape endpoint even for services still mid-migration |
 | **h3** | Mobile backend teams hit by TCP head-of-line blocking on lossy networks — QUIC built in, no app rebuild | Gaming backends needing sub-10ms connection establishment at scale — H3 eliminates TLS+TCP handshake stacking | CDN/edge operators running origin fleets that can't be recompiled — keel adds QUIC termination as a drop-in sidecar |

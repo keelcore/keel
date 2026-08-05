@@ -7,8 +7,8 @@ disclosure process, supported versions, and how we handle CVEs.
 
 ## Security Contacts
 
-| Name | GitHub | Email |
-|---|---|---|
+| Name            | GitHub                                           | Email                                         |
+| --------------- | ------------------------------------------------ | --------------------------------------------- |
 | JP Charlton Jr. | [@PaulCharlton](https://github.com/PaulCharlton) | [security@byiq.com](mailto:security@byiq.com) |
 
 For all vulnerability reports, use one of the channels described in the next section. Email is available for reporters who
@@ -59,13 +59,13 @@ A useful security report includes:
 
 We take security reports seriously and commit to the following response timeline:
 
-| Milestone | Target Timeline |
-|---|---|
-| Initial acknowledgement | Within 2 business days of receipt |
-| Severity assessment | Within 5 business days |
-| Fix development begins | Within 10 business days for Critical/High; 30 days for Medium/Low |
-| Patch release | Within 30 days for Critical/High; 90 days for Medium/Low |
-| Public disclosure | After patch release, coordinated with the reporter |
+| Milestone               | Target Timeline                                                   |
+| ----------------------- | ----------------------------------------------------------------- |
+| Initial acknowledgement | Within 2 business days of receipt                                 |
+| Severity assessment     | Within 5 business days                                            |
+| Fix development begins  | Within 10 business days for Critical/High; 30 days for Medium/Low |
+| Patch release           | Within 30 days for Critical/High; 90 days for Medium/Low          |
+| Public disclosure       | After patch release, coordinated with the reporter                |
 
 For Critical vulnerabilities (CVSS >= 9.0) — for example, an unauthenticated remote code execution or a complete
 authentication bypass — we will prioritize a hotfix release over the normal release cycle.
@@ -85,12 +85,12 @@ authentication bypass — we will prioritize a hotfix release over the normal re
 
 We use the [CVSS v3.1](https://www.first.org/cvss/v3.1/specification-document) scoring system to assess severity:
 
-| CVSS Score | Severity | Expected response |
-|---|---|---|
-| 9.0–10.0 | Critical | Hotfix release, immediate notification |
-| 7.0–8.9 | High | Priority patch in next release or hotfix |
-| 4.0–6.9 | Medium | Fix in next regular release |
-| 0.1–3.9 | Low | Fix in next regular release or maintenance release |
+| CVSS Score | Severity | Expected response                                  |
+| ---------- | -------- | -------------------------------------------------- |
+| 9.0–10.0   | Critical | Hotfix release, immediate notification             |
+| 7.0–8.9    | High     | Priority patch in next release or hotfix           |
+| 4.0–6.9    | Medium   | Fix in next regular release                        |
+| 0.1–3.9    | Low      | Fix in next regular release or maintenance release |
 
 ---
 
@@ -98,11 +98,11 @@ We use the [CVSS v3.1](https://www.first.org/cvss/v3.1/specification-document) s
 
 We provide security fixes for the following versions:
 
-| Version | Status |
-|---|---|
-| Latest minor release | Supported — receives security fixes |
+| Version                | Status                                              |
+| ---------------------- | --------------------------------------------------- |
+| Latest minor release   | Supported — receives security fixes                 |
 | Previous minor release | Supported for 6 months after the next minor release |
-| Older versions | Not supported — upgrade required |
+| Older versions         | Not supported — upgrade required                    |
 
 **Example:** If the current release is v1.3.0, then v1.2.x is supported until 6 months after v1.3.0 was released.
 v1.1.x and earlier are not supported.

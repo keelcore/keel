@@ -39,13 +39,14 @@ catch those regressions.
 ## 2. Test Suites
 
 | Suite | Command | Trigger condition |
-|---|---|---|
+| --- | --- | --- |
 | Unit | `make test-unit` | Always; no external dependencies |
 | Integrity (BATS) | `make test-integrity` | Always; requires installed tools (pebble, opa) |
 | Compose integration | `make test-compose` | `KEEL_COMPOSE_TESTS=1`; requires Docker |
 | Colima k8s | `make colima-test` | Explicit; requires Colima with k8s enabled |
 
-Unit tests live in `_test.go` files throughout `pkg/`. BATS tests live in `tests/integrity.bats`. Compose tests live in `tests/compose/`.
+Unit tests live in `_test.go` files throughout `pkg/`. BATS tests live in `tests/integrity.bats`.
+Compose tests live in `tests/compose/`.
 
 ---
 

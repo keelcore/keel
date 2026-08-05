@@ -78,7 +78,7 @@ All size limits are configurable. The defaults are chosen to be safe for typical
 so restrictive they interfere with legitimate large uploads.
 
 | Limit | Default | What it protects against |
-|---|---|---|
+| --- | --- | --- |
 | `max_header_bytes` | 64 KB | Header-based memory exhaustion; HTTP header smuggling with large header blocks |
 | `max_request_body_bytes` | 10 MB | Upload-based memory exhaustion; requests designed to OOM the server |
 | `max_response_body_bytes` | 50 MB | Upstream responses designed to exhaust the sidecar's memory |
@@ -421,7 +421,7 @@ Real client IP = XFF[-1 - trusted_hops] = XFF[-2] = real-client-ip
 **XFF modes:**
 
 | Mode | Behavior | Use when |
-|---|---|---|
+| --- | --- | --- |
 | `append` | Add socket peer IP to existing XFF chain | Standard proxy — you want the upstream to see the full chain |
 | `replace` | Replace all of XFF with just the client IP | Upstream only needs the real client IP, not the full chain |
 | `strip` | Remove XFF entirely | Upstream must not see any client IP (privacy requirement) |

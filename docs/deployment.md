@@ -207,7 +207,7 @@ image:
 ```
 
 | Flavor | Build tags | Binary size | Use when |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `default` | none | ~5–8 MB | All features; standard production deployment |
 | `min` | `no_otel,no_statsd,no_remotelog,no_h3` | ~3–4 MB | Minimal footprint where observability comes from the platform |
 | `fips` | FIPS boringcrypto build | ~6–10 MB | Compliance environments (FedRAMP, HIPAA, PCI) requiring FIPS 140-2/3 validated cryptography |
