@@ -264,17 +264,14 @@ function maybe_stage_submodule() {
 }
 
 # List shipping canonical scripts as paths relative to ${STANDARDS_ROOT}.
-# Excludes standards-only paths. The refresh script itself IS shipped so it
-# can self-update on subsequent runs.
-#   - Top-level standards-only files (exact match): bootstrap-standards.sh
-#     (consumers `curl` it once; they do not keep a local copy).
-#   - Standards-only directory trees (prefix match): scripts/release/,
-#     scripts/verify/.
+# Rule A (bytewise identity): EVERY shell script under the standards scripts/
+# tree is canonical and must be byte-identical in the consumer. The list is
+# derived from the standards tree, so the only script exempt from sync is one
+# that exists in the consumer but NOT here (a project-local script). The refresh
+# script itself IS shipped so it can self-update on subsequent runs.
 function canonical_scripts() {
   find "${STANDARDS_ROOT}/scripts" -name '*.sh' -type f \
     | sed "s|^${STANDARDS_ROOT}/||" \
-    | grep -v -E '^scripts/bootstrap-standards\.sh$' \
-    | grep -v -E '^scripts/(release|verify)/' \
     | sort
 }
 

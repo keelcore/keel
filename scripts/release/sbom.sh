@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # scripts/release/sbom.sh
 # Generates a Software Bill of Materials (SBOM) in SPDX format for this release.
-# Outputs sbom.spdx.json in the current directory.
+#
+# Usage: scripts/release/sbom.sh [--out-dir DIR]
+#   --out-dir DIR   directory to write sbom.spdx.json into (default: current directory)
 #
 # Requires: syft on PATH (https://github.com/anchore/syft)
 # Install in CI: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh
@@ -16,11 +18,15 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly OUTPUT_FILE='sbom.spdx.json'
+declare OUT_DIR='.'
 
 function main() {
   exec 5>&1
-  validate_env
+  if [ "${1:-}" = '--out-dir' ]; then
+    OUT_DIR="${2}"
+    shift 2
+  fi
+  validate_env "${@:-}"
   generate_sbom
   log_summary
 }
@@ -36,17 +42,17 @@ function validate_env() {
 }
 
 function generate_sbom() {
-  log "Generating SBOM → ${OUTPUT_FILE}..."
+  log "Generating SBOM → ${OUT_DIR}/sbom.spdx.json..."
   syft scan dir:. \
-    --output spdx-json="${OUTPUT_FILE}" \
+    --output spdx-json="${OUT_DIR}/sbom.spdx.json" \
     --exclude './.git' \
     --exclude '**/node_modules'
-  log "✅ SBOM generated: ${OUTPUT_FILE}"
+  log "✅ SBOM generated: ${OUT_DIR}/sbom.spdx.json"
 }
 
 function log_summary() {
   local component_count
-  component_count="$(jq '.packages | length' "${OUTPUT_FILE}" 2>/dev/null || echo 'unknown')"
+  component_count="$(jq '.packages | length' "${OUT_DIR}/sbom.spdx.json" 2>/dev/null || echo 'unknown')"
   log "   Components catalogued: ${component_count}"
 }
 

@@ -21,36 +21,17 @@ set -o pipefail
 
 readonly LOG_FILE='/tmp/verify_canonical.log'
 
-# Canonical scripts that must be byte-identical in every downstream repo.
-# Paths are relative to each repo's root (scripts/...).
-# Excludes project-specific scripts (pr-policy.sh, check-legal-drift.sh)
-# whose content must be tailored per project.
-readonly -a CANONICAL_SCRIPTS=(
-  'scripts/ci/audit-make-targets.sh'
-  'scripts/ci/governance-gate.sh'
-  'scripts/ci/secret-scan.sh'
-  'scripts/ci/dco-check.sh'
-  'scripts/ci/setup-bats.sh'
-  'scripts/ci/setup-markdownlint.sh'
-  'scripts/ci/setup-shellcheck.sh'
-  'scripts/ci/setup-syft.sh'
-  'scripts/install-hooks.sh'
-  'scripts/format.sh'
-  'scripts/lint.sh'
-  'scripts/git_precommit.sh'
-  'scripts/lint/markdown.sh'
-  'scripts/lint/newlines.sh'
-  'scripts/lint/shellcheck.sh'
-  'scripts/test/coverage-delta.sh'
-  'scripts/test/coverage-go.sh'
-  'scripts/test/coverage-rust.sh'
-  'scripts/test/coverage-no-regression.sh'
-  'scripts/test/coverage-baseline-init.sh'
-  'scripts/lib/paths.sh'
-  'scripts/check/adr-metadata.sh'
-  'scripts/check/governance-metadata.sh'
-  'scripts/check/rfc-metadata.sh'
-)
+# Rule A (bytewise identity): EVERY shell script shipped under the standards
+# repo's scripts/ tree is canonical and must be byte-identical in the downstream
+# repo. The list is derived from the standards tree, so the only script exempt
+# from the check is one that exists in the downstream repo but NOT here (a
+# project-local script) — it is never in the derived list.
+function canonical_scripts() {
+  local -r standards_root="${1}"
+  find "${standards_root}/scripts" -name '*.sh' -type f \
+    | sed "s|^${standards_root}/||" \
+    | sort
+}
 
 function log() {
   local -r msg="${1:-}"
@@ -120,9 +101,10 @@ function main() {
   log ""
 
   local failed=0
-  for script in "${CANONICAL_SCRIPTS[@]}"; do
+  local script
+  while IFS= read -r script; do
     verify_script "${standards_root}" "${downstream_root}" "${script}" || failed=1
-  done
+  done < <(canonical_scripts "${standards_root}")
 
   log ""
   if [ "${failed}" -eq 1 ]; then
