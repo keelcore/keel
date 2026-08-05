@@ -7,7 +7,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/keelcore/keel/ci.yml?branch=main)](https://github.com/keelcore/keel/actions)
 [![Release](https://img.shields.io/github/v/release/keelcore/keel)](https://github.com/keelcore/keel/releases)
 [![Go Reference](https://pkg.go.dev/badge/github.com/keelcore/keel.svg)](https://pkg.go.dev/github.com/keelcore/keel)
-[![Go Report Card](https://goreportcard.com/badge/github.com/keelcore/keel)](https://goreportcard.com/report/github.com/keelcore/keel)
+[![Go](https://img.shields.io/github/go-mod/go-version/keelcore/keel)](go.mod)
 [![Coverage](https://img.shields.io/codecov/c/github/keelcore/keel)](https://codecov.io/gh/keelcore/keel)
 [![Security](https://img.shields.io/badge/security-SECURITY.md-blue)](./SECURITY.md)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12121/badge)](https://www.bestpractices.dev/projects/12121)
