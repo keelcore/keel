@@ -54,7 +54,7 @@ release-checksums:
 
 release-sbom:
 	@echo "📋 Generating SBOM..."
-	./scripts/release/sbom.sh
+	./scripts/release/sbom.sh --out-dir dist
 
 release-sign:
 	@echo "✍️  Signing artifacts..."

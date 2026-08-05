@@ -169,7 +169,7 @@ function attest_sbom() {
   # the URI form treats the predicate as an opaque JSON payload.
   cosign attest \
     --yes \
-    --predicate 'dist/keel-sbom.spdx.json' \
+    --predicate 'dist/sbom.spdx.json' \
     --type 'https://spdx.dev/Document' \
     "${digest}"
 }
