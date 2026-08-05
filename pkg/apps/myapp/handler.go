@@ -1,8 +1,8 @@
-// examples/myapp/handler.go
+// pkg/apps/myapp/handler.go
 // Application route handlers.
 // Keel's middleware chain (TLS, OWASP, authn, access log) wraps all routes
 // registered on the HTTPS port automatically.
-package main
+package myapp
 
 import (
 	"fmt"

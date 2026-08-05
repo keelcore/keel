@@ -1,5 +1,5 @@
-// examples/myapp/args_test.go
-package main
+// pkg/apps/myapp/args_test.go
+package myapp
 
 import (
 	"testing"

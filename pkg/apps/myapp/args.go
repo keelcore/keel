@@ -1,7 +1,7 @@
-// examples/myapp/args.go
+// pkg/apps/myapp/args.go
 // CLI flag handling for myapp. Mirrors clisupport.ProcessArgs but loads
 // the composed AppConfig rather than keel's default config.
-package main
+package myapp
 
 import (
 	"github.com/keelcore/keel/pkg/clisupport"

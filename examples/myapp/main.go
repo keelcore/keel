@@ -4,23 +4,9 @@
 package main
 
 import (
-	"context"
-	"net/http"
+	"os"
 
-	keelcore "github.com/keelcore/keel/pkg/core"
-	"github.com/keelcore/keel/pkg/core/logging"
-	"github.com/keelcore/keel/pkg/core/ports"
+	"github.com/keelcore/keel/pkg/apps/myapp"
 )
 
-func main() {
-	log := logging.New(logging.Config{JSON: true})
-	cfg := processArgs(log)
-
-	srv := keelcore.NewServer(log, cfg.Keel)
-	srv.AddRoute(ports.HTTPS, "GET /hello", http.HandlerFunc(hello))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	srv.Run(ctx)
-}
+func main() { os.Exit(myapp.Run()) }

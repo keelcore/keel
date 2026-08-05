@@ -1,4 +1,4 @@
-package main
+package keel
 
 import (
 	"flag"
@@ -52,7 +52,7 @@ func TestRun_Version(t *testing.T) {
 		}
 	}()
 
-	run(log)
+	Run(log)
 }
 
 func TestRun_Validate(t *testing.T) {
@@ -74,7 +74,7 @@ func TestRun_Validate(t *testing.T) {
 		}
 	}()
 
-	run(log)
+	Run(log)
 }
 
 func TestRun_CheckShred(t *testing.T) {
@@ -96,7 +96,7 @@ func TestRun_CheckShred(t *testing.T) {
 		}
 	}()
 
-	run(log)
+	Run(log)
 }
 
 func TestRun_ServerStartup(t *testing.T) {
@@ -104,7 +104,7 @@ func TestRun_ServerStartup(t *testing.T) {
 	os.Args = []string{"keel"}
 	t.Setenv("KEEL_TEST_SHUTDOWN_AFTER", "100ms")
 
-	got := run(nil)
+	got := Run(nil)
 	if got != 0 {
 		t.Errorf("expected return code 0, got %d", got)
 	}

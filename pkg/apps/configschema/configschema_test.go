@@ -1,5 +1,5 @@
-// cmd/config-schema/main_test.go
-package main
+// pkg/apps/configschema/configschema_test.go
+package configschema
 
 import (
 	"bytes"
@@ -323,12 +323,12 @@ func TestExtractAndPrintFields_ViaParsedSchema(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// run()
+// Run()
 // ---------------------------------------------------------------------------
 
 func TestRun_NoArgs_EmitsSchema(t *testing.T) {
 	var out, errOut bytes.Buffer
-	code := run(nil, nil, &out, &errOut)
+	code := Run(nil, nil, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, errOut.String())
 	}
@@ -340,13 +340,13 @@ func TestRun_NoArgs_EmitsSchema(t *testing.T) {
 func TestRun_Fields(t *testing.T) {
 	// Generate a schema first, then feed it to --fields.
 	var schemaBuf, errOut bytes.Buffer
-	if code := run(nil, nil, &schemaBuf, &errOut); code != 0 {
+	if code := Run(nil, nil, &schemaBuf, &errOut); code != 0 {
 		t.Fatalf("schema generation failed (code=%d): %s", code, errOut.String())
 	}
 
 	var out, errOut2 bytes.Buffer
 	schemaBytes := schemaBuf.Bytes()
-	code := run([]string{"--fields"}, bytes.NewReader(schemaBytes), &out, &errOut2)
+	code := Run([]string{"--fields"}, bytes.NewReader(schemaBytes), &out, &errOut2)
 	if code != 0 {
 		t.Fatalf("expected exit code 0 for --fields, got %d (stderr: %s)", code, errOut2.String())
 	}
@@ -359,8 +359,41 @@ func TestRun_Fields(t *testing.T) {
 func TestRun_Fields_BadInput(t *testing.T) {
 	var out, errOut bytes.Buffer
 	bad := errReader{err: errors.New("simulated read error")}
-	code := run([]string{"--fields"}, bad, &out, &errOut)
+	code := Run([]string{"--fields"}, bad, &out, &errOut)
 	if code != 1 {
 		t.Errorf("expected exit code 1 for bad input, got %d", code)
+	}
+}
+
+// TestRun_MarshalError covers the yaml.Marshal error branch by overriding the
+// yamlMarshal seam to fail.
+func TestRun_MarshalError(t *testing.T) {
+	orig := yamlMarshal
+	yamlMarshal = func(interface{}) ([]byte, error) { return nil, errors.New("boom") }
+	defer func() { yamlMarshal = orig }()
+
+	var out, errOut bytes.Buffer
+	code := Run(nil, nil, &out, &errOut)
+	if code != 1 {
+		t.Fatalf("expected exit code 1 on marshal error, got %d", code)
+	}
+	if !strings.Contains(errOut.String(), "yaml.Marshal") {
+		t.Errorf("expected yaml.Marshal error on stderr, got: %s", errOut.String())
+	}
+}
+
+// TestBuildSchema_SliceOfPointers covers the element pointer-dereference loop in
+// the reflect.Slice branch (a []*string element derefs to string).
+func TestBuildSchema_SliceOfPointers(t *testing.T) {
+	s := buildSchema(reflect.TypeOf([]*string{}), "")
+	if s["type"] != "array" {
+		t.Fatalf("expected type array for []*string, got %v", s["type"])
+	}
+	items, ok := s["items"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected items map for []*string")
+	}
+	if items["type"] != "string" {
+		t.Errorf("expected items type string, got %v", items["type"])
 	}
 }

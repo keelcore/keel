@@ -1,6 +1,6 @@
-// examples/myapp/config.go
+// pkg/apps/myapp/config.go
 // App-level config wrapping the keel library config under the "keel:" key.
-package main
+package myapp
 
 import (
 	"os"

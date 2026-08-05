@@ -1,5 +1,5 @@
-// examples/myapp/config_test.go
-package main
+// pkg/apps/myapp/config_test.go
+package myapp
 
 import (
 	"bytes"

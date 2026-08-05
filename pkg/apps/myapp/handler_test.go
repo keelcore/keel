@@ -1,5 +1,5 @@
-// examples/myapp/handler_test.go
-package main
+// pkg/apps/myapp/handler_test.go
+package myapp
 
 import (
 	"net/http"
