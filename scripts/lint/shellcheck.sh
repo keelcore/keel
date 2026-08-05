@@ -48,11 +48,10 @@ function lint() {
   # SCRIPTDIR to the wrong tree.
   # Cover ALL tracked *.sh in the repo so consumer feature scripts (e.g.,
   # macos/features/, raspberry_pi/scripts/) get the same lint as helpers.
-  # git ls-files honors .gitignore (so .scratch/ is naturally excluded) and
-  # only lists tracked files (no .standards/ submodule duplication).
-  git ls-files -z '*.sh' \
-    | nolint_filter0 \
-    | xargs -0 -n 1 realpath \
+  # source_files lists repo-owned tracked *.sh with vendored trees and
+  # submodules excluded (never a raw git ls-files, which includes vendor/).
+  source_files '*.sh' \
+    | xargs -n 1 realpath \
     | sort -u \
     | xargs shellcheck --shell=bash --severity=warning \
     || rc="${?}"

@@ -173,8 +173,7 @@ function run_analysis() {
   local -r bin="${1}"
   local nm_out
   nm_out="$(mktemp /tmp/keel_nm_XXXXXX)"
-  # shellcheck disable=SC2064
-  trap "rm -f '${nm_out}'" RETURN
+  trap 'rm -f "${nm_out}"' RETURN
 
   go tool nm -size "${bin}" > "${nm_out}"
 

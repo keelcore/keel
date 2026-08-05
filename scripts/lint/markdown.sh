@@ -68,7 +68,7 @@ function run_linter() {
   local f
   while IFS= read -r f; do
     files+=("${f}")
-  done < <(git ls-files '*.md' | nolint_filter)
+  done < <(source_files '*.md')
   if [ "${#files[@]}" -eq 0 ]; then
     log 'ℹ️  No tracked .md files to lint'
     return 0

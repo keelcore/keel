@@ -14,7 +14,6 @@ set -o pipefail
 
 function main() {
   exec 5>&1
-  local -r log_file='/tmp/keel_release.log'
   validate_args "${@:-}"
   log "📦 Preparing release artifacts"
   generate_sbom
