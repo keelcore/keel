@@ -22,7 +22,7 @@ include .standards/templates/Makefile.canonical
 # scope's src/bin/ exclusion. coverage-go.sh honors this override.
 export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 
-.PHONY: all clean min max max-no-fips build integration-test unit-test test-unit test-consistency test-integrity test-compose test-k8s coverage lint-go lint-helm lint-helm-validate lint-fmt lint-newlines lint-md release-checksums release-checksums-verify release-sbom release-sign release-upload release-rename release-docker release-helm-push release-ci colima-setup colima-deploy colima-test colima-teardown gen-certs gen-schema create-release install-hooks fresh-repo help help-local pre-commit keel-schema-regen setup-helm setup-bats setup-pebble setup-kind setup-staticcheck setup-syft setup-cosign setup-markdownlint setup-docker-macos setup-kubeconform setup-ghcr ci-pr-policy ci-secret-scan ci-dco ci-coverage-delta ci-smoke-windows bats-integrity bats-example ci-build-example dist-chmod clean-local coverage-profile audit check-legal-drift size-report roadmap-issues k8s-cluster-test k8s-helm-deploy k8s-kind-load k8s-kind-setup k8s-kind-teardown
+.PHONY: all clean min max max-no-fips build integration-test unit-test test-unit test-consistency test-integrity test-compose test-k8s coverage lint-go lint-helm lint-helm-validate lint-fmt lint-newlines lint-md release-checksums release-checksums-verify release-sbom release-sign release-upload release-rename release-docker release-helm-push release-ci colima-setup colima-deploy colima-test colima-teardown gen-certs gen-schema create-release install-hooks fresh-repo help help-local pre-commit keel-schema-regen setup-helm setup-bats setup-pebble setup-kind setup-staticcheck setup-syft setup-cosign setup-markdownlint setup-docker-macos setup-kubeconform setup-ghcr ci-pr-policy ci-secret-scan ci-dco ci-coverage-delta ci-smoke-windows bats-integrity bats-example ci-build-example dist-chmod clean-local coverage-profile coverage-report audit check-legal-drift size-report roadmap-issues k8s-cluster-test k8s-helm-deploy k8s-kind-load k8s-kind-setup k8s-kind-teardown
 
 # Default target: build the shredded minimalist binary
 all: min
@@ -275,6 +275,12 @@ clean-local:
 coverage-profile:
 	@echo "📊 Generating Go coverage profile (coverage.txt)..."
 	bash scripts/test/coverage.sh
+
+## coverage-report: pretty-print the merged per-file LCOV (from `make coverage`)
+## as an ascending, colorized console table with coverage bars. Read-only view;
+## does not run tests or alter the baseline.
+coverage-report:
+	bash scripts/test/coverage-report.sh
 
 ## help composes keel's curated summary (help-local) with the canonical
 ## auto-generated target list. help-local is a pure prerequisite aggregator
