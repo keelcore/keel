@@ -19,11 +19,18 @@ var (
 	flagCheckShred     = flag.Bool("check-shred", false, "print machine-readable JSON security profile and exit")
 )
 
+// Seams for testability; default to the real library funcs (production
+// behavior unchanged). Overridden in tests to exercise error/tag branches.
+var (
+	versionGet     = version.Get
+	configValidate = keelconfig.Validate
+)
+
 func tryVersion(log *logging.Logger) {
 	if !*flagVersion {
 		return
 	}
-	info := version.Get()
+	info := versionGet()
 	fields := map[string]any{
 		"name":    "keel",
 		"version": info.Version,
@@ -48,7 +55,7 @@ func tryCheckShred(log *logging.Logger) {
 	if !*flagCheckShred {
 		return
 	}
-	info := version.Get()
+	info := versionGet()
 
 	tagSet := make(map[string]bool, len(info.BuildTags))
 	for _, t := range info.BuildTags {
@@ -83,7 +90,7 @@ func tryCheckShred(log *logging.Logger) {
 
 func tryValidateConfig(log *logging.Logger) keelconfig.Config {
 	cfg := keelconfig.Default(log)
-	if err := keelconfig.Validate(cfg); err != nil {
+	if err := configValidate(cfg); err != nil {
 		log.Fatal("config_invalid", map[string]any{"err": err.Error()})
 	}
 	if *flagValidate {

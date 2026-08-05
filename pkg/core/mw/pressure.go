@@ -10,6 +10,11 @@ import (
 	"github.com/keelcore/keel/pkg/core/probes"
 )
 
+// readMemStats is a seam over runtime.ReadMemStats so tests can inject
+// deterministic heap-pressure readings. It defaults to the real function so
+// production behaviour is unchanged.
+var readMemStats = runtime.ReadMemStats
+
 func RunPressureLoop(ctx context.Context, r *probes.Readiness, cfg config.Config, log *logging.Logger) {
 	if cfg.Backpressure.HeapMaxBytes <= 0 {
 		return
@@ -30,7 +35,7 @@ func RunPressureLoop(ctx context.Context, r *probes.Readiness, cfg config.Config
 			return
 		case <-t.C:
 			var ms runtime.MemStats
-			runtime.ReadMemStats(&ms)
+			readMemStats(&ms)
 
 			pressure := float64(ms.HeapAlloc) / float64(cfg.Backpressure.HeapMaxBytes)
 			if !latched && pressure >= high {

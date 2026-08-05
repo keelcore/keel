@@ -412,6 +412,16 @@ var (
 	compiledSchemaOnce sync.Once
 )
 
+// Seams over the standard-library / jsonschema calls in getSchema so their
+// error branches can be exercised in tests. Production values are the bare
+// library functions; behaviour is unchanged.
+var (
+	jsonMarshal       = json.Marshal
+	schemaAddResource = func(c *jsonschema.Compiler, name string, r io.Reader) error {
+		return c.AddResource(name, r)
+	}
+)
+
 func getSchema() (*jsonschema.Schema, error) {
 	compiledSchemaOnce.Do(func() {
 		var raw interface{}
@@ -419,13 +429,13 @@ func getSchema() (*jsonschema.Schema, error) {
 			compiledSchemaErr = fmt.Errorf("parse embedded schema: %w", err)
 			return
 		}
-		b, err := json.Marshal(raw)
+		b, err := jsonMarshal(raw)
 		if err != nil {
 			compiledSchemaErr = fmt.Errorf("convert schema to JSON: %w", err)
 			return
 		}
 		c := jsonschema.NewCompiler()
-		if err := c.AddResource("keel:config", bytes.NewReader(b)); err != nil {
+		if err := schemaAddResource(c, "keel:config", bytes.NewReader(b)); err != nil {
 			compiledSchemaErr = fmt.Errorf("load schema: %w", err)
 			return
 		}

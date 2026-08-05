@@ -27,6 +27,14 @@ const (
 	chanCap       = 1024
 )
 
+// Seams over stdlib calls so tests can inject error branches without a real
+// collector. Production defaults are the bare library functions; behaviour is
+// unchanged.
+var (
+	jsonMarshal               = json.Marshal
+	httpNewRequestWithContext = http.NewRequestWithContext
+)
+
 // Span is the data captured per request by the OTelSpan middleware.
 type Span struct {
 	TraceID      string // 32 lowercase hex chars
@@ -131,13 +139,13 @@ func (e *Exporter) run() {
 }
 
 func (e *Exporter) send(spans []Span) {
-	body, err := json.Marshal(buildRequest(spans))
+	body, err := jsonMarshal(buildRequest(spans))
 	if err != nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sendTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.url, bytes.NewReader(body))
+	req, err := httpNewRequestWithContext(ctx, http.MethodPost, e.url, bytes.NewReader(body))
 	if err != nil {
 		return
 	}

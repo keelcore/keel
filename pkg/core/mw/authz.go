@@ -14,6 +14,10 @@ import (
 	"github.com/keelcore/keel/pkg/core/logging"
 )
 
+// jsonMarshal is a seam over json.Marshal so tests can inject a marshal error.
+// It defaults to the real function so production behaviour is unchanged.
+var jsonMarshal = json.Marshal
+
 // ExtAuthz calls an external authorization endpoint before every inbound request.
 // A 200 response (or true OPA result) allows the request; anything else yields 403.
 // On network error the behaviour is governed by cfg.ExtAuthz.FailOpen.
@@ -32,7 +36,7 @@ func authzAllow(r *http.Request, cfg config.ExtAuthzConfig, client *http.Client,
 	ctx, cancel := context.WithTimeout(r.Context(), cfg.Timeout.Duration)
 	defer cancel()
 
-	b, err := json.Marshal(authzPayload(r, cfg.Transport))
+	b, err := jsonMarshal(authzPayload(r, cfg.Transport))
 	if err != nil {
 		log.Warn("authz_marshal_fail", map[string]any{"err": err.Error()})
 		return cfg.FailOpen

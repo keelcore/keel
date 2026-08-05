@@ -49,6 +49,19 @@ type acmeClient interface {
 	CreateOrderCert(ctx context.Context, url string, csr []byte, bundle bool) (der [][]byte, certURL string, err error)
 }
 
+// Package-level seams for library functions. Each defaults to the real
+// standard-library / crypto call and is overridden only in tests to exercise
+// otherwise-unreachable error branches. Production behaviour is unchanged.
+var (
+	genKey         = ecdsa.GenerateKey
+	afterFunc      = time.After
+	marshalECKey   = x509.MarshalECPrivateKey
+	systemCertPool = x509.SystemCertPool
+	buildClient    = func(m *Manager, cfg config.ACMEConfig) (acmeClient, error) {
+		return m.setupACMEClient(cfg)
+	}
+)
+
 // New creates an empty ACME Manager.
 func New() *Manager { return &Manager{} }
 
@@ -184,7 +197,7 @@ func waitForRenewalWindow(ctx context.Context, c *tls.Certificate) bool {
 	select {
 	case <-ctx.Done():
 		return false
-	case <-time.After(renewalDelay(c)):
+	case <-afterFunc(renewalDelay(c)):
 		return true
 	}
 }
@@ -206,7 +219,7 @@ func (m *Manager) runRenewalLoop(ctx context.Context, client acmeClient, cfg con
 // Start manages the ACME certificate lifecycle: account registration, initial
 // certificate obtainment, and background renewal. It blocks until ctx is done.
 func (m *Manager) Start(ctx context.Context, cfg config.ACMEConfig) error {
-	client, err := m.setupACMEClient(cfg)
+	client, err := buildClient(m, cfg)
 	if err != nil {
 		return err
 	}
@@ -409,7 +422,7 @@ func assembleTLSCert(key *ecdsa.PrivateKey, derChain [][]byte) (*tls.Certificate
 	for _, der := range derChain {
 		certPEM = append(certPEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
 	}
-	keyDER, err := x509.MarshalECPrivateKey(key)
+	keyDER, err := marshalECKey(key)
 	if err != nil {
 		return nil, fmt.Errorf("marshal key: %w", err)
 	}
@@ -434,7 +447,7 @@ func writeCertPEM(path string, derChain [][]byte) error {
 }
 
 func writeKeyPEM(path string, key *ecdsa.PrivateKey) error {
-	der, err := x509.MarshalECPrivateKey(key)
+	der, err := marshalECKey(key)
 	if err != nil {
 		return fmt.Errorf("marshal key: %w", err)
 	}
@@ -455,7 +468,7 @@ func loadOrCreateAccountKey(cacheDir string) (*ecdsa.PrivateKey, error) {
 		}
 	}
 
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key, err := genKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
 	}
@@ -561,7 +574,7 @@ func httpClientWithCA(path string) (*http.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read ca cert: %w", err)
 	}
-	pool, err := x509.SystemCertPool()
+	pool, err := systemCertPool()
 	if err != nil {
 		pool = x509.NewCertPool()
 	}

@@ -33,6 +33,18 @@ import (
 	"github.com/keelcore/keel/pkg/core/version"
 )
 
+// Test seams: package-level indirections defaulting to the real library or
+// package functions so production behaviour is unchanged. Tests override these
+// to exercise error/success branches that are otherwise unreachable without
+// crossing a system boundary (a real listen, a real ACME cert, a live sink).
+var (
+	netListen         = net.Listen
+	acmeValidate      = acme.Validate
+	buildRemoteSinkFn = buildRemoteSink
+	tracingSetupFn    = tracing.Setup
+	acmeCertExpiryFn  = (*acme.Manager).CertExpiry
+)
+
 // authnSnapshot holds the precomputed authn state used by AuthnJWT middleware.
 // It is rebuilt on every SIGHUP reload via applyAuthnState.
 type authnSnapshot struct {
@@ -181,7 +193,7 @@ func (s *Server) applyRemoteSink(cfg config.Config) {
 		return
 	}
 
-	w, httpSink, err := buildRemoteSink(cfg.Logging.RemoteSink)
+	w, httpSink, err := buildRemoteSinkFn(cfg.Logging.RemoteSink)
 	if err != nil {
 		s.logger.Warn("remote_sink_init_failed", map[string]any{"err": err.Error()})
 		_ = s.logger.Reconfigure(logging.Config{Level: cfg.Logging.Level, JSON: cfg.Logging.JSON})
@@ -242,7 +254,7 @@ func (s *Server) applyTracing(cfg config.Config) {
 		return
 	}
 
-	exp, err := tracing.Setup(cfg.Tracing.OTLP)
+	exp, err := tracingSetupFn(cfg.Tracing.OTLP)
 	if err != nil {
 		s.logger.Warn("tracing_init_failed", map[string]any{"err": err.Error()})
 		return
@@ -266,7 +278,7 @@ func buildRemoteSink(cfg config.RemoteSinkConfig) (io.Writer, *logging.HTTPSink,
 }
 
 func (s *Server) Run(ctx context.Context) {
-	if err := acme.Validate(s.cfg); err != nil {
+	if err := acmeValidate(s.cfg); err != nil {
 		s.logger.Fatal("acme_config_invalid", map[string]any{"err": err.Error()})
 	}
 	if s.cfg.Backpressure.HeapMaxBytes > 0 {
@@ -339,10 +351,14 @@ func (s *Server) buildMainRouter() (*router.Router, http.Handler) {
 // newACMEManager creates an ACME manager wired to the server logger.
 func (s *Server) newACMEManager() *acme.Manager {
 	mgr := acme.New()
-	mgr.SetLogger(func(event string, fields map[string]any) {
-		s.logger.Warn(event, fields)
-	})
+	mgr.SetLogger(s.acmeLog)
 	return mgr
+}
+
+// acmeLog is the ACME manager's error-logging callback. Extracted from
+// newACMEManager so it can be exercised directly in unit tests.
+func (s *Server) acmeLog(event string, fields map[string]any) {
+	s.logger.Warn(event, fields)
 }
 
 // startProbeListeners launches goroutines for the health, ready, admin, and
@@ -713,7 +729,7 @@ func serveHTTP(ctx context.Context, shutdown *lifecycle.Orchestrator, addr strin
 // are actually accepting connections, not merely spawned.
 func serveHTTPBound(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, log *logging.Logger, onBound func()) error {
 	srv := newHTTPServer(addr, h, cfg)
-	ln, err := net.Listen("tcp", addr)
+	ln, err := netListen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
@@ -745,7 +761,7 @@ func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr stri
 	srv.TLSConfig = tlsCfg
 	httpx.ApplyHTTP2Policy(srv)
 
-	ln, err := net.Listen("tcp", addr)
+	ln, err := netListen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
@@ -783,7 +799,7 @@ func runTickLoop(ctx context.Context, interval time.Duration, fn func()) {
 }
 
 func tickACMECertExpiry(mgr *acme.Manager, met *metrics.Metrics) {
-	if secs, err := mgr.CertExpiry(); err == nil {
+	if secs, err := acmeCertExpiryFn(mgr); err == nil {
 		met.SetCertExpiry(secs)
 	}
 }

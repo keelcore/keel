@@ -22,6 +22,13 @@ var (
 	errResponseTooLarge = errors.New("upstream response exceeded max_response_body_bytes")
 )
 
+// Seams for injecting library errors in tests. Production values are the bare
+// library functions/values, so runtime behaviour is unchanged.
+var (
+	ioReadAll                              = io.ReadAll
+	httpDefaultTransport http.RoundTripper = http.DefaultTransport
+)
+
 // New creates a configured sidecar reverse proxy.
 // It applies XFF policy, header allowlist/denylist, response size capping,
 // upstream TLS (including mTLS), and an optional circuit breaker.
@@ -77,7 +84,7 @@ func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, er
 				return nil
 			}
 			limited := io.LimitReader(resp.Body, maxResp+1)
-			buf, readErr := io.ReadAll(limited)
+			buf, readErr := ioReadAll(limited)
 			resp.Body.Close()
 			if readErr != nil {
 				return fmt.Errorf("read upstream body: %w", readErr)
@@ -109,7 +116,7 @@ func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, er
 // CA pool, client cert (mTLS), and insecure-skip-verify.
 func buildTransport(cfg config.UpstreamTLSConfig) (*http.Transport, error) {
 	if !cfg.Enabled {
-		if dt, ok := http.DefaultTransport.(*http.Transport); ok {
+		if dt, ok := httpDefaultTransport.(*http.Transport); ok {
 			return dt.Clone(), nil
 		}
 		return &http.Transport{}, nil

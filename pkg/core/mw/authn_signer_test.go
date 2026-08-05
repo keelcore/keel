@@ -320,3 +320,20 @@ func TestSignRequest_SetsAuthorizationHeader(t *testing.T) {
 		t.Errorf("expected Bearer prefix, got %q", auth)
 	}
 }
+
+// parsePrivateKey returns an error when a SEC1 EC key uses an unsupported curve.
+func TestParsePrivateKey_SEC1_UnsupportedCurve(t *testing.T) {
+	// P-224 is a valid EC curve that ecSigningMethod does not support.
+	key, err := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemData := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+	if _, _, err := parsePrivateKey(pemData); err == nil {
+		t.Error("expected error for SEC1 EC key with unsupported curve")
+	}
+}
