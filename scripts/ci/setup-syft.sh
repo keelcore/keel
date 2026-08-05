@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# install-syft.sh
-# Install a pinned syft binary on a Linux CI runner.
-# Downloads the tarball and verifies its SHA256 checksum before installing.
-# No-op if syft is already present at the pinned version.
+# setup-syft.sh
+# Install a pinned, checksum-verified syft binary on a Linux CI runner.
+# Downloads the release tarball and verifies its SHA256 before installing —
+# never pipes a remote installer into a shell. No-op if the pinned version is
+# already present.
 #
 # Pinned version: v1.42.1
 # Update SYFT_VERSION and SYFT_SHA256 together when bumping.
@@ -27,22 +28,27 @@ function main() {
   exec 5>&1
   validate_args "${@:-}"
   if is_pinned_version_installed; then
-    log "syft ${SYFT_VERSION} already installed"
+    log "✅ syft ${SYFT_VERSION} already installed"
     return 0
   fi
   require_linux
-  log "Installing syft v${SYFT_VERSION}"
+  log "⚓ Installing syft v${SYFT_VERSION}"
   download_and_verify
   install_syft
-  log "syft v${SYFT_VERSION} installed at ${SYFT_INSTALL_PATH}"
+  log "✅ syft v${SYFT_VERSION} installed at ${SYFT_INSTALL_PATH}"
 }
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_install_syft.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/setup_syft.log' >&5
 }
 
-function validate_args() { :; }
+function validate_args() {
+  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected argument'
+    exit 1
+  fi
+}
 
 function is_pinned_version_installed() {
   command -v syft >/dev/null 2>&1 && \
@@ -51,7 +57,7 @@ function is_pinned_version_installed() {
 
 function require_linux() {
   if [[ "$(uname -s)" != 'Linux' ]]; then
-    log "ERROR: install-syft.sh only supports Linux CI runners"
+    log "ERROR: setup-syft.sh only supports Linux CI runners"
     log "  For macOS: brew install syft"
     exit 1
   fi
