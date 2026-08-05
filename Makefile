@@ -113,7 +113,7 @@ colima-teardown:
 ## Certificate Generation
 gen-certs:
 	@echo "🔑 Generating self-signed test certificates..."
-	./tests/fixtures/gen-certs.sh
+	bash scripts/test/gen-certs.sh
 
 gen-schema:
 	@echo "📐 Regenerating config field schema..."
@@ -135,9 +135,7 @@ keel-schema-regen:
 	bash scripts/hooks/schema-regen.sh
 
 fresh-repo: install-hooks
-	@echo "📦 Installing Go tools..."
-	go mod download
-	@echo "✅ Repo ready"
+	bash scripts/fresh-repo.sh
 
 ## Universal Canonical Targets (language-independent interface; mandated by CI standards)
 build: min
@@ -161,7 +159,7 @@ setup-kind:
 
 setup-staticcheck:
 	@echo "🔧 Installing staticcheck..."
-	go install honnef.co/go/tools/cmd/staticcheck@latest
+	bash scripts/ci/setup-staticcheck.sh
 
 setup-cosign:
 	@echo "🔧 Installing cosign..."
@@ -175,11 +173,11 @@ ci-smoke-windows:
 ## BATS Runner Targets (artifact-based; distinct from test-integrity which builds first)
 bats-integrity:
 	@echo "🧪 Running BATS integrity suite against downloaded artifact..."
-	bats tests/integrity.bats
+	bash scripts/test/bats-integrity.sh
 
 bats-example:
 	@echo "🧪 Running BATS example suite..."
-	bats examples/myapp/myapp.bats
+	bash scripts/test/bats-example.sh
 
 ci-build-example:
 	@echo "🔨 Building examples/myapp (CI, no BATS)..."
@@ -253,7 +251,7 @@ roadmap-issues:
 ## Utility Targets
 dist-chmod:
 	@echo "🔑 Making dist binaries executable..."
-	chmod +x dist/keel-*
+	bash scripts/build/dist-chmod.sh
 
 ## Local artifact cleanup — also delegated to by canonical clean.sh (`make clean`)
 clean-local:
