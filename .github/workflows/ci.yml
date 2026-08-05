@@ -155,7 +155,10 @@ jobs:
         run: make test-unit
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: codecov/codecov-action@1e68e06f1dbfde0e4cefc87efeba9e4643565303  # v5.1.2
+        # v7.0.0 — v5.x fetched Codecov's old (bricked) Keybase signing key and
+        # failed GPG verification of the uploader ("No public key"). v6.0.2/v7.0.0
+        # use the current key, so the upload verifies and succeeds.
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
         with:
           files: coverage.txt
           fail_ci_if_error: true
