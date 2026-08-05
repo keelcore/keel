@@ -102,7 +102,7 @@ jobs:
       - name: Upload to GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          TAG: ${{ github.ref_name }}
         run: make release-upload
       - name: Build and push container images
         env:
