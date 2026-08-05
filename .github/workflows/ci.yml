@@ -180,6 +180,31 @@ jobs:
         run: make ci-coverage-delta
 
   # ---------------------------------------------------------------------------
+  # Coverage No-Regression — per-file gate against the committed baseline at
+  # tests/coverage-baseline.lcov. Runs on push AND pull_request so direct
+  # pushes to main are gated too (a PR-only gate would miss them). Fails on any
+  # per-file ratio below its baseline or a new file below the 95% floor.
+  # ---------------------------------------------------------------------------
+  coverage-no-regression:
+    name: Coverage No-Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.4.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Generate coverage LCOV
+        shell: bash
+        run: make coverage
+      - name: Per-file no-regression gate
+        shell: bash
+        run: make ci-coverage-no-regression
+
+  # ---------------------------------------------------------------------------
   # Build — produce linux/amd64 binaries for Docker image delivery.
   # Artifacts are uploaded for downstream integrity validation.
   # ---------------------------------------------------------------------------
