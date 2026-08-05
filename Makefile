@@ -13,7 +13,7 @@ include .standards/templates/Makefile.canonical
 ## Targets that drifted from canonical (see migration report) remain below
 ## and should be reconciled by hand.
 
-.PHONY: all clean min max max-no-fips build integration-test unit-test test-unit test-consistency test-integrity test-compose test-k8s coverage lint-go lint-helm lint-helm-validate lint-fmt lint-newlines lint-md release-checksums release-checksums-verify release-sbom release-sign release-upload release-rename release-docker release-helm-push release-ci colima-setup colima-deploy colima-test colima-teardown gen-certs gen-schema create-release install-hooks fresh-repo help help-local pre-commit keel-schema-regen setup-helm setup-bats setup-pebble setup-kind setup-staticcheck setup-syft setup-cosign setup-markdownlint setup-docker-macos setup-kubeconform setup-ghcr ci-pr-policy ci-secret-scan ci-dco ci-coverage-delta ci-smoke-windows bats-integrity bats-example ci-build-example dist-chmod audit check-legal-drift size-report roadmap-issues k8s-cluster-test k8s-helm-deploy k8s-kind-load k8s-kind-setup k8s-kind-teardown
+.PHONY: all clean min max max-no-fips build integration-test unit-test test-unit test-consistency test-integrity test-compose test-k8s coverage lint-go lint-helm lint-helm-validate lint-fmt lint-newlines lint-md release-checksums release-checksums-verify release-sbom release-sign release-upload release-rename release-docker release-helm-push release-ci colima-setup colima-deploy colima-test colima-teardown gen-certs gen-schema create-release install-hooks fresh-repo help help-local pre-commit keel-schema-regen setup-helm setup-bats setup-pebble setup-kind setup-staticcheck setup-syft setup-cosign setup-markdownlint setup-docker-macos setup-kubeconform setup-ghcr ci-pr-policy ci-secret-scan ci-dco ci-coverage-delta ci-smoke-windows bats-integrity bats-example ci-build-example dist-chmod clean-local coverage-profile audit check-legal-drift size-report roadmap-issues k8s-cluster-test k8s-helm-deploy k8s-kind-load k8s-kind-setup k8s-kind-teardown
 
 # Default target: build the shredded minimalist binary
 all: min
@@ -58,7 +58,7 @@ release-sbom:
 
 release-sign:
 	@echo "✍️  Signing artifacts..."
-	./scripts/release/sign.sh
+	./scripts/release/sign.sh --sums-dir dist dist/keel-*
 
 release-upload:
 	@echo "🚀 Uploading release artifacts..."
@@ -76,10 +76,9 @@ test-integrity:
 	@echo "🧪 Running BATS integrity suite..."
 	./scripts/build/ci_test_binary.sh
 
-test-example:
+## test-example chains the existing build + bats targets (no inline steps).
+test-example: ci-build-example bats-example
 	@echo "🧪 Running examples/myapp tests..."
-	./scripts/build/ci_example.sh
-	bats examples/myapp/myapp.bats
 
 test-compose:
 	@echo "🐳 Running Docker Compose integration tests (P3)..."
@@ -255,6 +254,20 @@ roadmap-issues:
 dist-chmod:
 	@echo "🔑 Making dist binaries executable..."
 	chmod +x dist/keel-*
+
+## Local artifact cleanup — also delegated to by canonical clean.sh (`make clean`)
+clean-local:
+	@echo "🧹 Removing keel build artifacts (dist/, target/)..."
+	bash scripts/clean.local.sh
+
+## coverage-profile: write the whole-module Go statement-coverage profile to
+## coverage.txt (with a total%/uncovered/lines summary). This is the profile
+## ci.sh generates during `make test-unit` and uploads to Codecov — named for
+## the artifact it produces, and distinct from the canonical per-file LCOV
+## flow (coverage-go / coverage-aggregate / ci-coverage-no-regression).
+coverage-profile:
+	@echo "📊 Generating Go coverage profile (coverage.txt)..."
+	bash scripts/test/coverage.sh
 
 ## help composes keel's curated summary (help-local) with the canonical
 ## auto-generated target list. help-local is a pure prerequisite aggregator
