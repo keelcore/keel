@@ -88,6 +88,12 @@ func (r *Router) Handler() http.Handler {
 	})
 }
 
+// raceHook is a seam invoked in getOrCreatePortMux between the lock-free read
+// and the write-lock acquisition so tests can deterministically exercise the
+// double-checked-lock path where a caller loses the race to create a port's
+// mux. It is a no-op in production.
+var raceHook = func() {}
+
 func (r *Router) getOrCreatePortMux(port int) *portMux {
 	r.mu.RLock()
 	pm := r.ports[port]
@@ -95,6 +101,8 @@ func (r *Router) getOrCreatePortMux(port int) *portMux {
 	if pm != nil {
 		return pm
 	}
+
+	raceHook()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -5,8 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"runtime"
-	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -64,45 +63,40 @@ func TestHandle_NilRegs_Initializes(t *testing.T) {
 	}
 }
 
-// TestGetOrCreatePortMux_ConcurrentDoubleCheck covers the second nil-check
-// under the write lock in getOrCreatePortMux (lines 102-104). Many goroutines
-// race on the same fresh port: the loser(s) pass the initial RLock nil-check,
-// then find the portMux already created when they acquire the write lock.
-//
-// The double-check executes only when at least two goroutines observe the port
-// as nil before any of them completes creation, so it is inherently
-// probabilistic. Many rounds with a wide, simultaneously released fan-out make
-// the hit effectively certain within the run.
-func TestGetOrCreatePortMux_ConcurrentDoubleCheck(t *testing.T) {
-	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
-	if runtime.GOMAXPROCS(0) < 4 {
-		runtime.GOMAXPROCS(4)
+// TestGetOrCreatePortMux_DoubleCheck deterministically covers the second
+// nil-check under the write lock in getOrCreatePortMux (the double-checked-lock
+// "loser" path). The raceHook seam parks a caller between the lock-free read and
+// the write-lock acquisition; while it is parked, this goroutine creates the
+// port's mux, so the parked caller's post-lock re-read observes it as already
+// present and returns the same singleton.
+func TestGetOrCreatePortMux_DoubleCheck(t *testing.T) {
+	r := New()
+	const port = 40000
+
+	reached := make(chan struct{})
+	release := make(chan struct{})
+	var parked atomic.Bool
+	orig := raceHook
+	raceHook = func() {
+		// Only the first caller parks; later callers (the creator below) pass
+		// straight through so they do not deadlock on the same hook.
+		if parked.CompareAndSwap(false, true) {
+			close(reached)
+			<-release
+		}
 	}
+	t.Cleanup(func() { raceHook = orig })
 
-	const goroutines = 256
-	for round := 0; round < 400; round++ {
-		r := New()
-		port := 40000 + round
-		barrier := make(chan struct{})
-		var done sync.WaitGroup
-		done.Add(goroutines)
-		results := make([]*portMux, goroutines)
-		for i := range goroutines {
-			go func(idx int) {
-				defer done.Done()
-				<-barrier // release all goroutines simultaneously
-				results[idx] = r.getOrCreatePortMux(port)
-			}(i)
-		}
-		close(barrier)
-		done.Wait()
+	loser := make(chan *portMux, 1)
+	go func() {
+		loser <- r.getOrCreatePortMux(port) // passes the first nil-check, then parks
+	}()
 
-		// All goroutines must observe the same singleton portMux.
-		first := results[0]
-		for i, pm := range results {
-			if pm != first {
-				t.Fatalf("goroutine %d got a different portMux for port %d", i, port)
-			}
-		}
+	<-reached                            // parked between the read and the write lock
+	winner := r.getOrCreatePortMux(port) // create the mux while the loser is parked
+	close(release)                       // let the loser proceed into the double-check
+
+	if got := <-loser; got != winner {
+		t.Fatalf("double-check must return the existing portMux: got %p, want %p", got, winner)
 	}
 }
