@@ -29,6 +29,9 @@ import (
 // hs256Token mints an HS256 JWT with the given secret and subject claim.
 func hs256Token(t *testing.T, secret, sub string) string {
 	t.Helper()
+	if os.Getenv("GOFIPS140") != "" {
+		t.Skip("HS256 short-key fixtures are invalid under FIPS 140-only mode (HMAC keys must be >= 112 bits)")
+	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": sub})
 	s, err := tok.SignedString([]byte(secret))
 	if err != nil {
