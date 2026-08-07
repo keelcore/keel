@@ -55,6 +55,13 @@ to restart healthy pods.
 Returns `200 OK` when Keel is ready to serve traffic. Returns `503 Service Unavailable` when:
 
 - Keel is still initializing (before first ready state).
+- **Any enabled listener has not yet bound its socket.** `/readyz` gates on the listener bind
+  barrier: every enabled probe listener (health, ready, admin, startup) and main listener (HTTP,
+  HTTPS, H3), plus any embedder listener registered via `RegisterListener` (see Section 7.1), must
+  have bound before `/readyz` reports ready. This means readiness reflects "ready to serve", not
+  merely "process started" — a listener still binding (or that failed to bind) keeps `/readyz` at
+  503 and names the culprit in the failure body. There is no self-healing timeout: a listener that
+  never binds holds `/readyz` not-ready indefinitely (a failed bind separately drives process exit).
 - Memory backpressure has triggered load shedding (`backpressure.shedding_enabled: true`).
 - Upstream is unreachable (sidecar mode) — Keel has observed enough failures to flip the circuit.
 - Any registered readiness check returns an error (see Section 7 below).
@@ -583,6 +590,44 @@ srv := keel.New(
   }
 }
 ```
+
+### 7.1 Embedder listeners (`RegisterListener`)
+
+If your application stands up its **own** listener (a gRPC server, a second HTTP port, a custom
+protocol socket) alongside Keel, register it so `/readyz` waits on its bind. Unlike
+`WithReadinessCheck` (a polled dependency probe), `RegisterListener` returns a one-shot `onBound`
+callback: your app owns the socket and signals Keel the moment it is bound.
+
+```go
+srv := keel.NewServer(log, cfg)
+
+// Enroll the listener BEFORE Run. /readyz reports 503 (naming "listener:grpc")
+// until onBound is called.
+onBound := srv.RegisterListener("grpc")
+
+go func() {
+    ln, err := net.Listen("tcp", ":9000")
+    if err != nil {
+        log.Fatal("grpc_bind_failed", map[string]any{"err": err.Error()})
+    }
+    onBound()               // socket bound → releases /readyz once all listeners are up
+    _ = grpcServer.Serve(ln)
+}()
+
+srv.Run(ctx)
+```
+
+**Behavior:**
+
+- Keel adds a readiness check named `listener:<name>`; it fails (keeping `/readyz` at 503) until
+  `onBound` fires, then passes.
+- `onBound` is idempotent — extra calls are harmless.
+- If `onBound` never fires (the socket never binds), `/readyz` stays not-ready indefinitely; there
+  is no timeout that flips it ready. Have your app exit on a fatal bind error so Kubernetes restarts
+  the pod rather than leaving it wedged at not-ready.
+- The bind path itself logs at **debug** level: an intent line (`listener_binding`) before the bind
+  and a result line (`listener_up`, or `listener_bind_failed` with the address and cause on
+  failure) — set `logging.level: debug` to trace "could not bind port" conditions.
 
 ---
 

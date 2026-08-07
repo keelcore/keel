@@ -65,23 +65,23 @@ type listenerRunner interface {
 }
 
 // realRunner is the production implementation of listenerRunner.
-type realRunner struct{}
+type realRunner struct{ onBound func() }
 
-func (realRunner) serveHTTP(ctx context.Context, sd *lifecycle.Orchestrator, addr string,
+func (r realRunner) serveHTTP(ctx context.Context, sd *lifecycle.Orchestrator, addr string,
 	h http.Handler, cfg config.Config, log *logging.Logger) error {
-	return serveHTTP(ctx, sd, addr, h, cfg, log)
+	return serveHTTPBound(ctx, sd, addr, h, cfg, log, r.onBound)
 }
 
-func (realRunner) serveHTTPS(ctx context.Context, sd *lifecycle.Orchestrator, addr string,
+func (r realRunner) serveHTTPS(ctx context.Context, sd *lifecycle.Orchestrator, addr string,
 	h http.Handler, cfg config.Config, loader *keeltls.CertLoader,
 	getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error),
 	log *logging.Logger) error {
-	return serveHTTPS(ctx, sd, addr, h, cfg, loader, getCert, log)
+	return serveHTTPSBound(ctx, sd, addr, h, cfg, loader, getCert, log, r.onBound)
 }
 
-func (realRunner) serveH3(ctx context.Context, addr string, h http.Handler,
+func (r realRunner) serveH3(ctx context.Context, addr string, h http.Handler,
 	cfg config.Config, log *logging.Logger) error {
-	return serveH3(ctx, addr, h, cfg, log)
+	return serveH3Bound(ctx, addr, h, cfg, log, r.onBound)
 }
 
 type Server struct {
@@ -158,8 +158,8 @@ func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
 		readiness: probes.NewReadiness(),
 		startup:   probes.NewStartup(),
 		met:       metrics.New(),
-		runner:    realRunner{},
 	}
+	s.runner = realRunner{onBound: s.bindWG.Done}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -172,6 +172,20 @@ func (s *Server) AddRoute(port int, pattern string, h http.Handler) {
 	s.registrars = append(s.registrars, router.RegistrarFunc(func(r *router.Router) {
 		r.Handle(port, pattern, h)
 	}))
+}
+
+// RegisterListener enrolls an embedder-owned listener in the /readyz barrier. The caller binds and
+// serves its own socket and must call the returned onBound once it is bound; until then /readyz is
+// not-ready and lists "listener:<name>". Must be called before Run.
+func (s *Server) RegisterListener(name string) (onBound func()) {
+	var bound atomic.Bool
+	s.readiness.AddCheck("listener:"+name, func() error {
+		if !bound.Load() {
+			return errors.New("binding")
+		}
+		return nil
+	})
+	return func() { bound.Store(true) }
 }
 
 // applyRemoteSink tears down any existing remote sink, then builds and attaches
@@ -309,9 +323,11 @@ func (s *Server) Run(ctx context.Context) {
 	shutdown := lifecycle.NewShutdownOrchestrator(s.logger)
 	go s.runSignalLoop(ctx)
 
+	s.registerListenerReadinessCheck()
 	s.startProbeListeners(ctx, shutdown, &wg, errCh, healthMux, readyMux, adminMux)
 	acmeMgr := s.startACMEListener(ctx, shutdown, &wg, errCh)
 	s.startMainListeners(ctx, shutdown, &wg, errCh, mainHandler, acmeMgr)
+	s.startListenerReadinessGate()
 	s.startSidecar(ctx, rt)
 	s.startBackgroundLoops(ctx, &wg, acmeMgr)
 	s.startup.Done()
@@ -412,6 +428,7 @@ func (s *Server) startACMEListener(ctx context.Context, sd *lifecycle.Orchestrat
 	mgr := s.newACMEManager()
 	go func() { _ = mgr.Start(ctx, s.cfg.TLS.ACME) }()
 	wg.Add(1)
+	s.bindWG.Add(1)
 	go func() {
 		defer wg.Done()
 		errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.TLS.ACME.ChallengePort), mgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port), s.cfg, s.logger)
@@ -427,6 +444,7 @@ func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestra
 	}
 	if s.cfg.TLS.ACME.Enabled {
 		wg.Add(1)
+		s.bindWG.Add(1)
 		go func() {
 			defer wg.Done()
 			errCh <- s.runner.serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, nil, acmeMgr.GetCertificate, s.logger)
@@ -442,6 +460,7 @@ func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestra
 	}
 	s.certLoader = loader
 	wg.Add(1)
+	s.bindWG.Add(1)
 	go func() {
 		defer wg.Done()
 		errCh <- s.runner.serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, loader, nil, s.logger)
@@ -452,6 +471,7 @@ func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestra
 func (s *Server) startMainListeners(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error, h http.Handler, acmeMgr *acme.Manager) {
 	if s.cfg.Listeners.HTTP.Enabled {
 		wg.Add(1)
+		s.bindWG.Add(1)
 		go func() {
 			defer wg.Done()
 			errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), h, s.cfg, s.logger)
@@ -463,6 +483,7 @@ func (s *Server) startMainListeners(ctx context.Context, sd *lifecycle.Orchestra
 			s.logger.Fatal("h3_no_tls_cert", map[string]any{"err": "cert_file and key_file required"})
 		}
 		wg.Add(1)
+		s.bindWG.Add(1)
 		go func() {
 			defer wg.Done()
 			errCh <- s.runner.serveH3(ctx, config.AddrFromPort(s.cfg.Listeners.H3.Port), h, s.cfg, s.logger)
@@ -729,8 +750,10 @@ func serveHTTP(ctx context.Context, shutdown *lifecycle.Orchestrator, addr strin
 // are actually accepting connections, not merely spawned.
 func serveHTTPBound(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, log *logging.Logger, onBound func()) error {
 	srv := newHTTPServer(addr, h, cfg)
+	log.Debug("listener_binding", map[string]any{"addr": addr, "proto": "http/1.1"})
 	ln, err := netListen("tcp", addr)
 	if err != nil {
+		log.Debug("listener_bind_failed", map[string]any{"addr": addr, "err": err.Error()})
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
 	log.Info("listener_up", map[string]any{"addr": addr, "tls": false, "proto": "http/1.1"})
@@ -755,17 +778,26 @@ func serveHTTPBound(ctx context.Context, shutdown *lifecycle.Orchestrator, addr 
 }
 
 func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, loader *keeltls.CertLoader, getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error), log *logging.Logger) error {
+	return serveHTTPSBound(ctx, shutdown, addr, h, cfg, loader, getCert, log, nil)
+}
+
+func serveHTTPSBound(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, loader *keeltls.CertLoader, getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error), log *logging.Logger, onBound func()) error {
 	tlsCfg := keeltls.BuildTLSConfig(cfg)
 	applyTLSCertSource(tlsCfg, loader, getCert)
 	srv := newHTTPServer(addr, h, cfg)
 	srv.TLSConfig = tlsCfg
 	httpx.ApplyHTTP2Policy(srv)
 
+	log.Debug("listener_binding", map[string]any{"addr": addr, "proto": "https"})
 	ln, err := netListen("tcp", addr)
 	if err != nil {
+		log.Debug("listener_bind_failed", map[string]any{"addr": addr, "err": err.Error()})
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
 	log.Info("listener_up", map[string]any{"addr": addr, "tls": true, "proto": "https"})
+	if onBound != nil {
+		onBound()
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -839,9 +871,17 @@ func runFIPSMonitorLoop(ctx context.Context, met *metrics.Metrics) {
 }
 
 func serveH3(ctx context.Context, addr string, h http.Handler, cfg config.Config, log *logging.Logger) error {
+	return serveH3Bound(ctx, addr, h, cfg, log, nil)
+}
+
+func serveH3Bound(ctx context.Context, addr string, h http.Handler, cfg config.Config, log *logging.Logger, onBound func()) error {
 	tlsCfg := keeltls.BuildTLSConfig(cfg)
+	log.Debug("listener_binding", map[string]any{"addr": addr, "proto": "h3"})
 	srv := http3.New(addr, h, tlsCfg)
 	log.Info("listener_up", map[string]any{"addr": addr, "tls": true, "proto": "h3"})
+	if onBound != nil {
+		onBound()
+	}
 
 	errCh := make(chan error, 1)
 	go func() {

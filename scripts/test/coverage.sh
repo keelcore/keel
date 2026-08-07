@@ -41,14 +41,19 @@ function run_coverage() {
   local outfile="${1}"
   log "Generating coverage profile"
   : > "${outfile}"
-  local pkgs coverpkg
+  local pkgs coverpkg raw
+  # Coverage is measured for library packages (/pkg) only; program entry points are exercised via the
+  # built binary under BATS, so main() enclosing files are excluded both by scope and by file filter.
   pkgs="$(go_pkgs | grep -v '/examples/')"
-  coverpkg="$(printf '%s\n' "${pkgs}" | tr '\n' ',' | sed 's/,$//')"
+  coverpkg="$(printf '%s\n' "${pkgs}" | grep '/pkg/' | tr '\n' ',' | sed 's/,$//')"
+  raw="${outfile}.raw"
   printf '%s\n' "${pkgs}" | xargs go test \
     -count=1 \
-    -coverprofile="${outfile}" \
+    -coverprofile="${raw}" \
     -covermode=atomic \
     "-coverpkg=${coverpkg}"
+  grep -v '/main\.go:' "${raw}" > "${outfile}"
+  rm -f "${raw}"
 }
 
 function print_stats() {
