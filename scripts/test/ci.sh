@@ -71,10 +71,11 @@ function write_step_summary() {
 }
 
 function summarise_junit() {
-  local passed failed skipped
-  passed="$(grep -c 'status="passed"' test-results.xml 2>/dev/null || printf '0')"
-  failed="$(grep -c 'status="failed"' test-results.xml 2>/dev/null || printf '0')"
-  skipped="$(grep -c 'status="skipped"' test-results.xml 2>/dev/null || printf '0')"
+  local total failed skipped passed
+  total="$(grep -c '<testcase ' test-results.xml 2>/dev/null || true)"
+  failed="$(grep -c '<failure' test-results.xml 2>/dev/null || true)"
+  skipped="$(grep -c '<skipped' test-results.xml 2>/dev/null || true)"
+  passed="$(( ${total:-0} - ${failed:-0} - ${skipped:-0} ))"
   printf '| Passed | %s |\n| Failed | %s |\n| Skipped | %s |\n' \
     "${passed}" "${failed}" "${skipped}"
 }
