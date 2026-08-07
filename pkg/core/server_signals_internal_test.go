@@ -58,6 +58,7 @@ func TestSignalLoop_SIGUSR2_Logs(t *testing.T) {
 	tb := &threadSafeBuf{}
 	log := logging.New(logging.Config{Out: tb})
 	s := NewServer(log, config.Config{})
+	s.signalReady = make(chan struct{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -66,21 +67,26 @@ func TestSignalLoop_SIGUSR2_Logs(t *testing.T) {
 		s.runSignalLoop(ctx)
 	}()
 
-	time.Sleep(15 * time.Millisecond) // let goroutine register signal handlers
+	<-s.signalReady // handlers registered; sending the signal cannot race Notify
 
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGUSR2); err != nil {
 		cancel()
 		<-done
 		t.Skipf("cannot send SIGUSR2: %v", err)
 	}
-	time.Sleep(30 * time.Millisecond) // let signal be handled
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !strings.Contains(tb.String(), "sigusr2_received") {
+		if time.Now().After(deadline) {
+			cancel()
+			<-done
+			t.Fatalf("expected 'sigusr2_received' in log output, got: %s", tb.String())
+		}
+		time.Sleep(time.Millisecond)
+	}
 
 	cancel()
 	<-done
-
-	if !strings.Contains(tb.String(), "sigusr2_received") {
-		t.Errorf("expected 'sigusr2_received' in log output, got: %s", tb.String())
-	}
 }
 
 // runSignalLoop SIGHUP branch: calls Reload (graceful failure with empty paths).

@@ -126,6 +126,11 @@ type Server struct {
 	// "ready to serve", including the admin/probe paths, not merely "process spawned the goroutine".
 	bindWG           sync.WaitGroup
 	listenersServing atomic.Bool
+
+	// signalReady, when non-nil, is closed by runSignalLoop once its signal
+	// handlers are registered. It is a test-only readiness seam so tests can
+	// send a signal without racing handler registration; nil in production.
+	signalReady chan struct{}
 }
 
 // registerListenerReadinessCheck makes /readyz report NOT ready until every probe listener has bound

@@ -17,6 +17,9 @@ func (s *Server) runSignalLoop(ctx context.Context) {
 	ch := make(chan os.Signal, 4)
 	signal.Notify(ch, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2)
 	defer signal.Stop(ch)
+	if s.signalReady != nil {
+		close(s.signalReady)
+	}
 
 	for {
 		select {
