@@ -454,8 +454,12 @@ function run_release() {
   local effective_bump
   effective_bump="$(pre1_demote_bump "${cur_ver}" "${bump}")"
   if [ "${effective_bump}" = 'none' ]; then
-    log "No schema changes detected; pre-1.0 demotion yields no tag. Exiting."
-    exit 0
+    if [ "$(git rev-list "${cur_tag}..HEAD" --count)" -gt 0 ]; then
+      effective_bump='patch'
+    else
+      log "No commits since ${cur_tag}; nothing to release. Exiting."
+      exit 0
+    fi
   fi
   bump="${effective_bump}"
   auto_ver="$(compute_version "${cur_ver}" "${bump}")"
