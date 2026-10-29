@@ -56,6 +56,7 @@ function build_image() {
     log '📦 Staging pre-built dist/keel-min...'
     cp "${REPO_ROOT}/dist/keel-min" "${tmp}/keel"
   fi
+  bash "${REPO_ROOT}/scripts/build/certs-image.sh"
   log '🏗️  Building keel:test Docker image...'
   docker build -t keel:test \
     --build-arg FLAVOR=min \

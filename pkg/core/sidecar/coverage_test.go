@@ -358,11 +358,11 @@ func TestStartHealthProbe_TickerFires(t *testing.T) {
 // doProbe logs on connection error when a logger is set.
 func TestDoProbe_ConnectionError_WithLog(t *testing.T) {
 	log := logging.New(logging.Config{Out: io.Discard})
-	readiness := probes.NewReadiness()
-	readiness.Set(true)
+	h := &upstreamHealth{}
+	h.ok.Store(true)
 	client := &http.Client{Timeout: 50 * time.Millisecond}
-	doProbe(client, "http://127.0.0.1:1/health", readiness, log)
-	if readiness.Get() {
+	doProbe(client, "http://127.0.0.1:1/health", h, log)
+	if h.ok.Load() {
 		t.Error("expected readiness=false on connection error")
 	}
 }
@@ -375,11 +375,11 @@ func TestDoProbe_Unhealthy_WithLog(t *testing.T) {
 	defer upstream.Close()
 
 	log := logging.New(logging.Config{Out: io.Discard})
-	readiness := probes.NewReadiness()
-	readiness.Set(true)
+	h := &upstreamHealth{}
+	h.ok.Store(true)
 	client := &http.Client{Timeout: time.Second}
-	doProbe(client, upstream.URL+"/health", readiness, log)
-	if readiness.Get() {
+	doProbe(client, upstream.URL+"/health", h, log)
+	if h.ok.Load() {
 		t.Error("expected readiness=false for unhealthy upstream")
 	}
 }

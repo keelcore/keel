@@ -1,4 +1,8 @@
 # scripts/deploy/docker/Dockerfile
+# CA source: keel-certs (Dockerfile.certs; build it first with make certs-image).
+ARG CERTS_IMAGE=keel-certs:latest
+FROM ${CERTS_IMAGE} AS certs
+
 FROM golang:1.27.3 AS builder
 WORKDIR /src
 COPY . .
@@ -17,10 +21,22 @@ RUN mkdir -p /out && \
 # ---- Runtime: scratch, numeric non-root ----
 FROM scratch
 
-# Single pinned CA (ONLY if you need outbound TLS).
-# Put your CA PEM in-repo at deploy/ca/keel_root_ca.pem (example path)
-# COPY deploy/ca/keel_root_ca.pem /etc/ssl/certs/ca.pem
-# ENV SSL_CERT_FILE=/etc/ssl/certs/ca.pem
+# Trusted roots: an explicit allowlist, not the full bundle. Go reads every PEM in
+# /etc/ssl/certs/. Keep this list identical in Dockerfile.release.
+#   ISRG X1/X2 — Let's Encrypt; DigiCert G2/G3 — VeriSign/Symantec successor;
+#   D-TRUST (Bundesdruckerei) and Telekom Security — Germany.
+COPY --from=certs \
+  /certs/ISRG_Root_X1.crt \
+  /certs/ISRG_Root_X2.crt \
+  /certs/DigiCert_Global_Root_G2.crt \
+  /certs/DigiCert_Global_Root_G3.crt \
+  /certs/D-TRUST_BR_Root_CA_1_2020.crt \
+  /certs/D-TRUST_BR_Root_CA_2_2023.crt \
+  /certs/D-TRUST_EV_Root_CA_1_2020.crt \
+  /certs/D-TRUST_EV_Root_CA_2_2023.crt \
+  /certs/Telekom_Security_TLS_ECC_Root_2020.crt \
+  /certs/Telekom_Security_TLS_RSA_Root_2023.crt \
+  /etc/ssl/certs/
 
 COPY --from=builder /out/keel /keel
 

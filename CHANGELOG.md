@@ -49,8 +49,20 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   `serviceAccount.automountToken: false`. **Admin-port scraping from another namespace now
   needs `networkPolicy.adminNamespaceSelector`.**
 
+- Container images trust an explicit allowlist of 10 CA roots (ISRG X1/X2, DigiCert Global G2/G3,
+  D-TRUST 2020/2023, Telekom Security 2020/2023) copied from the new `keel-certs` image
+  (`Dockerfile.certs`, full Mozilla bundle, `make certs-image`) — previously no CA bundle at all,
+  so outbound TLS failed. Every image build path builds `keel-certs` first.
+- Unparseable env overrides (e.g. `KEEL_AUTHN=flase`) are logged as `env_ignored` instead of being
+  silently dropped.
+- Request body/response caps and the read timeout apply even with `security.owasp_headers: false`
+  or the `no_owasp` build (new `Limits` middleware).
+
 ### Fixed
 
+- Sidecar upstream health is its own readiness flag, reported as the `upstream` check: `/readyz`
+  aggregates it (a sidecar is not ready while its upstream is not), and an upstream outage no longer
+  clears the backpressure flag — which made the shedding middleware 503 all traffic.
 - `/readyz` reports NOT ready during the pre-stop sleep (a check the sidecar health probe
   cannot override).
 - Reloads (SIGHUP / `/admin/reload`) wait for startup to finish and are serialized; listener

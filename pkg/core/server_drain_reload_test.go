@@ -1,7 +1,11 @@
 package core
 
 import (
+	"bytes"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,5 +49,42 @@ func TestReload_WaitsForStartup(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("Reload did not proceed after startup released the lock")
+	}
+}
+
+// Ignored env overrides are logged as env_ignored with key and value.
+func TestLogIgnoredEnv(t *testing.T) {
+	t.Setenv("KEEL_AUTHN", "flase")
+	cfg, err := config.Load("", "")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	var out bytes.Buffer
+	s := NewServer(logging.New(logging.Config{Out: &out, JSON: true}), cfg)
+	s.logIgnoredEnv(cfg)
+	if !strings.Contains(out.String(), `"msg":"env_ignored"`) || !strings.Contains(out.String(), "KEEL_AUTHN=flase") {
+		t.Fatalf("missing env_ignored log: %s", out.String())
+	}
+}
+
+// With OWASP headers off, the request body cap still applies (X10): turning the
+// headers off must not silently lift resource limits.
+func TestWrapMain_BodyLimitWithoutOWASPHeaders(t *testing.T) {
+	var cfg config.Config
+	cfg.Security.OWASPHeaders = false
+	cfg.Security.MaxRequestBodyBytes = 8
+	s := NewServer(logging.New(logging.Config{Out: io.Discard}), cfg)
+	h := s.wrapMain(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+		}
+	}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", 64))))
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d: body limit not enforced with OWASP headers off", rec.Code)
+	}
+	if rec.Header().Get("x-content-type-options") != "" {
+		t.Error("OWASP headers set although disabled")
 	}
 }

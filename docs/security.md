@@ -503,6 +503,21 @@ Encrypt), you need to give Keel that CA's certificate so it can verify the upstr
 establish a TLS connection to a private-CA-signed upstream. Leave empty to use the system trust store
 (appropriate for publicly-signed certs).
 
+**Image trust store:** keel's container images are `FROM scratch` and do **not** carry the full public CA
+bundle. They trust an explicit allowlist of 10 roots, copied into `/etc/ssl/certs/` from the `keel-certs`
+image (`scripts/deploy/docker/Dockerfile.certs`, which holds the complete Mozilla bundle):
+
+| Root(s) | Purpose |
+| --- | --- |
+| ISRG Root X1, ISRG Root X2 | Let's Encrypt |
+| DigiCert Global Root G2, G3 | VeriSign/Symantec successor |
+| D-TRUST BR Root CA 1 2020, BR Root CA 2 2023, EV Root CA 1 2020, EV Root CA 2 2023 | Germany (Bundesdruckerei) |
+| Telekom Security TLS ECC Root 2020, TLS RSA Root 2023 | Germany (Deutsche Telekom) |
+
+Outbound TLS (ACME, JWKS, OTLP, remote sinks, upstreams) succeeds only if the peer chains to one of these
+roots or to a `ca_file` you supply. To change the set, edit the `COPY --from=certs` lists in
+`Dockerfile` and `Dockerfile.release` (they must stay identical — `make test-consistency` enforces it).
+
 **mTLS:** When `client_cert_file` and `client_key_file` are set, Keel presents its client certificate during
 the TLS handshake with the upstream. This allows the upstream to verify that the connecting client is Keel,
 not just any TLS client. Use this when the upstream requires mutual authentication.

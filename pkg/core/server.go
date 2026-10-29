@@ -364,6 +364,7 @@ func (s *Server) Run(ctx context.Context) {
 	// Startup reads s.cfg throughout; a reload (SIGHUP or /admin/reload) arriving
 	// meanwhile waits on reloadMu until startup completes instead of racing it.
 	s.reloadMu.Lock()
+	s.logIgnoredEnv(s.cfg)
 	if err := acmeValidate(s.cfg); err != nil {
 		s.logger.Fatal("acme_config_invalid", map[string]any{"err": err.Error()})
 	}
@@ -772,8 +773,11 @@ func (s *Server) metricsHandler() http.Handler {
 func (s *Server) Metrics() *metrics.Metrics { return s.met }
 
 func (s *Server) wrapMain(h http.Handler) http.Handler {
+	// Body caps and the read timeout always apply; OWASP adds the headers on top.
 	if s.cfg.Security.OWASPHeaders {
 		h = mw.OWASP(s.cfg, h)
+	} else {
+		h = mw.Limits(s.cfg, h)
 	}
 	if s.cfg.Backpressure.SheddingEnabled {
 		h = mw.Shedding(s.readiness, h)

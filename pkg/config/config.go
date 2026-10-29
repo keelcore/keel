@@ -213,6 +213,29 @@ type Config struct {
 	Metrics      MetricsConfig      `yaml:"metrics"`
 	Tracing      TracingConfig      `yaml:"tracing"`
 	FIPS         FIPSConfig         `yaml:"fips"`
+
+	// ignoredEnv lists env overrides that were set but could not be parsed
+	// ("KEY=value"); the previous value was kept. Not part of the config schema.
+	ignoredEnv []string
+}
+
+// IgnoredEnv returns the env overrides applyEnv rejected as unparseable
+// ("KEY=value"), so the caller can log them — a typo such as KEEL_AUTHN=flase
+// must not silently leave the default in force.
+func (c Config) IgnoredEnv() []string { return c.ignoredEnv }
+
+// envIgnoredSink, while applyEnv runs (under envMu), collects rejected env
+// overrides; nil otherwise, so direct apply* calls record nothing.
+var (
+	envMu          sync.Mutex
+	envIgnoredSink *[]string
+)
+
+// noteIgnoredEnv records an env override that could not be parsed.
+func noteIgnoredEnv(key, value string) {
+	if envIgnoredSink != nil {
+		*envIgnoredSink = append(*envIgnoredSink, key+"="+value)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +500,15 @@ func validateAgainstSchema(b []byte) error {
 // applyEnv overlays environment variables onto cfg. Only vars that are
 // explicitly set (non-empty) override the current value.
 func applyEnv(cfg *Config) {
+	envMu.Lock()
+	defer envMu.Unlock()
+	var ignored []string
+	envIgnoredSink = &ignored
+	defer func() {
+		envIgnoredSink = nil
+		cfg.ignoredEnv = ignored
+	}()
+
 	// Listeners
 	applyBool("KEEL_HTTP_ENABLED", &cfg.Listeners.HTTP.Enabled)
 	applyInt("KEEL_HTTP_PORT", &cfg.Listeners.HTTP.Port)
@@ -562,6 +594,8 @@ func applyBool(key string, dst *bool) {
 	b, err := strconv.ParseBool(v)
 	if err == nil {
 		*dst = b
+	} else {
+		noteIgnoredEnv(key, v)
 	}
 }
 
@@ -573,6 +607,8 @@ func applyInt(key string, dst *int) {
 	n, err := strconv.Atoi(v)
 	if err == nil {
 		*dst = n
+	} else {
+		noteIgnoredEnv(key, v)
 	}
 }
 
@@ -584,6 +620,8 @@ func applyInt64(key string, dst *int64) {
 	n, err := strconv.ParseInt(v, 10, 64)
 	if err == nil {
 		*dst = n
+	} else {
+		noteIgnoredEnv(key, v)
 	}
 }
 
@@ -595,6 +633,8 @@ func applyFloat64(key string, dst *float64) {
 	f, err := strconv.ParseFloat(v, 64)
 	if err == nil {
 		*dst = f
+	} else {
+		noteIgnoredEnv(key, v)
 	}
 }
 
@@ -612,6 +652,8 @@ func applyDuration(key string, dst *Duration) {
 	d, err := time.ParseDuration(v)
 	if err == nil {
 		*dst = Duration{d}
+	} else {
+		noteIgnoredEnv(key, v)
 	}
 }
 

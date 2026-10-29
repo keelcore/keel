@@ -8,6 +8,6 @@ import (
 	"github.com/keelcore/keel/pkg/config"
 )
 
-// OWASP is a no-op stub used when the no_owasp build tag is active.
-// All security headers, body limits, and per-request timeouts are skipped.
-func OWASP(_ config.Config, next http.Handler) http.Handler { return next }
+// OWASP (no_owasp build) skips the security headers but keeps Limits: compiling
+// the headers out must not lift body caps or the per-request read timeout.
+func OWASP(cfg config.Config, next http.Handler) http.Handler { return Limits(cfg, next) }

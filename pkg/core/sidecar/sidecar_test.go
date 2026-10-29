@@ -577,48 +577,47 @@ func TestStartHealthProbe_Runs_NoPanic(t *testing.T) {
 // doProbe — healthy and unhealthy
 // ---------------------------------------------------------------------------
 
-// doProbe sets readiness=true when server responds 200.
+// doProbe marks the upstream healthy when it responds 200.
 func TestDoProbe_Healthy_SetsReadinessTrue(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	readiness := probes.NewReadiness()
-	readiness.Set(false) // start unhealthy
+	h := &upstreamHealth{}
 	client := &http.Client{Timeout: 2 * time.Second}
-	doProbe(client, srv.URL+"/health", readiness, nil)
+	doProbe(client, srv.URL+"/health", h, nil)
 
-	if ok, _ := readiness.IsReady(); !ok {
+	if !h.ok.Load() {
 		t.Error("expected readiness=true for healthy upstream")
 	}
 }
 
-// doProbe sets readiness=false when server responds 500.
+// doProbe marks the upstream unhealthy when it responds 500.
 func TestDoProbe_Unhealthy_SetsReadinessFalse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
-	readiness := probes.NewReadiness()
-	readiness.Set(true)
+	h := &upstreamHealth{}
+	h.ok.Store(true)
 	client := &http.Client{Timeout: 2 * time.Second}
-	doProbe(client, srv.URL+"/health", readiness, nil)
+	doProbe(client, srv.URL+"/health", h, nil)
 
-	if readiness.Get() {
+	if h.ok.Load() {
 		t.Error("expected readiness=false for unhealthy upstream (500)")
 	}
 }
 
-// doProbe sets readiness=false on connection error.
+// doProbe marks the upstream unhealthy on connection error.
 func TestDoProbe_ConnectionError_SetsReadinessFalse(t *testing.T) {
-	readiness := probes.NewReadiness()
-	readiness.Set(true)
+	h := &upstreamHealth{}
+	h.ok.Store(true)
 	client := &http.Client{Timeout: 50 * time.Millisecond}
-	doProbe(client, "http://127.0.0.1:1/health", readiness, nil)
+	doProbe(client, "http://127.0.0.1:1/health", h, nil)
 
-	if readiness.Get() {
+	if h.ok.Load() {
 		t.Error("expected readiness=false on connection error")
 	}
 }
@@ -630,8 +629,8 @@ func TestDoProbe_NilLog_NoUnhealthy_NoPanic(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	readiness := probes.NewReadiness()
+	h := &upstreamHealth{}
 	client := &http.Client{Timeout: 2 * time.Second}
 	// Should not panic even with nil log and unhealthy status.
-	doProbe(client, srv.URL+"/health", readiness, nil)
+	doProbe(client, srv.URL+"/health", h, nil)
 }

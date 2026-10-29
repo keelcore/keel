@@ -58,6 +58,7 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: container-stack-test-keep
 .PHONY: container-teardown
 .PHONY: container-host-network
+.PHONY: certs-image
 .PHONY: gen-certs
 .PHONY: gen-schema
 .PHONY: create-release
@@ -200,6 +201,11 @@ container-teardown:
 container-host-network:
 	@echo "🛣️  Checking Apple container host networking..."
 	./scripts/container/host-network.sh
+
+## CA image: full Mozilla bundle; keel images copy an explicit root allowlist from it
+certs-image:
+	@echo "🔐 Building keel-certs CA image..."
+	./scripts/build/certs-image.sh
 
 ## Certificate Generation
 gen-certs:

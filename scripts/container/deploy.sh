@@ -55,6 +55,7 @@ function require_running() {
 }
 
 function build_image() {
+  KEEL_IMAGE_TOOL=container bash "${REPO_ROOT}/scripts/build/certs-image.sh"
   log '🐳 Building keel:test image via Apple container...'
   container build -t 'keel:test' --build-arg 'FLAVOR=min' \
     -f "${REPO_ROOT}/scripts/deploy/docker/Dockerfile" \

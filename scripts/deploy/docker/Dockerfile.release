@@ -8,9 +8,29 @@
 #              The binary is always supplied externally as ./keel in the context.
 
 ARG FLAVOR=max
+# CA source: keel-certs (Dockerfile.certs; build it first with make certs-image).
+ARG CERTS_IMAGE=keel-certs:latest
+FROM ${CERTS_IMAGE} AS certs
 
 # ── Runtime: scratch, numeric non-root ────────────────────────────────────────
 FROM scratch
+
+# Trusted roots: an explicit allowlist, not the full bundle. Go reads every PEM in
+# /etc/ssl/certs/. Keep this list identical in Dockerfile.
+#   ISRG X1/X2 — Let's Encrypt; DigiCert G2/G3 — VeriSign/Symantec successor;
+#   D-TRUST (Bundesdruckerei) and Telekom Security — Germany.
+COPY --from=certs \
+  /certs/ISRG_Root_X1.crt \
+  /certs/ISRG_Root_X2.crt \
+  /certs/DigiCert_Global_Root_G2.crt \
+  /certs/DigiCert_Global_Root_G3.crt \
+  /certs/D-TRUST_BR_Root_CA_1_2020.crt \
+  /certs/D-TRUST_BR_Root_CA_2_2023.crt \
+  /certs/D-TRUST_EV_Root_CA_1_2020.crt \
+  /certs/D-TRUST_EV_Root_CA_2_2023.crt \
+  /certs/Telekom_Security_TLS_ECC_Root_2020.crt \
+  /certs/Telekom_Security_TLS_RSA_Root_2023.crt \
+  /etc/ssl/certs/
 
 ARG FLAVOR
 LABEL org.opencontainers.image.vendor="keelcore" \

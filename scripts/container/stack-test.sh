@@ -66,6 +66,7 @@ function teardown() {
 }
 
 function build_image() {
+  KEEL_IMAGE_TOOL=container bash "${REPO_ROOT}/scripts/build/certs-image.sh"
   log '🐳 Building keel:test-max image (FLAVOR=max: H3/QUIC) via Apple container...'
   container build -t 'keel:test-max' --build-arg 'FLAVOR=max' \
     -f "${REPO_ROOT}/scripts/deploy/docker/Dockerfile" \

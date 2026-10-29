@@ -3,14 +3,16 @@
 package mw
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 
 	"github.com/keelcore/keel/pkg/config"
 )
 
+// OWASP sets the OWASP security headers, then applies Limits (body caps and
+// read timeout) — the limits are shared with the no-headers path, not owned here.
 func OWASP(cfg config.Config, next http.Handler) http.Handler {
+	limited := Limits(cfg, next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("x-content-type-options", "nosniff")
@@ -22,43 +24,6 @@ func OWASP(cfg config.Config, next http.Handler) http.Handler {
 			h.Set("strict-transport-security", fmt.Sprintf("max-age=%d", cfg.Security.HSTSMaxAge))
 		}
 
-		if cfg.Security.MaxRequestBodyBytes > 0 {
-			r.Body = http.MaxBytesReader(w, r.Body, cfg.Security.MaxRequestBodyBytes)
-		}
-
-		if cfg.Security.MaxResponseBodyBytes > 0 {
-			w = &limitedResponseWriter{ResponseWriter: w, remaining: cfg.Security.MaxResponseBodyBytes}
-		}
-
-		if cfg.Timeouts.Read.Duration > 0 {
-			ctx, cancel := context.WithTimeout(r.Context(), cfg.Timeouts.Read.Duration)
-			defer cancel()
-			r = r.WithContext(ctx)
-		}
-
-		next.ServeHTTP(w, r)
+		limited.ServeHTTP(w, r)
 	})
-}
-
-// limitedResponseWriter truncates response body writes at MaxResponseBodyBytes
-// to prevent oversized responses from consuming excessive memory or bandwidth.
-type limitedResponseWriter struct {
-	http.ResponseWriter
-	remaining int64
-}
-
-// Unwrap exposes the wrapped writer so http.ResponseController can reach the connection's Flusher —
-// required for live streaming (SSE) passthrough through this middleware.
-func (lw *limitedResponseWriter) Unwrap() http.ResponseWriter { return lw.ResponseWriter }
-
-func (lw *limitedResponseWriter) Write(b []byte) (int, error) {
-	if lw.remaining <= 0 {
-		return 0, nil
-	}
-	if int64(len(b)) > lw.remaining {
-		b = b[:lw.remaining]
-	}
-	n, err := lw.ResponseWriter.Write(b)
-	lw.remaining -= int64(n)
-	return n, err
 }

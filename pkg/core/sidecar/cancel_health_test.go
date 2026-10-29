@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,7 +80,7 @@ func TestStartHealthProbe_UpstreamTLSError(t *testing.T) {
 		UpstreamTLS: config.UpstreamTLSConfig{Enabled: true, CAFile: "/nonexistent/ca.pem"},
 	}
 	StartHealthProbe(context.Background(), cfg, nil, r, logging.New(logging.Config{Out: io.Discard}))
-	if r.Get() {
+	if ok, _ := r.IsReady(); ok {
 		t.Fatal("readiness true despite an unusable upstream TLS config")
 	}
 }
@@ -89,15 +90,33 @@ func TestStartHealthProbe_NilTransportProbes(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
 	t.Cleanup(upstream.Close)
 	r := probes.NewReadiness()
-	r.Set(false)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	StartHealthProbe(ctx, config.SidecarConfig{UpstreamURL: upstream.URL, UpstreamHealthPath: "/"}, nil, r, nil)
 	deadline := time.Now().Add(3 * time.Second)
-	for !r.Get() && time.Now().Before(deadline) {
+	for ok, _ := r.IsReady(); !ok && time.Now().Before(deadline); ok, _ = r.IsReady() {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if !r.Get() {
+	if ok, _ := r.IsReady(); !ok {
 		t.Fatal("probe over the built transport never reported ready")
+	}
+}
+
+// The upstream signal is its own flag, aggregated by /readyz: with the upstream
+// down the sidecar is not ready ("upstream" failing), while the backpressure
+// flag the shedding middleware reads is untouched (no load shedding).
+func TestStartHealthProbe_UpstreamSeparateFromBackpressure(t *testing.T) {
+	r := probes.NewReadiness()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	StartHealthProbe(ctx, config.SidecarConfig{UpstreamURL: "http://127.0.0.1:1", UpstreamHealthPath: "/health",
+		UpstreamHealthTimeout: config.DurationOf(50 * time.Millisecond)}, nil, r, nil)
+	time.Sleep(150 * time.Millisecond)
+	ok, failing := r.IsReady()
+	if ok || len(failing) != 1 || !strings.HasPrefix(failing[0], "upstream") {
+		t.Fatalf("IsReady = %v %v, want not ready with upstream failing", ok, failing)
+	}
+	if !r.Get() {
+		t.Fatal("upstream failure cleared the backpressure flag (would shed all traffic)")
 	}
 }

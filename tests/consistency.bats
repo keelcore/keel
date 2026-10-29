@@ -178,3 +178,15 @@ setup_file() {
 
   rm -rf "${tmpdir}"
 }
+# ---------------------------------------------------------------------------
+# 9. Both runtime Dockerfiles copy the identical trusted-root allowlist from
+#    keel-certs (an image built from one file must not trust a different set).
+# ---------------------------------------------------------------------------
+@test "Dockerfile and Dockerfile.release trust the identical CA root allowlist" {
+  local df="${REPO_ROOT}/scripts/deploy/docker"
+  local a b
+  a="$(grep -oE '/certs/[A-Za-z0-9_.-]+\.crt' "${df}/Dockerfile" | sort)"
+  b="$(grep -oE '/certs/[A-Za-z0-9_.-]+\.crt' "${df}/Dockerfile.release" | sort)"
+  [ -n "${a}" ]
+  [ "${a}" = "${b}" ]
+}

@@ -151,7 +151,8 @@ sidecar:
     enabled: false    # When true, Keel establishes a TLS (or mTLS) connection to the
                       # upstream. Requires upstream_url to use https://.
     ca_file: ""       # Path to PEM CA bundle used to verify the upstream's certificate.
-                      # Leave empty to use the system trust store.
+                      # Leave empty to use the system trust store (in keel images:
+                      # the 10-root allowlist — see docs/security.md).
     client_cert_file: ""   # Path to PEM client certificate for mTLS. Leave empty if the
                       # upstream does not require client authentication.
     client_key_file: ""    # Path to PEM client private key for mTLS.

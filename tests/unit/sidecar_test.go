@@ -479,7 +479,7 @@ func TestSidecarHealthProbe_UpstreamDown_ReadinessFalse(t *testing.T) {
 
 	time.Sleep(80 * time.Millisecond)
 
-	if readiness.Get() {
+	if ok, _ := readiness.IsReady(); ok {
 		t.Error("expected readiness false after upstream down")
 	}
 }
@@ -496,7 +496,6 @@ func TestSidecarHealthProbe_UpstreamRecovered_ReadinessTrue(t *testing.T) {
 	defer upstream.Close()
 
 	readiness := probes.NewReadiness()
-	readiness.Set(false)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -509,14 +508,14 @@ func TestSidecarHealthProbe_UpstreamRecovered_ReadinessTrue(t *testing.T) {
 	}, nil, readiness, nil)
 
 	time.Sleep(40 * time.Millisecond)
-	if readiness.Get() {
+	if ok, _ := readiness.IsReady(); ok {
 		t.Fatal("expected readiness false before upstream healthy")
 	}
 
 	healthy.Store(true)
 	time.Sleep(40 * time.Millisecond)
 
-	if !readiness.Get() {
+	if ok, _ := readiness.IsReady(); !ok {
 		t.Error("expected readiness true after upstream recovered")
 	}
 }

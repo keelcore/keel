@@ -40,6 +40,7 @@ function main() {
   require_docker
   require_cosign
   registry_login
+  bash scripts/build/certs-image.sh
   build_and_push_flavor 'max'  "${DIST}/keel-max-linux-amd64"  "${tag}"
   build_and_push_flavor 'min'  "${DIST}/keel-min-linux-amd64"  "${tag}"
   build_and_push_flavor 'fips' "${DIST}/keel-fips-linux-amd64" "${tag}"

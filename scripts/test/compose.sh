@@ -71,6 +71,7 @@ function generate_certs() {
 }
 
 function build_and_start() {
+  bash "${REPO_ROOT}/scripts/build/certs-image.sh"
   log '🐳 Building keel:test image and starting compose stack...'
   docker compose --project-directory "${REPO_ROOT}" -f "${COMPOSE_FILE}" up -d --build \
     2>&1 | tee -a "${LOG_FILE}" >&5

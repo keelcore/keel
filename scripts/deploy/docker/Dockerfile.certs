@@ -1,0 +1,14 @@
+# scripts/deploy/docker/Dockerfile.certs
+# keel-certs: the complete Mozilla CA bundle (Alpine ca-certificates) as one PEM
+# file per root under /certs/, in an otherwise empty (scratch) image.
+#
+# Nothing here is trusted by itself. Every keel runtime image is FROM scratch
+# and copies an explicit allowlist of roots out of this image into
+# /etc/ssl/certs/ (see Dockerfile and Dockerfile.release). Build it first with
+# scripts/build/certs-image.sh (make certs-image).
+
+FROM alpine:3.22 AS source
+RUN apk add --no-cache ca-certificates
+
+FROM scratch
+COPY --from=source /usr/share/ca-certificates/mozilla/ /certs/
