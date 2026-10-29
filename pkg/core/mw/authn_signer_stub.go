@@ -10,3 +10,5 @@ type JWTSigner struct{}
 func NewJWTSigner(_, _ string) (*JWTSigner, error) { return &JWTSigner{}, nil }
 
 func (s *JWTSigner) SignRequest(_ *http.Request) error { return nil }
+
+func (s *JWTSigner) WithAudience(_ string) *JWTSigner { return s }

@@ -408,12 +408,16 @@ startupProbe:
   periodSeconds: 10
 
 # --- Lifecycle ---
-lifecycle:
-  preStop:
-    exec:
-      command: ["/bin/sh", "-c", "sleep 2"]
-
+# No preStop hook: the image is FROM scratch (no shell). keel performs the
+# pre-stop sleep itself on SIGTERM via keel.timeouts.prestopSleep.
 terminationGracePeriodSeconds: 30
+
+# --- ServiceAccount / RBAC ---
+serviceAccount:
+  create: true
+  automountToken: false   # keel does not call the Kubernetes API
+rbac:
+  create: false           # no ClusterRole needed; enable only for extensions that use the API
 
 # --- ServiceMonitor (Prometheus Operator) ---
 serviceMonitor:
@@ -424,7 +428,8 @@ serviceMonitor:
 
 # --- NetworkPolicy ---
 networkPolicy:
-  enabled: false          # Set true to restrict ingress/egress
+  enabled: true           # Default on: only keel's ports accept ingress (blocks direct
+                          # access to a sidecar app port); egress stays open
 
 # --- PodDisruptionBudget ---
 podDisruptionBudget:

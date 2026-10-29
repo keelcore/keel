@@ -6,7 +6,7 @@
 # host only drives the `container` CLI (vsock), never host -> guest networking.
 # The compose suite itself executes inside the cluster node (hostPorts).
 #
-# Alpine base: no Python in the image (debian golang images pull it in via scm tools).
+# Alpine base: small image with the few tools the harness needs.
 FROM golang:1.27.3-alpine
 
 ARG TARGETARCH

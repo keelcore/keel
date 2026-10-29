@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -30,6 +31,7 @@ func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, 
 	if getSigners == nil {
 		staticSigners = LoadTrustedSigners(cfg.Authn, log)
 	}
+	opts := jwtParserOptions(cfg.Authn)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("authorization")
@@ -43,7 +45,7 @@ func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, 
 		if getSigners != nil {
 			signers = getSigners()
 		}
-		claims, err := parseWithAllSigners(raw, signers, cache)
+		claims, err := parseWithAllSigners(raw, signers, cache, opts...)
 		if err != nil {
 			log.Warn("authn_fail", map[string]any{"err": err.Error()})
 			http.Error(w, "invalid token", http.StatusUnauthorized)
@@ -121,15 +123,38 @@ func LoadTrustedSigners(cfg config.AuthnConfig, log *logging.Logger) []string {
 	return signers
 }
 
+// validJWTMethods are the algorithms keel can verify (HMAC secrets, RSA and EC
+// public keys); anything else — including "none" — is rejected up front.
+var validJWTMethods = []string{"HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}
+
+// jwtClockLeeway tolerates small clock skew between issuer and verifier.
+const jwtClockLeeway = 30 * time.Second
+
+// jwtParserOptions returns the inbound token policy: exp is required (a token
+// without one would be valid forever), algorithms are pinned, and when
+// authn.audience is set the token's aud must name this service — so a token
+// minted for another service by the same signer cannot be replayed here.
+func jwtParserOptions(cfg config.AuthnConfig) []jwt.ParserOption {
+	opts := []jwt.ParserOption{
+		jwt.WithExpirationRequired(),
+		jwt.WithValidMethods(validJWTMethods),
+		jwt.WithLeeway(jwtClockLeeway),
+	}
+	if cfg.Audience != "" {
+		opts = append(opts, jwt.WithAudience(cfg.Audience))
+	}
+	return opts
+}
+
 // parseWithAllSigners tries each trusted signer until one successfully verifies raw.
-func parseWithAllSigners(raw string, signers []string, cache *jwksCache) (jwt.MapClaims, error) {
+func parseWithAllSigners(raw string, signers []string, cache *jwksCache, opts ...jwt.ParserOption) (jwt.MapClaims, error) {
 	if len(signers) == 0 {
 		return nil, errors.New("no trusted signers configured")
 	}
 	var lastErr error
 	for _, s := range signers {
 		claims := jwt.MapClaims{}
-		_, err := jwt.ParseWithClaims(raw, claims, signerKeyfunc(s, cache))
+		_, err := jwt.ParseWithClaims(raw, claims, signerKeyfunc(s, cache), opts...)
 		if err == nil {
 			return claims, nil
 		}

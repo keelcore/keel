@@ -15,7 +15,7 @@ import (
 
 // StartHealthProbe starts a background goroutine that periodically GETs
 // cfg.UpstreamURL+cfg.UpstreamHealthPath and drives readiness accordingly.
-// If transport is nil, http.DefaultTransport is used.
+// If transport is nil, one is built from cfg.UpstreamTLS (as the proxy uses).
 // If log is nil, probe failures are silently swallowed.
 func StartHealthProbe(
 	ctx context.Context,
@@ -25,7 +25,17 @@ func StartHealthProbe(
 	log *logging.Logger,
 ) {
 	if transport == nil {
-		transport = http.DefaultTransport
+		// Probe over the same upstream TLS (CA, client cert for mTLS) as the
+		// proxy; a bare default transport fails mTLS and the pod never readies.
+		t, err := buildTransport(cfg.UpstreamTLS)
+		if err != nil {
+			readiness.Set(false)
+			if log != nil {
+				log.Warn("upstream_health_transport_failed", map[string]any{"err": err.Error()})
+			}
+			return
+		}
+		transport = t
 	}
 	timeout := cfg.UpstreamHealthTimeout.Duration
 	if timeout == 0 {

@@ -204,12 +204,20 @@ type cbTransport struct {
 }
 
 func (t *cbTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	allowed, onResult := t.breaker.Allow()
+	allowed, probe, onResult := t.breaker.allow()
 	if !allowed {
 		return nil, errCircuitOpen
 	}
 	resp, err := t.inner.RoundTrip(req)
 	if err != nil {
+		// The inbound client cancelling or timing out says nothing about upstream
+		// health; counting it would let any client open the breaker for everyone.
+		if req.Context().Err() != nil {
+			if probe {
+				t.breaker.abandonProbe()
+			}
+			return nil, err
+		}
 		onResult(false)
 		return nil, err
 	}

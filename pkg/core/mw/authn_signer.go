@@ -19,9 +19,17 @@ import (
 
 // JWTSigner mints short-lived JWTs for outbound keel-to-keel requests.
 type JWTSigner struct {
-	myID   string
-	key    any
-	method jwt.SigningMethod
+	myID     string
+	key      any
+	method   jwt.SigningMethod
+	audience string
+}
+
+// WithAudience sets the aud claim of outbound tokens (sidecar.upstream_audience)
+// so they are valid only at the intended upstream; empty leaves aud unset.
+func (s *JWTSigner) WithAudience(aud string) *JWTSigner {
+	s.audience = aud
+	return s
 }
 
 // NewJWTSigner loads the private key at keyFile and returns a signer that
@@ -41,12 +49,16 @@ func NewJWTSigner(myID, keyFile string) (*JWTSigner, error) {
 // SignRequest mints a fresh 5-minute JWT and sets Authorization: Bearer on req.
 func (s *JWTSigner) SignRequest(req *http.Request) error {
 	now := time.Now()
-	token := jwt.NewWithClaims(s.method, jwt.MapClaims{
+	claims := jwt.MapClaims{
 		"iss": s.myID,
 		"sub": s.myID,
 		"iat": now.Unix(),
 		"exp": now.Add(5 * time.Minute).Unix(),
-	})
+	}
+	if s.audience != "" {
+		claims["aud"] = s.audience
+	}
+	token := jwt.NewWithClaims(s.method, claims)
 	signed, err := token.SignedString(s.key)
 	if err != nil {
 		return fmt.Errorf("sign jwt: %w", err)

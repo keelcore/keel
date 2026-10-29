@@ -98,6 +98,7 @@ type HeaderPolicyConfig struct {
 type SidecarConfig struct {
 	Enabled                bool                 `yaml:"enabled"`
 	UpstreamURL            string               `yaml:"upstream_url"`
+	UpstreamAudience       string               `yaml:"upstream_audience"`
 	UpstreamHealthPath     string               `yaml:"upstream_health_path"`
 	UpstreamHealthInterval Duration             `yaml:"upstream_health_interval"`
 	UpstreamHealthTimeout  Duration             `yaml:"upstream_health_timeout"`
@@ -144,6 +145,7 @@ type AuthnConfig struct {
 	TrustedSignersFile string   `yaml:"trusted_signers_file"`
 	MyID               string   `yaml:"my_id"`
 	MySignatureKeyFile string   `yaml:"my_signature_key_file"`
+	Audience           string   `yaml:"audience"`
 }
 
 type ExtAuthzConfig struct {
@@ -376,6 +378,14 @@ func Validate(cfg Config) error {
 	if cfg.Sidecar.Enabled && cfg.Sidecar.UpstreamURL == "" {
 		return fmt.Errorf("sidecar is enabled but upstream_url is not set")
 	}
+	// Either gap makes every authz call fail, which fail_open turns into
+	// allow-all; reject the config instead.
+	if cfg.ExtAuthz.Enabled && cfg.ExtAuthz.Endpoint == "" {
+		return fmt.Errorf("ext_authz is enabled but endpoint is not set")
+	}
+	if cfg.ExtAuthz.Enabled && cfg.ExtAuthz.Timeout.Duration <= 0 {
+		return fmt.Errorf("ext_authz is enabled but timeout is not positive (%s)", cfg.ExtAuthz.Timeout.Duration)
+	}
 	return nil
 }
 
@@ -490,6 +500,7 @@ func applyEnv(cfg *Config) {
 	// Sidecar
 	applyBool("KEEL_SIDECAR", &cfg.Sidecar.Enabled)
 	applyString("KEEL_UPSTREAM_URL", &cfg.Sidecar.UpstreamURL)
+	applyString("KEEL_UPSTREAM_AUDIENCE", &cfg.Sidecar.UpstreamAudience)
 	applyBool("KEEL_UPSTREAM_TLS", &cfg.Sidecar.UpstreamTLS.Enabled)
 	applyString("KEEL_UPSTREAM_CA_FILE", &cfg.Sidecar.UpstreamTLS.CAFile)
 	applyString("KEEL_UPSTREAM_CLIENT_CERT", &cfg.Sidecar.UpstreamTLS.ClientCertFile)
@@ -522,6 +533,7 @@ func applyEnv(cfg *Config) {
 	// Authn
 	applyBool("KEEL_AUTHN", &cfg.Authn.Enabled)
 	applyString("KEEL_MY_ID", &cfg.Authn.MyID)
+	applyString("KEEL_AUTHN_AUDIENCE", &cfg.Authn.Audience)
 	applyCSV("KEEL_TRUSTED_IDS", &cfg.Authn.TrustedIDs)
 	applyCSV("KEEL_TRUSTED_SIGNERS", &cfg.Authn.TrustedSigners)
 

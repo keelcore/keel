@@ -33,6 +33,33 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 - ACME http-01 BATS tests run without root (challenge port 5080) using `keel-max` and a dead
   local CA URL.
 
+### Security
+
+- Inbound JWTs must carry `exp`; algorithms are pinned to HS/RS/ES 256/384/512. New optional
+  `authn.audience` (enforced `aud`) and `sidecar.upstream_audience` (`aud` on outbound signed
+  tokens) stop cross-service token replay. **Tokens without `exp` are now rejected.**
+- JWKS: https only (loopback excepted), 200 only, 1 MiB cap, failures cached 30s (last good
+  keys served meanwhile), concurrent fetches coalesced.
+- ext_authz: config rejects `enabled` with an empty endpoint or non-positive timeout; the
+  client no longer follows redirects; OPA responses capped at 1 MiB.
+- SIGUSR1 config dump redacts HMAC signer secrets and URL credentials/query strings.
+- Circuit breaker no longer counts client-cancelled requests (any client could open it).
+- Helm: `networkPolicy.enabled` now defaults to `true` (blocks direct access to a sidecar app
+  port); `rbac.create` defaults to `false` (keel does not use the Kubernetes API);
+  `serviceAccount.automountToken: false`. **Admin-port scraping from another namespace now
+  needs `networkPolicy.adminNamespaceSelector`.**
+
+### Fixed
+
+- `/readyz` reports NOT ready during the pre-stop sleep (a check the sidecar health probe
+  cannot override).
+- Reloads (SIGHUP / `/admin/reload`) wait for startup to finish and are serialized; listener
+  goroutines no longer read live config.
+- The sidecar's upstream health probe uses the upstream TLS settings (mTLS upstreams can
+  become Ready).
+- Helm: removed the `preStop` exec hook, which could never run in the `scratch` image; keel's
+  built-in `prestop_sleep` covers it.
+
 ## [0.9.7] - 2026-03-13
 
 ### Added

@@ -12,6 +12,10 @@ import (
 // (stored config, TLS certificate). On any error the running
 // configuration is left unchanged.
 func (s *Server) Reload() error {
+	// Serialized with Run's startup and with concurrent reloads (SIGHUP racing
+	// /admin/reload) so config, signer, authn, and tracing never interleave.
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
 	cfg, err := config.Load(s.cfgPaths[0], s.cfgPaths[1])
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)

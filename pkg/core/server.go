@@ -140,6 +140,11 @@ type Server struct {
 	lnBound   atomic.Int32
 	lnBoundCh chan struct{}
 
+	// reloadMu serializes Reload against Run's startup and against itself.
+	// draining is set once shutdown begins; /readyz then reports NOT ready.
+	reloadMu sync.Mutex
+	draining atomic.Bool
+
 	// signalReady, when non-nil, is closed by runSignalLoop once its signal
 	// handlers are registered. It is a test-only readiness seam so tests can
 	// send a signal without racing handler registration; nil in production.
@@ -153,6 +158,19 @@ func (s *Server) registerListenerReadinessCheck() {
 	s.readiness.AddCheck("listeners", func() error {
 		if !s.listenersServing.Load() {
 			return errors.New("probe listeners binding")
+		}
+		return nil
+	})
+}
+
+// registerDrainingReadinessCheck makes /readyz report NOT ready once shutdown has
+// begun (draining). It is a check rather than Readiness.Set(false) because the
+// readiness flag is also written by the sidecar health probe, which would flip
+// it back to ready mid-drain; a failing check cannot be overridden.
+func (s *Server) registerDrainingReadinessCheck() {
+	s.readiness.AddCheck("draining", func() error {
+		if s.draining.Load() {
+			return errors.New("shutting down")
 		}
 		return nil
 	})
@@ -295,7 +313,7 @@ func (s *Server) applyOutboundSigner(cfg config.Config) {
 		s.logger.Warn("jwt_signer_reload_failed", map[string]any{"err": err.Error()})
 		return
 	}
-	s.signer.Store(sg)
+	s.signer.Store(sg.WithAudience(cfg.Sidecar.UpstreamAudience))
 }
 
 // applyAuthnState precomputes the trusted signers list and stores it atomically
@@ -343,6 +361,9 @@ func buildRemoteSink(cfg config.RemoteSinkConfig) (io.Writer, *logging.HTTPSink,
 }
 
 func (s *Server) Run(ctx context.Context) {
+	// Startup reads s.cfg throughout; a reload (SIGHUP or /admin/reload) arriving
+	// meanwhile waits on reloadMu until startup completes instead of racing it.
+	s.reloadMu.Lock()
 	if err := acmeValidate(s.cfg); err != nil {
 		s.logger.Fatal("acme_config_invalid", map[string]any{"err": err.Error()})
 	}
@@ -373,6 +394,7 @@ func (s *Server) Run(ctx context.Context) {
 	go s.runSignalLoop(ctx)
 
 	s.registerListenerReadinessCheck()
+	s.registerDrainingReadinessCheck()
 	s.startProbeListeners(ctx, shutdown, &wg, errCh, healthMux, readyMux, adminMux)
 	acmeMgr := s.startACMEListener(ctx, shutdown, &wg, errCh)
 	s.startMainListeners(ctx, shutdown, &wg, errCh, mainHandler, acmeMgr)
@@ -380,8 +402,13 @@ func (s *Server) Run(ctx context.Context) {
 	s.startSidecar(ctx, rt)
 	s.startBackgroundLoops(ctx, &wg, acmeMgr)
 	s.startup.Done()
+	s.reloadMu.Unlock()
 
 	sigErr := s.waitForStop(ctx, shutdown, errCh)
+	// Report NOT ready before the prestop sleep so load balancers drain this
+	// instance while listeners still serve in-flight and late-routed requests.
+	s.draining.Store(true)
+	s.logger.Info("readiness_draining", nil)
 	s.prestopSleep()
 	s.drainListeners(cancel, &wg, errCh, sigErr)
 }
@@ -475,6 +502,8 @@ func (s *Server) acmeLog(event string, fields map[string]any) {
 // startProbeListeners launches goroutines for the health, ready, admin, and
 // startup probe listeners according to the listener config.
 func (s *Server) startProbeListeners(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error, healthMux, readyMux, adminMux *http.ServeMux) {
+	// Goroutines below use this snapshot, never s.cfg: a reload must not race them.
+	cfg := s.cfg
 	// Each enabled probe listener joins the readiness bind barrier: bindWG.Add(1) here, Done via the
 	// onBound signal once its socket is bound, so /readyz gates on the admin/probe paths accepting
 	// connections (not merely on the goroutine being spawned).
@@ -483,7 +512,7 @@ func (s *Server) startProbeListeners(ctx context.Context, sd *lifecycle.Orchestr
 		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Health.Port), healthMux, s.cfg, s.logger, s.listenerBound)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(cfg.Listeners.Health.Port), healthMux, cfg, s.logger, s.listenerBound)
 		}()
 	}
 	if s.cfg.Listeners.Ready.Enabled {
@@ -491,7 +520,7 @@ func (s *Server) startProbeListeners(ctx context.Context, sd *lifecycle.Orchestr
 		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Ready.Port), readyMux, s.cfg, s.logger, s.listenerBound)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(cfg.Listeners.Ready.Port), readyMux, cfg, s.logger, s.listenerBound)
 		}()
 	}
 	if s.cfg.Listeners.Admin.Enabled {
@@ -499,7 +528,7 @@ func (s *Server) startProbeListeners(ctx context.Context, sd *lifecycle.Orchestr
 		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Admin.Port), adminMux, s.cfg, s.logger, s.listenerBound)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(cfg.Listeners.Admin.Port), adminMux, cfg, s.logger, s.listenerBound)
 		}()
 	}
 	if s.cfg.Listeners.Startup.Enabled {
@@ -508,7 +537,7 @@ func (s *Server) startProbeListeners(ctx context.Context, sd *lifecycle.Orchestr
 		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Startup.Port), startupMux, s.cfg, s.logger, s.listenerBound)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(cfg.Listeners.Startup.Port), startupMux, cfg, s.logger, s.listenerBound)
 		}()
 	}
 }
@@ -517,16 +546,18 @@ func (s *Server) startProbeListeners(ctx context.Context, sd *lifecycle.Orchestr
 // challenge listener when ACME is enabled. Returns the manager (nil if
 // disabled) for use by the HTTPS listener.
 func (s *Server) startACMEListener(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error) *acme.Manager {
+	// Goroutines below use this snapshot, never s.cfg: a reload must not race them.
+	cfg := s.cfg
 	if !s.cfg.TLS.ACME.Enabled {
 		return nil
 	}
 	mgr := s.newACMEManager()
-	go func() { _ = mgr.Start(ctx, s.cfg.TLS.ACME) }()
+	go func() { _ = mgr.Start(ctx, cfg.TLS.ACME) }()
 	wg.Add(1)
 	s.addListener()
 	go func() {
 		defer wg.Done()
-		errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.TLS.ACME.ChallengePort), mgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port), s.cfg, s.logger)
+		errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(cfg.TLS.ACME.ChallengePort), mgr.HTTPHandler(cfg.Listeners.HTTPS.Port), cfg, s.logger)
 	}()
 	return mgr
 }
@@ -534,6 +565,8 @@ func (s *Server) startACMEListener(ctx context.Context, sd *lifecycle.Orchestrat
 // startHTTPSListener starts the HTTPS listener, using ACME GetCertificate when
 // ACME is enabled, or a file-based CertLoader otherwise.
 func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error, h http.Handler, acmeMgr *acme.Manager) {
+	// Goroutines below use this snapshot, never s.cfg: a reload must not race them.
+	cfg := s.cfg
 	if !s.cfg.Listeners.HTTPS.Enabled {
 		return
 	}
@@ -542,7 +575,7 @@ func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestra
 		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- s.runner.serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, nil, acmeMgr.GetCertificate, s.logger)
+			errCh <- s.runner.serveHTTPS(ctx, sd, config.AddrFromPort(cfg.Listeners.HTTPS.Port), h, cfg, nil, acmeMgr.GetCertificate, s.logger)
 		}()
 		return
 	}
@@ -558,18 +591,20 @@ func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestra
 	s.addListener()
 	go func() {
 		defer wg.Done()
-		errCh <- s.runner.serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, loader, nil, s.logger)
+		errCh <- s.runner.serveHTTPS(ctx, sd, config.AddrFromPort(cfg.Listeners.HTTPS.Port), h, cfg, loader, nil, s.logger)
 	}()
 }
 
 // startMainListeners launches the HTTP, HTTPS, and H3 application listeners.
 func (s *Server) startMainListeners(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error, h http.Handler, acmeMgr *acme.Manager) {
+	// Goroutines below use this snapshot, never s.cfg: a reload must not race them.
+	cfg := s.cfg
 	if s.cfg.Listeners.HTTP.Enabled {
 		wg.Add(1)
 		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), h, s.cfg, s.logger)
+			errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(cfg.Listeners.HTTP.Port), h, cfg, s.logger)
 		}()
 	}
 	s.startHTTPSListener(ctx, sd, wg, errCh, h, acmeMgr)
@@ -590,7 +625,7 @@ func (s *Server) startMainListeners(ctx context.Context, sd *lifecycle.Orchestra
 		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- s.runner.serveH3(ctx, config.AddrFromPort(s.cfg.Listeners.H3.Port), h, s.cfg, s.logger)
+			errCh <- s.runner.serveH3(ctx, config.AddrFromPort(cfg.Listeners.H3.Port), h, cfg, s.logger)
 		}()
 	}
 }
@@ -598,11 +633,13 @@ func (s *Server) startMainListeners(ctx context.Context, sd *lifecycle.Orchestra
 // startBackgroundLoops starts the metric and monitor goroutines that run for
 // the lifetime of the server.
 func (s *Server) startBackgroundLoops(ctx context.Context, wg *sync.WaitGroup, acmeMgr *acme.Manager) {
+	// Goroutines below use this snapshot, never s.cfg: a reload must not race them.
+	cfg := s.cfg
 	if s.cfg.Backpressure.SheddingEnabled {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			mw.RunPressureLoop(ctx, s.readiness, s.cfg, s.logger)
+			mw.RunPressureLoop(ctx, s.readiness, cfg, s.logger)
 		}()
 	}
 	if s.cfg.Listeners.HTTPS.Enabled {
@@ -616,7 +653,7 @@ func (s *Server) startBackgroundLoops(ctx context.Context, wg *sync.WaitGroup, a
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				runCertExpiryLoop(ctx, s.cfg.TLS.CertFile, s.met)
+				runCertExpiryLoop(ctx, cfg.TLS.CertFile, s.met)
 			}()
 		}
 	}
@@ -706,7 +743,7 @@ func (s *Server) startSidecar(ctx context.Context, rt *router.Router) {
 		if signerErr != nil {
 			s.logger.Fatal("jwt_signer_init_failed", map[string]any{"err": signerErr.Error()})
 		}
-		s.signer.Store(sg)
+		s.signer.Store(sg.WithAudience(s.cfg.Sidecar.UpstreamAudience))
 	}
 	// signFn reads the atomic pointer on every request so SIGHUP key rotation
 	// takes effect immediately without re-creating the sidecar proxy.

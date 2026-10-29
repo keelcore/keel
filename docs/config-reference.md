@@ -134,6 +134,11 @@ sidecar:
                       # needed across the loopback because the pod network namespace is
                       # the trust boundary. For out-of-pod upstreams, use https://.
 
+  upstream_audience: ""   # aud claim Keel stamps on outbound signed JWTs (my_id /
+                      # my_signature_key_file). Set it to the upstream's authn.audience
+                      # so the token is valid only there and cannot be replayed to
+                      # another service that trusts the same signer. Empty: no aud.
+
   upstream_health_path: /health         # Path Keel polls on the upstream to determine
                       # upstream reachability. Used for /readyz and circuit breaker logic.
 
@@ -290,6 +295,11 @@ authn:
                       # Keel signs the forwarded request's Authorization header with this
                       # key so the upstream can verify Keel's identity.
 
+  audience: ""        # When set, inbound JWTs must carry this value in aud, so a token
+                      # a trusted signer minted for another service is rejected here.
+                      # Empty: aud is not checked. Independently of this, every inbound
+                      # token must carry exp, and only HS/RS/ES 256/384/512 are accepted.
+
 # -----------------------------------------------------------------------
 # External Authz: delegate authorization decisions to an external policy engine
 # -----------------------------------------------------------------------
@@ -390,6 +400,7 @@ modifying the config file — and they work naturally with Kubernetes ConfigMaps
 | `KEEL_TLS_KEY` | `tls.key_file` | `""` | |
 | `KEEL_SIDECAR` | `sidecar.enabled` | `false` | |
 | `KEEL_UPSTREAM_URL` | `sidecar.upstream_url` | `""` | |
+| `KEEL_UPSTREAM_AUDIENCE` | `sidecar.upstream_audience` | `""` | |
 | `KEEL_UPSTREAM_TLS` | `sidecar.upstream_tls.enabled` | `false` | |
 | `KEEL_UPSTREAM_CA_FILE` | `sidecar.upstream_tls.ca_file` | `""` | |
 | `KEEL_UPSTREAM_CLIENT_CERT` | `sidecar.upstream_tls.client_cert_file` | `""` | |
@@ -399,6 +410,7 @@ modifying the config file — and they work naturally with Kubernetes ConfigMaps
 | `KEEL_TRUSTED_IDS` | `authn.trusted_ids` | `""` | Comma-separated list |
 | `KEEL_TRUSTED_SIGNERS` | `authn.trusted_signers` | `""` | Comma-separated list |
 | `KEEL_MY_ID` | `authn.my_id` | `""` | |
+| `KEEL_AUTHN_AUDIENCE` | `authn.audience` | `""` | |
 | `KEEL_AUTHZ` | `ext_authz.enabled` | `false` | |
 | `KEEL_AUTHZ_ENDPOINT` | `ext_authz.endpoint` | `""` | |
 | `KEEL_AUTHZ_PATH` | `ext_authz.path` | `""` | Unix socket request path |

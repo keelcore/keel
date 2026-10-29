@@ -53,6 +53,7 @@ data:
     sidecar:
       enabled: {{ eq .Values.mode "sidecar" }}
       upstream_url: {{ $v.upstream.url | quote }}
+      upstream_audience: {{ $v.upstream.audience | quote }}
       upstream_health_path: {{ $v.upstream.healthPath | quote }}
       upstream_health_interval: {{ $v.upstream.healthInterval | quote }}
       upstream_health_timeout: {{ $v.upstream.healthTimeout | quote }}
@@ -106,6 +107,7 @@ data:
       trusted_signers_file: {{ $v.authn.trustedSignersFile | quote }}
       my_id: {{ $v.authn.myID | quote }}
       my_signature_key_file: {{ $v.authn.mySignatureKeyFile | quote }}
+      audience: {{ $v.authn.audience | quote }}
 
     ext_authz:
       enabled: {{ $v.extAuthz.enabled }}

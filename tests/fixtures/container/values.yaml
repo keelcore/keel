@@ -78,6 +78,8 @@ keel:
     trustedSignersFile: ""
     myID: ""
     mySignatureKeyFile: ""
+    # Required aud claim on inbound JWTs (authn.audience); empty: not checked.
+    audience: ""
 
   extAuthz:
     enabled: false
@@ -114,6 +116,7 @@ keel:
 
   upstream:
     url: ""
+    audience: ""
     tlsSecret: ""
     tlsInsecureSkipVerify: false
     healthPath: "/health"

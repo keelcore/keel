@@ -28,6 +28,9 @@ spec:
       {{- end }}
     spec:
       serviceAccountName: {{ include "keel.serviceAccountName" . }}
+      # keel does not call the Kubernetes API; do not hand every container in
+      # the pod (including a sidecar app) an API token.
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -156,10 +159,10 @@ spec:
             failureThreshold: 30
           {{- end }}
 
-          lifecycle:
-            preStop:
-              exec:
-                command: ["/bin/sh", "-c", "sleep {{ .Values.keel.timeouts.prestopSleep | trimSuffix `s` | default `0` }}"]
+          # No preStop hook: the image is FROM scratch (no /bin/sh), so an exec
+          # hook can only fail. keel performs the pre-stop sleep itself on
+          # SIGTERM (keel.timeouts.prestopSleep → timeouts.prestop_sleep),
+          # reporting NOT ready while it keeps serving, then drains.
 
           volumeMounts:
             - name: keel-config

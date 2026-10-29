@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -94,7 +95,7 @@ func authzParseOPA(resp *http.Response, log *logging.Logger) bool {
 	var body struct {
 		Result bool `json:"result"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxAuthzResponseBytes)).Decode(&body); err != nil {
 		log.Warn("authz_opa_parse_fail", map[string]any{"err": err.Error()})
 		return false
 	}
@@ -114,12 +115,21 @@ func authzRequestURL(cfg config.ExtAuthzConfig) string {
 	return cfg.Endpoint
 }
 
+// maxAuthzResponseBytes caps how much of a decision response is read.
+const maxAuthzResponseBytes = 1 << 20
+
+// noRedirects makes the client return a 3xx as-is: a redirect is not an allow
+// decision, and following it would send the request payload to another host.
+func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
 // authzClient builds an *http.Client suited to the configured endpoint.
 // Unix socket endpoints get a custom dialer; HTTP(S) endpoints use the default.
+// Neither follows redirects.
 func authzClient(cfg config.ExtAuthzConfig) *http.Client {
 	if strings.HasPrefix(cfg.Endpoint, "unix://") {
 		socketPath := strings.TrimPrefix(cfg.Endpoint, "unix://")
 		return &http.Client{
+			CheckRedirect: noRedirects,
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 					return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
@@ -127,5 +137,5 @@ func authzClient(cfg config.ExtAuthzConfig) *http.Client {
 			},
 		}
 	}
-	return &http.Client{}
+	return &http.Client{CheckRedirect: noRedirects}
 }

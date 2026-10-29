@@ -40,11 +40,12 @@ func (s *Server) runSignalLoop(ctx context.Context) {
 	}
 }
 
-// dumpConfig writes the current configuration as JSON to stderr (SIGUSR1).
+// dumpConfig writes the current configuration as JSON to stderr (SIGUSR1),
+// with secrets redacted (see redactedConfig).
 func (s *Server) dumpConfig() {
 	s.cfgMu.RLock()
 	cfg := s.cfg
 	s.cfgMu.RUnlock()
-	b, _ := json.MarshalIndent(cfg, "", "  ")
+	b, _ := json.MarshalIndent(redactedConfig(cfg), "", "  ")
 	fmt.Fprintln(os.Stderr, string(b))
 }

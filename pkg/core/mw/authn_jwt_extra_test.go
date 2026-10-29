@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -32,7 +33,7 @@ func hs256Token(t *testing.T, secret, sub string) string {
 	if os.Getenv("GOFIPS140") != "" {
 		t.Skip("HS256 short-key fixtures are invalid under FIPS 140-only mode (HMAC keys must be >= 112 bits)")
 	}
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": sub})
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": sub, "exp": time.Now().Add(time.Hour).Unix()})
 	s, err := tok.SignedString([]byte(secret))
 	if err != nil {
 		t.Fatalf("sign token: %v", err)

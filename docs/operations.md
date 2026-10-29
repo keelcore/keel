@@ -153,19 +153,11 @@ Set `timeouts.prestop_sleep: 5s` in your config. This eliminates 502s during rol
 
 **Important:** The sleep is triggered by receiving SIGTERM (i.e., it is part of Keel's built-in shutdown
 handling). It is different from the Kubernetes `lifecycle.preStop` hook, which runs before SIGTERM is sent.
-You can use both:
+During the sleep `/readyz` reports NOT ready (so load balancers stop routing new traffic) while Keel keeps
+serving in-flight and late-routed requests.
 
-```yaml
-# Helm values.yaml
-lifecycle:
-  preStop:
-    exec:
-      command: ["/bin/sh", "-c", "sleep 2"]   # 2s at the Kubernetes layer
-```
-
-Combined with `timeouts.prestop_sleep: 5s`, the effective pre-drain window is 7s. The Kubernetes `preStop`
-hook approach has a downside: it adds to the total termination time for every pod restart, even in cases where
-propagation is fast. Keel's built-in sleep is simpler and sufficient for most use cases.
+The Helm chart sets no `preStop` hook: the image is `FROM scratch`, so an `exec` hook (e.g.
+`/bin/sh -c "sleep 2"`) has no shell to run and always fails. Keel's built-in sleep covers the same need.
 
 ### 5.3 Recommended Configuration
 

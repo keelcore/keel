@@ -9,28 +9,59 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
+	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const jwksTTL = 5 * time.Minute
+const (
+	jwksTTL = 5 * time.Minute
+	// jwksFailureBackoff is how long a failed fetch is remembered, so an issuer
+	// outage cannot turn every bearer request into an outbound fetch.
+	jwksFailureBackoff = 30 * time.Second
+	// maxJWKSBytes caps how much of a JWK Set response is read.
+	maxJWKSBytes = 1 << 20
+)
 
 // jwksClient is used for all JWKs endpoint fetches.
 var jwksClient = &http.Client{Timeout: 10 * time.Second}
 
 // jwksCache holds fetched JWKs sets, keyed by URL, with TTL-based expiry.
+// Fetches for one URL are serialized (one in flight; waiters reuse its result).
 type jwksCache struct {
-	mu      sync.Mutex
-	entries map[string]*jwksCacheEntry
+	mu       sync.Mutex
+	entries  map[string]*jwksCacheEntry
+	fetching map[string]*sync.Mutex
 }
 
+// jwksCacheEntry holds the last good keys (if any) and the last failure (if
+// any). After a failure, last good keys keep being served until the backoff
+// ends — a brief issuer outage does not fail every request.
 type jwksCacheEntry struct {
 	keys      []parsedJWK
 	fetchedAt time.Time
+	err       error
+	failedAt  time.Time
+}
+
+// usable returns the entry's result if it may be served without a fetch now.
+func (e *jwksCacheEntry) usable(now time.Time) (*jwksCacheEntry, error, bool) {
+	if e.keys != nil && now.Sub(e.fetchedAt) < jwksTTL {
+		return e, nil, true
+	}
+	if e.err != nil && now.Sub(e.failedAt) < jwksFailureBackoff {
+		if e.keys != nil {
+			return e, nil, true // serve last good keys during the backoff
+		}
+		return nil, e.err, true
+	}
+	return nil, nil, false
 }
 
 // parsedJWK holds a decoded JWK public key with its optional key ID.
@@ -40,7 +71,7 @@ type parsedJWK struct {
 }
 
 func newJWKSCache() *jwksCache {
-	return &jwksCache{entries: make(map[string]*jwksCacheEntry)}
+	return &jwksCache{entries: make(map[string]*jwksCacheEntry), fetching: make(map[string]*sync.Mutex)}
 }
 
 // keysFor returns the best-matching public key from the JWKs endpoint for t.
@@ -76,40 +107,80 @@ func jwkAlgMatches(key any, alg string) bool {
 	return false
 }
 
-// get returns the cached entry for url, fetching fresh data if the cache is
-// missing or stale. Concurrent fetches for the same URL are not deduplicated;
-// the last writer wins, which is safe for a key cache.
+// get returns the keys for url: from cache while fresh (or, after a failure,
+// for the backoff window), otherwise from one fetch shared by concurrent callers.
 func (c *jwksCache) get(url string) (*jwksCacheEntry, error) {
+	if e, err, ok := c.lookup(url); ok {
+		return e, err
+	}
 	c.mu.Lock()
-	entry, ok := c.entries[url]
+	fl, ok := c.fetching[url]
+	if !ok {
+		fl = &sync.Mutex{}
+		c.fetching[url] = fl
+	}
 	c.mu.Unlock()
-	if ok && time.Since(entry.fetchedAt) < jwksTTL {
-		return entry, nil
+
+	fl.Lock()
+	defer fl.Unlock()
+	// Another caller may have completed the fetch while this one waited.
+	if e, err, ok := c.lookup(url); ok {
+		return e, err
 	}
 
 	keys, err := fetchJWKS(url)
-	if err != nil {
-		return nil, fmt.Errorf("fetch JWKs %s: %w", url, err)
-	}
-	e := &jwksCacheEntry{keys: keys, fetchedAt: time.Now()}
+	now := time.Now()
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	prev := c.entries[url]
+	if err != nil {
+		err = fmt.Errorf("fetch JWKs %s: %w", url, err)
+		e := &jwksCacheEntry{err: err, failedAt: now}
+		if prev != nil && prev.keys != nil {
+			e.keys, e.fetchedAt = prev.keys, prev.fetchedAt
+		}
+		c.entries[url] = e
+		if e.keys != nil {
+			return e, nil
+		}
+		return nil, err
+	}
+	e := &jwksCacheEntry{keys: keys, fetchedAt: now}
 	c.entries[url] = e
-	c.mu.Unlock()
 	return e, nil
 }
 
-// fetchJWKS downloads a JWK Set from url and returns the parsed keys.
-func fetchJWKS(url string) ([]parsedJWK, error) {
-	resp, err := jwksClient.Get(url) //nolint:noctx // URL is from trusted operator config
+// lookup returns a cached result for url if it may be served without a fetch.
+func (c *jwksCache) lookup(url string) (*jwksCacheEntry, error, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.entries[url]; ok {
+		return e.usable(time.Now())
+	}
+	return nil, nil, false
+}
+
+// fetchJWKS downloads a JWK Set from url and returns the parsed keys. Keys must
+// arrive over https — plain http lets an on-path attacker substitute keys and
+// forge any token — except from loopback. Only a 200 is accepted, and at most
+// maxJWKSBytes are read.
+func fetchJWKS(rawURL string) ([]parsedJWK, error) {
+	if err := requireSecureJWKSURL(rawURL); err != nil {
+		return nil, err
+	}
+	resp, err := jwksClient.Get(rawURL) //nolint:noctx // URL is from trusted operator config
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("JWKs endpoint returned %d", resp.StatusCode)
+	}
 
 	var set struct {
 		Keys []json.RawMessage `json:"keys"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&set); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxJWKSBytes)).Decode(&set); err != nil {
 		return nil, fmt.Errorf("decode JWKs: %w", err)
 	}
 
@@ -206,4 +277,21 @@ func parseECJWK(raw json.RawMessage) (*ecdsa.PublicKey, error) {
 		X:     new(big.Int).SetBytes(x),
 		Y:     new(big.Int).SetBytes(y),
 	}, nil
+}
+
+// requireSecureJWKSURL rejects a JWKS URL that is not https, unless it targets
+// loopback (a local issuer or test fixture, where there is no network path).
+func requireSecureJWKSURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parse JWKs URL: %w", err)
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); host == "localhost" || (ip != nil && ip.IsLoopback()) {
+		return nil
+	}
+	return fmt.Errorf("JWKs URL %s must use https", rawURL)
 }

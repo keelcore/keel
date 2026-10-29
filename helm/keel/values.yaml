@@ -85,6 +85,8 @@ keel:
   upstream:
     # In sidecar mode the app runs on localhost. Keep in sync with sidecar.app.port.
     url: "http://localhost:3000"
+    # aud claim on outbound signed JWTs (sidecar.upstream_audience); empty: none.
+    audience: ""
     # k8s Secret with keys: ca.crt, tls.crt, tls.key
     # Mounted at /etc/keel/secrets/upstream-tls/ and wired into upstream_tls.*_file paths.
     tlsSecret: ""
@@ -134,6 +136,8 @@ keel:
     trustedSignersFile: ""
     myID: ""
     mySignatureKeyFile: ""
+    # Required aud claim on inbound JWTs (authn.audience); empty: not checked.
+    audience: ""
 
   extAuthz:
     enabled: false
@@ -219,7 +223,10 @@ serviceMonitor:
 
 # ── NetworkPolicy ─────────────────────────────────────────────────────────────
 networkPolicy:
-  enabled: false
+  # On by default: only keel's listener ports accept ingress, so a sidecar app
+  # port (e.g. 3000) is not reachable from other pods to bypass keel's authn.
+  # Egress stays open (DNS + allow-all; tighten with extraEgressRules).
+  enabled: true
   # CIDR for kubelet liveness/readiness probe traffic.
   # Set to your node CIDR (e.g. "10.0.0.0/8").  Default allows all.
   kubeletCIDR: "0.0.0.0/0"
@@ -239,11 +246,15 @@ podDisruptionBudget:
 # ── RBAC / ServiceAccount ─────────────────────────────────────────────────────
 serviceAccount:
   create: true
+  # keel does not use the Kubernetes API; no token is mounted unless enabled.
+  automountToken: false
   name: ""
   annotations: {}
 
 rbac:
-  create: true
+  # keel does not call the Kubernetes API, so it needs no ClusterRole. Enable only
+  # if you extend keel with code that does.
+  create: false
 
 # ── Pod / container settings ──────────────────────────────────────────────────
 podAnnotations: {}
