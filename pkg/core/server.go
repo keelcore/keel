@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,8 +63,12 @@ type listenerRunner interface {
 		cfg config.Config, log *logging.Logger) error
 }
 
-// realRunner is the production implementation of listenerRunner.
-type realRunner struct{ onBound func() }
+// realRunner is the production implementation of listenerRunner. h3Cert is the
+// shared certificate source for HTTP/3 (nil: serveH3 loads the cfg cert files).
+type realRunner struct {
+	onBound func()
+	h3Cert  func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error)
+}
 
 func (r realRunner) serveHTTP(ctx context.Context, sd *lifecycle.Orchestrator, addr string,
 	h http.Handler, cfg config.Config, log *logging.Logger) error {
@@ -81,7 +84,7 @@ func (r realRunner) serveHTTPS(ctx context.Context, sd *lifecycle.Orchestrator, 
 
 func (r realRunner) serveH3(ctx context.Context, addr string, h http.Handler,
 	cfg config.Config, log *logging.Logger) error {
-	return serveH3Bound(ctx, addr, h, cfg, log, r.onBound)
+	return serveH3With(ctx, addr, h, cfg, log, r.onBound, r.h3Cert)
 }
 
 type Server struct {
@@ -104,11 +107,14 @@ type Server struct {
 	// cancelled on both SIGHUP reload and process shutdown.
 	// sinkWg tracks the active sink goroutine so Run waits for its final
 	// flush to complete before the process exits.
+	// sinkOut is the writer currently attached to the logger (nil: none); it is
+	// detached and, if it is an io.Closer (syslog), closed when replaced.
 	runCtx     context.Context
 	sinkMu     sync.Mutex
 	sinkCancel context.CancelFunc
 	sinkWg     sync.WaitGroup
 	httpSink   atomic.Pointer[logging.HTTPSink]
+	sinkOut    io.Writer
 
 	// Outbound signer: updated atomically on SIGHUP so the sidecar proxy
 	// picks up the new key without being re-created.
@@ -126,6 +132,13 @@ type Server struct {
 	// "ready to serve", including the admin/probe paths, not merely "process spawned the goroutine".
 	bindWG           sync.WaitGroup
 	listenersServing atomic.Bool
+
+	// Listener attempt accounting for waitForStop: lnStarted counts listeners
+	// launched, lnBound those that bound; lnBoundCh wakes the waiter on a bind.
+	// A failure is obeyed only once every listener has been attempted.
+	lnStarted atomic.Int32
+	lnBound   atomic.Int32
+	lnBoundCh chan struct{}
 
 	// signalReady, when non-nil, is closed by runSignalLoop once its signal
 	// handlers are registered. It is a test-only readiness seam so tests can
@@ -156,6 +169,24 @@ func (s *Server) startListenerReadinessGate() {
 	}()
 }
 
+// addListener registers a listener about to be launched: it joins the readiness
+// bind barrier and the attempt count waitForStop obeys failures against.
+func (s *Server) addListener() {
+	s.bindWG.Add(1)
+	s.lnStarted.Add(1)
+}
+
+// listenerBound is each listener's onBound: it releases the readiness barrier,
+// counts the listener as attempted, and wakes waitForStop.
+func (s *Server) listenerBound() {
+	s.lnBound.Add(1)
+	s.bindWG.Done()
+	select {
+	case s.lnBoundCh <- struct{}{}:
+	default:
+	}
+}
+
 func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
 	s := &Server{
 		cfg:       cfg,
@@ -163,8 +194,9 @@ func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
 		readiness: probes.NewReadiness(),
 		startup:   probes.NewStartup(),
 		met:       metrics.New(),
+		lnBoundCh: make(chan struct{}, 1),
 	}
-	s.runner = realRunner{onBound: s.bindWG.Done}
+	s.runner = realRunner{onBound: s.listenerBound, h3Cert: s.h3Certificate}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -200,24 +232,38 @@ func (s *Server) applyRemoteSink(cfg config.Config) {
 	s.sinkMu.Lock()
 	defer s.sinkMu.Unlock()
 
-	// Cancel and discard the previous sink goroutine (if any).
+	// Cancel and discard the previous sink goroutine (if any). The previous
+	// writer is closed on return — after the logger has been switched off it
+	// (log writes hold the logger mutex, so nothing still writes to it).
 	if s.sinkCancel != nil {
 		s.sinkCancel()
 		s.sinkCancel = nil
 	}
 	s.httpSink.Store(nil)
+	prev := s.sinkOut
+	s.sinkOut = nil
+	defer closeSinkWriter(prev)
+
+	// Without a new sink, an attached one must actually be detached: Reconfigure
+	// ignores a nil Out, so restore stdout explicitly. With none attached, nil
+	// keeps whatever output the embedder configured.
+	var plain io.Writer
+	if prev != nil {
+		plain = os.Stdout
+	}
 
 	if !cfg.Logging.RemoteSink.Enabled || cfg.Logging.RemoteSink.Endpoint == "" {
-		_ = s.logger.Reconfigure(logging.Config{Level: cfg.Logging.Level, JSON: cfg.Logging.JSON})
+		_ = s.logger.Reconfigure(logging.Config{Level: cfg.Logging.Level, JSON: cfg.Logging.JSON, Out: plain})
 		return
 	}
 
 	w, httpSink, err := buildRemoteSinkFn(cfg.Logging.RemoteSink)
 	if err != nil {
 		s.logger.Warn("remote_sink_init_failed", map[string]any{"err": err.Error()})
-		_ = s.logger.Reconfigure(logging.Config{Level: cfg.Logging.Level, JSON: cfg.Logging.JSON})
+		_ = s.logger.Reconfigure(logging.Config{Level: cfg.Logging.Level, JSON: cfg.Logging.JSON, Out: plain})
 		return
 	}
+	s.sinkOut = w
 
 	sinkCtx, cancel := context.WithCancel(s.runCtx)
 	s.sinkCancel = cancel
@@ -300,9 +346,7 @@ func (s *Server) Run(ctx context.Context) {
 	if err := acmeValidate(s.cfg); err != nil {
 		s.logger.Fatal("acme_config_invalid", map[string]any{"err": err.Error()})
 	}
-	if s.cfg.Backpressure.HeapMaxBytes > 0 {
-		debug.SetMemoryLimit(s.cfg.Backpressure.HeapMaxBytes)
-	}
+	applyMemoryLimit(s.cfg.Backpressure.HeapMaxBytes, s.logger)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -337,9 +381,55 @@ func (s *Server) Run(ctx context.Context) {
 	s.startBackgroundLoops(ctx, &wg, acmeMgr)
 	s.startup.Done()
 
-	sigErr := shutdown.WaitForStop(ctx)
+	sigErr := s.waitForStop(ctx, shutdown, errCh)
 	s.prestopSleep()
 	s.drainListeners(cancel, &wg, errCh, sigErr)
+}
+
+// errListenerExited marks a listener that returned without error before shutdown.
+var errListenerExited = errors.New("listener exited unexpectedly")
+
+// waitForStop blocks until a shutdown signal or ctx end, or until listener
+// failure must be obeyed. Listeners only return on their own after ctx is
+// cancelled, so an early return (bind failure, Serve error) is a failure. Each
+// failure is logged at once and recorded, but obeyed only after every listener
+// has been attempted (bound or failed) — so all startup failures surface
+// together rather than the first one masking the rest. The recorded failures
+// go back on errCh (each receive freed a slot) for drainListeners to aggregate.
+func (s *Server) waitForStop(ctx context.Context, shutdown *lifecycle.Orchestrator, errCh chan error) error {
+	stopCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	sigCh := make(chan error, 1)
+	go func() { sigCh <- shutdown.WaitForStop(stopCtx) }()
+	var failed []error
+	defer func() {
+		for _, err := range failed {
+			errCh <- err
+		}
+	}()
+	for {
+		select {
+		case sigErr := <-sigCh:
+			return sigErr
+		case err := <-errCh:
+			if ctx.Err() != nil {
+				// Shutting down: listeners return as ctx is cancelled, and this
+				// receive can win the select against WaitForStop. Not a failure —
+				// hand the result to drainListeners and finish the shutdown.
+				errCh <- err
+				return ctx.Err()
+			}
+			if err == nil {
+				err = errListenerExited
+			}
+			s.logger.Error("listener_failed", map[string]any{"err": err.Error()})
+			failed = append(failed, err)
+		case <-s.lnBoundCh:
+		}
+		if len(failed) > 0 && int(s.lnBound.Load())+len(failed) >= int(s.lnStarted.Load()) {
+			return nil
+		}
+	}
 }
 
 // initStatsD connects to the StatsD endpoint when configured. A dial error is
@@ -390,35 +480,35 @@ func (s *Server) startProbeListeners(ctx context.Context, sd *lifecycle.Orchestr
 	// connections (not merely on the goroutine being spawned).
 	if s.cfg.Listeners.Health.Enabled {
 		wg.Add(1)
-		s.bindWG.Add(1)
+		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Health.Port), healthMux, s.cfg, s.logger, s.bindWG.Done)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Health.Port), healthMux, s.cfg, s.logger, s.listenerBound)
 		}()
 	}
 	if s.cfg.Listeners.Ready.Enabled {
 		wg.Add(1)
-		s.bindWG.Add(1)
+		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Ready.Port), readyMux, s.cfg, s.logger, s.bindWG.Done)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Ready.Port), readyMux, s.cfg, s.logger, s.listenerBound)
 		}()
 	}
 	if s.cfg.Listeners.Admin.Enabled {
 		wg.Add(1)
-		s.bindWG.Add(1)
+		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Admin.Port), adminMux, s.cfg, s.logger, s.bindWG.Done)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Admin.Port), adminMux, s.cfg, s.logger, s.listenerBound)
 		}()
 	}
 	if s.cfg.Listeners.Startup.Enabled {
 		startupMux := buildStartupMux(s.startup)
 		wg.Add(1)
-		s.bindWG.Add(1)
+		s.addListener()
 		go func() {
 			defer wg.Done()
-			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Startup.Port), startupMux, s.cfg, s.logger, s.bindWG.Done)
+			errCh <- serveHTTPBound(ctx, sd, config.AddrFromPort(s.cfg.Listeners.Startup.Port), startupMux, s.cfg, s.logger, s.listenerBound)
 		}()
 	}
 }
@@ -433,7 +523,7 @@ func (s *Server) startACMEListener(ctx context.Context, sd *lifecycle.Orchestrat
 	mgr := s.newACMEManager()
 	go func() { _ = mgr.Start(ctx, s.cfg.TLS.ACME) }()
 	wg.Add(1)
-	s.bindWG.Add(1)
+	s.addListener()
 	go func() {
 		defer wg.Done()
 		errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.TLS.ACME.ChallengePort), mgr.HTTPHandler(s.cfg.Listeners.HTTPS.Port), s.cfg, s.logger)
@@ -449,7 +539,7 @@ func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestra
 	}
 	if s.cfg.TLS.ACME.Enabled {
 		wg.Add(1)
-		s.bindWG.Add(1)
+		s.addListener()
 		go func() {
 			defer wg.Done()
 			errCh <- s.runner.serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, nil, acmeMgr.GetCertificate, s.logger)
@@ -465,7 +555,7 @@ func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestra
 	}
 	s.certLoader = loader
 	wg.Add(1)
-	s.bindWG.Add(1)
+	s.addListener()
 	go func() {
 		defer wg.Done()
 		errCh <- s.runner.serveHTTPS(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTPS.Port), h, s.cfg, loader, nil, s.logger)
@@ -476,7 +566,7 @@ func (s *Server) startHTTPSListener(ctx context.Context, sd *lifecycle.Orchestra
 func (s *Server) startMainListeners(ctx context.Context, sd *lifecycle.Orchestrator, wg *sync.WaitGroup, errCh chan<- error, h http.Handler, acmeMgr *acme.Manager) {
 	if s.cfg.Listeners.HTTP.Enabled {
 		wg.Add(1)
-		s.bindWG.Add(1)
+		s.addListener()
 		go func() {
 			defer wg.Done()
 			errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(s.cfg.Listeners.HTTP.Port), h, s.cfg, s.logger)
@@ -487,8 +577,17 @@ func (s *Server) startMainListeners(ctx context.Context, sd *lifecycle.Orchestra
 		if s.cfg.TLS.CertFile == "" || s.cfg.TLS.KeyFile == "" {
 			s.logger.Fatal("h3_no_tls_cert", map[string]any{"err": "cert_file and key_file required"})
 		}
+		// H3 serves from the same CertLoader as HTTPS so SIGHUP rotation reaches
+		// it; with HTTPS disabled, H3 creates the shared loader itself.
+		if s.certLoader == nil {
+			loader, err := keeltls.NewCertLoader(s.cfg.TLS.CertFile, s.cfg.TLS.KeyFile)
+			if err != nil {
+				s.logger.Fatal("tls_cert_load_failed", map[string]any{"err": err.Error()})
+			}
+			s.certLoader = loader
+		}
 		wg.Add(1)
-		s.bindWG.Add(1)
+		s.addListener()
 		go func() {
 			defer wg.Done()
 			errCh <- s.runner.serveH3(ctx, config.AddrFromPort(s.cfg.Listeners.H3.Port), h, s.cfg, s.logger)
@@ -549,24 +648,30 @@ func (s *Server) prestopSleep() {
 // drainListeners cancels remaining goroutines, waits for them to finish, and
 // fatals on any listener or unexpected shutdown error.
 func (s *Server) drainListeners(cancel context.CancelFunc, wg *sync.WaitGroup, errCh <-chan error, sigErr error) {
-	if sigErr != nil {
-		cancel()
+	cancel()
+	wg.Wait()
+	s.sinkWg.Wait()
+	// Every listener has returned, so errCh holds all their results. Drain it
+	// fully and exit with the aggregate of every failure — a clean nil from one
+	// listener never masks another's error, and no failure hides behind the first.
+	var failures []error
+	for {
+		select {
+		case err := <-errCh:
+			if err != nil {
+				failures = append(failures, err)
+			}
+			continue
+		default:
+		}
+		break
 	}
-	select {
-	case err := <-errCh:
-		cancel()
-		wg.Wait()
-		s.sinkWg.Wait()
-		if err != nil {
-			s.logger.Fatal("listener_error", map[string]any{"err": err.Error()})
-		}
-	default:
-		cancel()
-		wg.Wait()
-		s.sinkWg.Wait()
-		if sigErr != nil && !errors.Is(sigErr, context.Canceled) {
-			s.logger.Fatal("shutdown_error", map[string]any{"err": sigErr.Error()})
-		}
+	if len(failures) > 0 {
+		s.logger.Fatal("listener_error", map[string]any{"err": errors.Join(failures...).Error(), "count": len(failures)})
+		return
+	}
+	if sigErr != nil && !errors.Is(sigErr, context.Canceled) {
+		s.logger.Fatal("shutdown_error", map[string]any{"err": sigErr.Error()})
 	}
 }
 
@@ -880,22 +985,67 @@ func serveH3(ctx context.Context, addr string, h http.Handler, cfg config.Config
 }
 
 func serveH3Bound(ctx context.Context, addr string, h http.Handler, cfg config.Config, log *logging.Logger, onBound func()) error {
-	tlsCfg := keeltls.BuildTLSConfig(cfg)
+	return serveH3With(ctx, addr, h, cfg, log, onBound, nil)
+}
+
+// h3Certificate serves HTTP/3 handshakes from the shared CertLoader. It is read
+// per handshake, so it sees the loader startMainListeners installed (before the
+// H3 goroutine starts) and every SIGHUP reload of it.
+func (s *Server) h3Certificate(hello *cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error) {
+	if s.certLoader == nil {
+		return nil, errors.New("no TLS certificate loaded")
+	}
+	return s.certLoader.Get(hello)
+}
+
+// h3ListenPacket is a seam over net.ListenPacket for tests.
+var h3ListenPacket = net.ListenPacket
+
+// serveH3With binds the UDP socket first, so onBound (readiness) fires only once
+// the port is held; then serves HTTP/3 with keel's TLS policy (TLS 1.3, FIPS
+// curves — quic-go would otherwise build its own config) and the same header /
+// idle limits as the TCP listeners. getCert is the shared cert source (rotated
+// by SIGHUP); nil loads cfg.TLS.CertFile/KeyFile. Shutdown drains for
+// cfg.Timeouts.ShutdownDrain like the TCP listeners.
+func serveH3With(ctx context.Context, addr string, h http.Handler, cfg config.Config, log *logging.Logger, onBound func(),
+	getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error)) error {
 	log.Debug("listener_binding", map[string]any{"addr": addr, "proto": "h3"})
-	srv := http3.New(addr, h, tlsCfg)
+	conn, err := h3ListenPacket("udp", addr)
+	if err != nil {
+		return fmt.Errorf("listen %s: %w", addr, err)
+	}
+	defer conn.Close()
 	log.Info("listener_up", map[string]any{"addr": addr, "tls": true, "proto": "h3"})
 	if onBound != nil {
 		onBound()
 	}
+	if ctx.Err() != nil {
+		return nil
+	}
+	if getCert == nil {
+		loader, err := keeltls.NewCertLoader(cfg.TLS.CertFile, cfg.TLS.KeyFile)
+		if err != nil {
+			return fmt.Errorf("h3 cert: %w", err)
+		}
+		getCert = loader.Get
+	}
+	tlsCfg := keeltls.BuildTLSConfig(cfg)
+	tlsCfg.GetCertificate = getCert
+	srv := http3.NewServer(h, tlsCfg, http3.Limits{
+		MaxHeaderBytes: cfg.Security.MaxHeaderBytes,
+		IdleTimeout:    cfg.Timeouts.Idle.Duration,
+	})
 
 	errCh := make(chan error, 1)
-	go func() {
-		errCh <- srv.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile)
-	}()
+	go func() { errCh <- srv.Serve(conn) }()
 
 	select {
 	case <-ctx.Done():
-		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		drain := cfg.Timeouts.ShutdownDrain.Duration
+		if drain <= 0 {
+			drain = 10 * time.Second
+		}
+		c, cancel := context.WithTimeout(context.Background(), drain)
 		defer cancel()
 		_ = srv.Shutdown(c)
 		return nil
@@ -908,4 +1058,13 @@ func serveH3Bound(ctx context.Context, addr string, h http.Handler, cfg config.C
 // Fatal errors are handled internally by the server via its logger.
 func RunServer(srv *Server, ctx context.Context) {
 	srv.Run(ctx)
+}
+
+// closeSinkWriter closes a detached remote-sink writer that holds a resource
+// (the syslog TCP/UDP connection). The HTTP sink has no Close; its goroutine is
+// stopped by cancelling its context.
+func closeSinkWriter(w io.Writer) {
+	if c, ok := w.(io.Closer); ok {
+		_ = c.Close()
+	}
 }

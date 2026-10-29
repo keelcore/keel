@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/keelcore/keel/pkg/core/httpx"
 )
 
 // Client sends StatsD metrics over UDP using DogStatsD tag syntax.
@@ -82,7 +84,7 @@ func Instrument(c *Client, next http.Handler) http.Handler {
 		sc := &statusCapture{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sc, r)
 		tags := map[string]string{
-			"method": r.Method,
+			"method": httpx.MethodLabel(r.Method),
 			"status": strconv.Itoa(sc.status),
 		}
 		c.Count("requests_total", 1, tags)

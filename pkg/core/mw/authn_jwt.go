@@ -63,7 +63,10 @@ func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, 
 }
 
 // LoadTrustedSigners merges cfg.TrustedSigners with any signers loaded from
-// cfg.TrustedSignersFile (one entry per line; blank lines and # comments ignored).
+// cfg.TrustedSignersFile. Each line is one HMAC secret or JWKS URL; a PEM public
+// key spans lines from "-----BEGIN" to "-----END" and becomes ONE signer. Blank
+// lines and # comments are ignored. PEM armor outside a block, and an unterminated
+// block, are logged and dropped — never accepted as HMAC secrets.
 // File read errors are logged as warnings and the inline list is returned unchanged.
 func LoadTrustedSigners(cfg config.AuthnConfig, log *logging.Logger) []string {
 	signers := make([]string, len(cfg.TrustedSigners))
@@ -84,12 +87,30 @@ func LoadTrustedSigners(cfg config.AuthnConfig, log *logging.Logger) []string {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
+	var pemLines []string
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+		switch {
+		case pemLines != nil:
+			if line == "" {
+				continue
+			}
+			pemLines = append(pemLines, line)
+			if strings.HasPrefix(line, "-----END") {
+				signers = append(signers, strings.Join(pemLines, "\n"))
+				pemLines = nil
+			}
+		case line == "" || strings.HasPrefix(line, "#"):
+		case strings.HasPrefix(line, "-----BEGIN"):
+			pemLines = []string{line}
+		case strings.HasPrefix(line, "-----"):
+			log.Warn("trusted_signers_file_stray_pem_armor", map[string]any{"file": cfg.TrustedSignersFile})
+		default:
+			signers = append(signers, line)
 		}
-		signers = append(signers, line)
+	}
+	if pemLines != nil {
+		log.Warn("trusted_signers_file_unterminated_pem", map[string]any{"file": cfg.TrustedSignersFile})
 	}
 	if err := scanner.Err(); err != nil {
 		log.Warn("trusted_signers_file_read_failed", map[string]any{
@@ -129,9 +150,11 @@ func signerKeyfunc(signer string, cache *jwksCache) jwt.Keyfunc {
 
 // resolveStaticKey maps a static signer string to the appropriate verification key.
 // PEM-encoded public keys are parsed as RSA or EC; all other strings are treated
-// as HMAC secrets and are only accepted for HS-family algorithms.
+// as HMAC secrets and are only accepted for HS-family algorithms. Anything that
+// starts with PEM armor ("-----") is PEM-only: a fragment such as
+// "-----END PUBLIC KEY-----" fails to parse and is never usable as an HMAC secret.
 func resolveStaticKey(signer, alg string) (any, error) {
-	if strings.HasPrefix(strings.TrimSpace(signer), "-----BEGIN") {
+	if strings.HasPrefix(strings.TrimSpace(signer), "-----") {
 		return parsePEMPublicKey(signer, alg)
 	}
 	switch alg {

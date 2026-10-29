@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+
+	"github.com/keelcore/keel/pkg/core/httpx"
 )
 
 // labelCounter is a mutex-protected counter keyed by a Prometheus label string.
@@ -83,7 +85,7 @@ func (m *Metrics) Instrument(next http.Handler) http.Handler {
 		defer m.inflight.dec()
 		sc := &statusCapture{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sc, r)
-		labels := fmt.Sprintf(`method="%s",status="%d"`, r.Method, sc.status)
+		labels := fmt.Sprintf(`method="%s",status="%d"`, httpx.MethodLabel(r.Method), sc.status)
 		m.requests.inc(labels)
 	})
 }

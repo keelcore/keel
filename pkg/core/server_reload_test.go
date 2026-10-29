@@ -157,3 +157,17 @@ func TestReload_CertLoader_ReloadFails_Warns(t *testing.T) {
 		t.Errorf("expected nil from Reload (warn is non-fatal), got %v", err)
 	}
 }
+
+// A failed reload must not echo internal error detail (paths, parse errors) to
+// the caller; the body is generic and the detail goes to the log.
+func TestReloadHandler_Post_FailureBodyIsGeneric(t *testing.T) {
+	s := NewServer(logging.New(logging.Config{Out: io.Discard}), config.Config{}, WithConfigPaths("/nonexistent/keel-reload-secret-path.yaml", ""))
+	rr := httptest.NewRecorder()
+	s.ReloadHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/admin/reload", nil))
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d", rr.Code)
+	}
+	if body := rr.Body.String(); body != "reload failed\n" {
+		t.Errorf("body = %q, want generic %q", body, "reload failed\n")
+	}
+}

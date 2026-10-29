@@ -272,33 +272,6 @@ func TestNew_ResponseTooLarge_ErrorHandler502(t *testing.T) {
 	}
 }
 
-// A read error from the response body surfaces as a 502 (default ErrorHandler).
-func TestNew_ModifyResponseReadError_ErrorHandler502(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("data"))
-	}))
-	defer upstream.Close()
-
-	orig := ioReadAll
-	ioReadAll = func(io.Reader) ([]byte, error) { return nil, errors.New("read boom") }
-	t.Cleanup(func() { ioReadAll = orig })
-
-	cfg := config.Config{
-		Sidecar:  config.SidecarConfig{UpstreamURL: upstream.URL},
-		Security: config.SecurityConfig{MaxResponseBodyBytes: 1024},
-	}
-	h, err := New(cfg)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodGet, "http://sidecar.local/", nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("expected 502 on body read error, got %d", rec.Code)
-	}
-}
-
 // A dead upstream produces a transport error → default ErrorHandler 502; with a
 // circuit breaker (threshold=1) the following request fast-fails as circuit-open.
 func TestNew_TransportError_ThenCircuitOpen(t *testing.T) {

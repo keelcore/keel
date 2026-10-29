@@ -49,7 +49,8 @@ func (s *Server) Cfg() config.Config {
 }
 
 // ReloadHandler returns an http.Handler for POST /admin/reload.
-// A successful reload responds 200; an invalid config responds 422.
+// A successful reload responds 200; an invalid config responds 422 with a
+// generic body — the error detail (paths, parse errors) goes to the log only.
 func (s *Server) ReloadHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -58,7 +59,7 @@ func (s *Server) ReloadHandler() http.Handler {
 		}
 		if err := s.Reload(); err != nil {
 			s.logger.Warn("admin_reload_failed", map[string]any{"err": err.Error()})
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, "reload failed", http.StatusUnprocessableEntity)
 			return
 		}
 		w.WriteHeader(http.StatusOK)

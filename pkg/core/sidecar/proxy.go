@@ -3,7 +3,6 @@
 package sidecar
 
 import (
-	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -22,12 +21,37 @@ var (
 	errResponseTooLarge = errors.New("upstream response exceeded max_response_body_bytes")
 )
 
-// Seams for injecting library errors in tests. Production values are the bare
-// library functions/values, so runtime behaviour is unchanged.
-var (
-	ioReadAll                              = io.ReadAll
-	httpDefaultTransport http.RoundTripper = http.DefaultTransport
-)
+// Seam for injecting library values in tests. The production value is the bare
+// library value, so runtime behaviour is unchanged.
+var httpDefaultTransport http.RoundTripper = http.DefaultTransport
+
+// limitBody streams an upstream body while capping it at remaining bytes. It
+// never buffers: each Read passes through at most the bytes still allowed, and
+// once the cap is reached a one-byte probe distinguishes a body that ends
+// exactly at the cap (EOF) from one that exceeds it (errResponseTooLarge).
+type limitBody struct {
+	rc        io.ReadCloser
+	remaining int64
+}
+
+func (b *limitBody) Read(p []byte) (int, error) {
+	if b.remaining == 0 {
+		var probe [1]byte
+		n, err := b.rc.Read(probe[:])
+		if n > 0 {
+			return 0, errResponseTooLarge
+		}
+		return 0, err
+	}
+	if int64(len(p)) > b.remaining {
+		p = p[:b.remaining]
+	}
+	n, err := b.rc.Read(p)
+	b.remaining -= int64(n)
+	return n, err
+}
+
+func (b *limitBody) Close() error { return b.rc.Close() }
 
 // New creates a configured sidecar reverse proxy.
 // It applies XFF policy, header allowlist/denylist, response size capping,
@@ -79,20 +103,20 @@ func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, er
 			}
 		},
 		Transport: rt,
+		// Responses stream through the proxy's fixed copy buffer — never buffered
+		// whole — so a slow client applies TCP backpressure to the upstream read.
+		// The size cap is enforced up front on a declared Content-Length (clean
+		// 502) and otherwise while streaming: past the cap the copy fails and the
+		// proxy aborts the client connection (headers are already sent).
 		ModifyResponse: func(resp *http.Response) error {
 			if maxResp <= 0 {
 				return nil
 			}
-			limited := io.LimitReader(resp.Body, maxResp+1)
-			buf, readErr := ioReadAll(limited)
-			resp.Body.Close()
-			if readErr != nil {
-				return fmt.Errorf("read upstream body: %w", readErr)
-			}
-			if int64(len(buf)) > maxResp {
+			if resp.ContentLength > maxResp {
+				resp.Body.Close()
 				return errResponseTooLarge
 			}
-			resp.Body = io.NopCloser(bytes.NewReader(buf))
+			resp.Body = &limitBody{rc: resp.Body, remaining: maxResp}
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, handlerErr error) {

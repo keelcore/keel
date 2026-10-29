@@ -811,3 +811,33 @@ PYEOF
   [ "${status}" -eq 1 ]
   [[ "${output}" =~ "Failing closed" ]]
 }
+# ---------------------------------------------------------------------------
+# Listener bind failure must stop the process (no running without a listener)
+# ---------------------------------------------------------------------------
+
+@test "listener bind failures (ports in use) are all reported, then the process exits non-zero" {
+  local http_port health_port cfg holder
+  http_port=19882
+  health_port=19883
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: true\n    port: %s\n  health:\n    enabled: true\n    port: %s\n  ready:\n    enabled: false\n' \
+    "${http_port}" "${health_port}" > "${cfg}"
+
+  # First instance holds both ports.
+  KEEL_CONFIG="${cfg}" keel-min > /dev/null 2>&1 &
+  holder="${!}"
+  curl -s -o /dev/null --max-time 2 --retry 10 --retry-connrefused --retry-delay 1 "http://127.0.0.1:${health_port}/healthz" || true
+
+  # Second instance cannot bind either port; every listener is attempted, both
+  # failures are reported, and it exits on its own (124 = still running).
+  run timeout 10 env KEEL_CONFIG="${cfg}" keel-min
+
+  kill -TERM "${holder}" 2>/dev/null || true
+  wait "${holder}" 2>/dev/null || true
+  rm -f "${cfg}"
+
+  [ "${status}" -ne 0 ]
+  [ "${status}" -ne 124 ]
+  [[ "${output}" == *":${http_port}"* ]]
+  [[ "${output}" == *":${health_port}"* ]]
+}
