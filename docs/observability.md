@@ -521,7 +521,7 @@ restrict it to internal network access or protect it with a NetworkPolicy.
   "version": "1.2.3",
   "build_tags": ["no_h3"],
   "fips_active": false,
-  "go_version": "go1.25.0",
+  "go_version": "go1.27.3",
   "start_time": "2026-01-01T00:00:00Z",
   "uptime_seconds": 86400
 }

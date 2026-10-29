@@ -7,7 +7,7 @@
 # The compose suite itself executes inside the cluster node (hostPorts).
 #
 # Alpine base: no Python in the image (debian golang images pull it in via scm tools).
-FROM golang:1.25.5-alpine
+FROM golang:1.27.3-alpine
 
 ARG TARGETARCH
 ARG KUBECTL_VERSION=v1.35.5

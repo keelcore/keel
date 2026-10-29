@@ -1,5 +1,5 @@
 # scripts/deploy/docker/Dockerfile
-FROM golang:1.25.5 AS builder
+FROM golang:1.27.3 AS builder
 WORKDIR /src
 COPY . .
 
