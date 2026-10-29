@@ -13,6 +13,9 @@ set -o errexit
 set -o pipefail
 
 readonly REQUIRED_GO_VERSION="go1.2"
+# Go Cryptographic Module version: v1.0.0 is the CMVP-certified module (cert #5247).
+# Pin it explicitly (not `latest`, which is uncertified); bump deliberately.
+readonly FIPS_MODULE='v1.0.0'
 
 function main() {
   exec 5>&1
@@ -41,9 +44,9 @@ function verify_toolchain() {
 }
 
 function execute_fips_build() {
-  log "Compiling with Go native FIPS 140 mode (GOFIPS140)"
+  log "Compiling with the Go Cryptographic Module ${FIPS_MODULE} (GOFIPS140)"
   # NOTE: HTTP/3 is not compatible with fips140=only; compile it out for FIPS builds.
-  GOFIPS140=latest CGO_ENABLED=0 \
+  GOFIPS140="${FIPS_MODULE}" CGO_ENABLED=0 \
     go build -v -trimpath -tags "fips,no_h3" \
     -ldflags='-s -w -buildid=' \
     -o 'dist/keel-fips' ./cmd/keel
@@ -51,7 +54,7 @@ function execute_fips_build() {
 
 function verify_fips_symbols() {
   log "Verifying FIPS enforcement via test run (GODEBUG=fips140=only)"
-  GOFIPS140=latest GODEBUG=fips140=only \
+  GOFIPS140="${FIPS_MODULE}" GODEBUG=fips140=only \
     go test -v -count=1 -tags "no_h3" ./...
 }
 

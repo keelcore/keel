@@ -313,17 +313,17 @@ been available in all major runtimes since 2018–2019.
 **Cipher suites:** In TLS 1.3, cipher suites are not negotiable — the protocol mandates them. Keel does not expose a
 cipher suite configuration option because there is nothing to configure.
 
-### 4.2 BoringSSL / BoringCrypto
+### 4.2 Go Cryptographic Module (FIPS 140-3)
 
-By default, Keel uses Go's standard `crypto/tls` library. When compiled with the `GOEXPERIMENT=boringcrypto` flag (the
-`fips` image flavor), Keel uses Google's BoringCrypto, which is a Go interface to BoringSSL — Google's FIPS-validated
-fork of OpenSSL.
+By default, Keel uses Go's standard `crypto/tls`. The `fips` flavor (`make max`) is built with the Go Cryptographic
+Module pinned to the CMVP-certified version (`GOFIPS140=v1.0.0`, CMVP certificate #5247). It is part of the Go standard
+library: pure Go, no cgo, so the FIPS binary stays static and scratch-friendly.
 
-BoringCrypto provides:
+In FIPS 140 mode the module provides:
 
-- FIPS 140-2/3 validated cryptographic operations.
-- The same TLS 1.3-only policy.
-- FIPS-approved cipher suites in TLS 1.3 (TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384).
+- FIPS 140-3 validated cryptographic operations.
+- The same TLS 1.3-only policy, with key exchange limited to P-256 and P-384.
+- Only FIPS-approved TLS 1.3 cipher suites (TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384).
 
 See [docs/FIPS.md](FIPS.md) for the complete FIPS guide.
 
@@ -355,7 +355,7 @@ When `tls.acme.enabled: true`, Keel becomes its own certificate manager.
 **Why port 80 must stay open during ACME:** The http-01 challenge requires plaintext HTTP on port 80. Even if
 Keel redirects all other HTTP traffic to HTTPS, the `/.well-known/acme-challenge/` path must be served over
 plain HTTP. Keel handles this automatically — it registers the challenge path before any redirect or authn
-middleware.
+middleware. The redirect target is always one of `tls.acme.domains`, never an arbitrary client `Host`.
 
 **Automatic renewal:** Keel renews the certificate before it expires (typically when 30 days remain). Renewal
 uses the same challenge mechanism. After renewal, Keel hot-reloads the certificate without dropping

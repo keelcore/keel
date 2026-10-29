@@ -86,6 +86,7 @@ keel:
     mySignatureKeyFile: ""
     # Required aud claim on inbound JWTs (authn.audience); empty: not checked.
     audience: ""
+    h2c: false
 
   extAuthz:
     enabled: false

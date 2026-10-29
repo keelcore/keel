@@ -7,8 +7,8 @@ package fips
 import "fmt"
 
 // Check always returns an error on no_fips binaries. The binary was compiled
-// without BoringCrypto; no environment variable can retroactively enable FIPS
-// cryptography in a running process.
+// with no_fips (no FIPS TLS policy or fail-closed gate); no environment variable
+// can retroactively make it a FIPS build.
 func Check() error {
 	return fmt.Errorf(
 		"binary was not compiled with FIPS support (no_fips build tag is active); " +

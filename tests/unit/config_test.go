@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/logging"

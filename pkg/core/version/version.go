@@ -90,3 +90,8 @@ func Handler() http.Handler {
 		_ = json.NewEncoder(w).Encode(Get())
 	})
 }
+
+// FIPSActive reports whether this process is running FIPS 140 cryptography: a
+// FIPS build whose Go Cryptographic Module is in FIPS mode. It is the single
+// answer behind /version, /health/fips and keel_fips_active.
+func FIPSActive() bool { return fipsRuntimeActive(fipsBuilt) }

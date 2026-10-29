@@ -24,7 +24,7 @@ import (
 func handlerWithToken(httpsPort int) http.Handler {
 	m := acme.New()
 	m.SetToken("validtoken", "validtoken.thumbprint")
-	return m.HTTPHandler(httpsPort)
+	return m.HTTPHandler(httpsPort, []string{"example.com", "www.example.com"})
 }
 
 // RFC 8555 §8.3: known token must return 200 with the key authorization as body.
@@ -79,7 +79,7 @@ func TestHTTPHandler_DeleteToken_404(t *testing.T) {
 	m := acme.New()
 	m.SetToken("temptoken", "temptoken.thumb")
 	m.DeleteToken("temptoken")
-	h := m.HTTPHandler(443)
+	h := m.HTTPHandler(443, []string{"example.com"})
 	r := httptest.NewRequest(http.MethodGet, "/.well-known/acme-challenge/temptoken", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
@@ -133,5 +133,36 @@ func TestHTTPHandler_Redirect_HostWithPort(t *testing.T) {
 	want := "https://example.com/foo"
 	if got := w.Header().Get("Location"); got != want {
 		t.Fatalf("want Location %q, got %q", want, got)
+	}
+}
+
+// S10: the redirect target never comes from a client Host that is not a
+// configured domain — a forged Host goes to the primary domain instead.
+func TestHTTPHandler_Redirect_ForgedHostGoesToPrimaryDomain(t *testing.T) {
+	h := handlerWithToken(443)
+	for host, want := range map[string]string{
+		"evil.example.net":   "https://example.com/x",
+		"203.0.113.7:80":     "https://example.com/x",
+		"WWW.Example.COM.":   "https://www.example.com/x",
+		"www.example.com:80": "https://www.example.com/x",
+	} {
+		r := httptest.NewRequest(http.MethodGet, "/x", nil)
+		r.Host = host
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if got := w.Header().Get("Location"); w.Code != http.StatusMovedPermanently || got != want {
+			t.Errorf("Host %q: %d %q, want 301 %q", host, w.Code, got, want)
+		}
+	}
+}
+
+// With no configured domains there is nowhere safe to redirect: 404.
+func TestHTTPHandler_Redirect_NoDomains404(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/x", nil)
+	r.Host = "evil.example.net"
+	w := httptest.NewRecorder()
+	acme.New().HTTPHandler(443, nil).ServeHTTP(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d", w.Code)
 	}
 }

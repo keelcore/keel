@@ -14,7 +14,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/ports"
@@ -99,8 +99,10 @@ type HeaderPolicyConfig struct {
 }
 
 type SidecarConfig struct {
-	Enabled                bool                 `yaml:"enabled"`
-	UpstreamURL            string               `yaml:"upstream_url"`
+	Enabled     bool   `yaml:"enabled"`
+	UpstreamURL string `yaml:"upstream_url"` // http(s)://host:port or unix:///path/app.sock
+	// UpstreamH2C speaks plaintext HTTP/2 (prior knowledge) to the upstream.
+	UpstreamH2C            bool                 `yaml:"upstream_h2c"`
 	UpstreamAudience       string               `yaml:"upstream_audience"`
 	UpstreamHealthPath     string               `yaml:"upstream_health_path"`
 	UpstreamHealthInterval Duration             `yaml:"upstream_health_interval"`
@@ -419,6 +421,13 @@ func Validate(cfg Config) error {
 	if cfg.Sidecar.Enabled && cfg.Sidecar.UpstreamURL == "" {
 		return fmt.Errorf("sidecar is enabled but upstream_url is not set")
 	}
+	// TLS to the upstream excludes both a unix socket and plaintext h2c.
+	if cfg.Sidecar.UpstreamTLS.Enabled && strings.HasPrefix(cfg.Sidecar.UpstreamURL, "unix://") {
+		return fmt.Errorf("sidecar.upstream_tls cannot be used with a unix:// upstream_url")
+	}
+	if cfg.Sidecar.UpstreamTLS.Enabled && cfg.Sidecar.UpstreamH2C {
+		return fmt.Errorf("sidecar.upstream_h2c (plaintext HTTP/2) cannot be used with upstream_tls")
+	}
 	// Either gap makes every authz call fail, which fail_open turns into
 	// allow-all; reject the config instead.
 	if cfg.ExtAuthz.Enabled && cfg.ExtAuthz.Endpoint == "" {
@@ -551,6 +560,7 @@ func applyEnv(cfg *Config) {
 	// Sidecar
 	applyBool("KEEL_SIDECAR", &cfg.Sidecar.Enabled)
 	applyString("KEEL_UPSTREAM_URL", &cfg.Sidecar.UpstreamURL)
+	applyBool("KEEL_UPSTREAM_H2C", &cfg.Sidecar.UpstreamH2C)
 	applyString("KEEL_UPSTREAM_AUDIENCE", &cfg.Sidecar.UpstreamAudience)
 	applyBool("KEEL_UPSTREAM_TLS", &cfg.Sidecar.UpstreamTLS.Enabled)
 	applyString("KEEL_UPSTREAM_CA_FILE", &cfg.Sidecar.UpstreamTLS.CAFile)

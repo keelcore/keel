@@ -89,6 +89,8 @@ keel:
     url: "http://localhost:3000"
     # aud claim on outbound signed JWTs (sidecar.upstream_audience); empty: none.
     audience: ""
+    # Plaintext HTTP/2 (h2c) to the upstream; enable only if the app serves h2c.
+    h2c: false
     # k8s Secret with keys: ca.crt, tls.crt, tls.key
     # Mounted at /etc/keel/secrets/upstream-tls/ and wired into upstream_tls.*_file paths.
     tlsSecret: ""

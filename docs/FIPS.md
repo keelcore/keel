@@ -41,28 +41,41 @@ validation process.
 
 ---
 
-## 2. BoringCrypto and BoringSSL
+## 2. The Go Cryptographic Module
 
-**The problem with standard Go crypto:** Go's standard `crypto/*` packages are not FIPS-validated. They implement
-FIPS-approved algorithms (AES, SHA-256, ECDSA) but the implementations themselves have not been through the FIPS
-validation process. You cannot use them in a FIPS-required environment.
+Since Go 1.24 the standard library contains a FIPS 140-3 cryptographic module, the **Go Cryptographic Module**
+(`crypto/internal/fips140/...`). Every `crypto/*` package — `crypto/tls`, `crypto/ecdsa`, `crypto/rsa`,
+`crypto/sha256`, `crypto/hmac` — is implemented on top of it. It is pure Go: no cgo, no external library, so FIPS
+binaries stay static and cross-compile like any other Go build.
 
-**Google's solution:** Google maintains **BoringSSL**, a fork of OpenSSL with FIPS-validated cryptographic module
-implementations. For Go, Google provides **BoringCrypto** — a mechanism that replaces Go's standard crypto
-implementations with calls into BoringSSL's FIPS-validated module.
+**Module versions.** The Go team freezes a module version at each CMVP validation (Google contracts Geomys for at least
+yearly validations) and ships the frozen copies with the toolchain:
 
-When compiled with BoringCrypto, Go's `crypto/tls`, `crypto/rsa`, `crypto/ecdsa`, `crypto/sha256`, etc. are redirected
-to BoringSSL's implementations. The FIPS module boundary is at BoringSSL — it is the FIPS-validated component, not the
-Go wrapper.
+| Version | Frozen from | CMVP status |
+| --- | --- | --- |
+| `v1.0.0` | Go 1.24 | Certificate #5247 (FIPS 140-3), CAVP A6650 |
+| `v1.26.0` | Go 1.26 | In review (CAVP A8028); no certificate yet |
 
-**The `boringcrypto` experiment:** BoringCrypto was available as a `GOEXPERIMENT=boringcrypto` build experiment in Go
-1.17–1.23. Starting in Go 1.24, it is activated via `GOEXPERIMENT=boringcrypto` or via the `GOFIPS140` environment
-variable mechanism.
+Once a newer version is certified, the Go toolchain drops the older frozen copies. Check the
+[NIST CMVP database](https://csrc.nist.gov/projects/cryptographic-module-validation-program) and
+[go.dev/doc/security/fips140](https://go.dev/doc/security/fips140) for the current state before citing either to an
+auditor.
 
-**The `GOFIPS140` environment variable:** In Go 1.24+, the standard library includes a built-in FIPS 140 module
-(`crypto/internal/fips140`). Setting `GOFIPS140=latest` at runtime activates FIPS 140-3 mode using this built-in
-module, without requiring a special build. Setting `GOFIPS140=<version>` activates a specific certified snapshot. See
-the [Go FIPS documentation](https://go.dev/doc/security/fips140) for details.
+**Build-time selection (`GOFIPS140`).** `GOFIPS140` picks which module is compiled in and turns FIPS mode on by default
+(`DefaultGODEBUG=fips140=on`):
+
+- `off` (default) — the module from the current toolchain, FIPS mode off.
+- `latest` — the module from the current toolchain, FIPS mode on. **Not a certified module.**
+- `v1.0.0`, `v1.26.0` — a specific frozen module, FIPS mode on.
+- `certified` / `inprocess` — aliases for the newest certified / in-review version.
+
+Keel pins `GOFIPS140=v1.0.0` (`scripts/build/ci_max.sh`), so a FIPS build always names exactly the certified module.
+Moving to a newer module is a deliberate one-line change; if the toolchain drops `v1.0.0`, the build fails rather than
+silently switching modules.
+
+**Run-time setting (`GODEBUG`).** `GODEBUG=fips140=on` enables FIPS mode; `GODEBUG=fips140=only` additionally makes
+non-approved algorithms fail. Go documents `only` as a testing/debugging aid. Keel's FIPS binary deliberately requires
+it (see §3.3).
 
 ---
 
@@ -70,81 +83,67 @@ the [Go FIPS documentation](https://go.dev/doc/security/fips140) for details.
 
 **Build-time opt-out:** `no_fips`
 
-### 3.1 Using the `fips` Image Flavor (Helm / Docker)
+### 3.1 The `fips` Image Flavor (Docker / Helm)
 
-The simplest approach: use the pre-built `fips` image flavor in the Helm chart.
-
-```yaml
-# values.yaml
-image:
-  flavor: fips
-```
-
-The `fips` image is built with `GOEXPERIMENT=boringcrypto` and the `GOFIPS140` environment variable set. It
-uses the BoringCrypto-backed crypto. No other changes are needed.
+The `fips` image is built from `scripts/deploy/docker/Dockerfile` with `FLAVOR=fips`, which runs `make max`. Deploy that
+image tag with the Helm chart; no other configuration is needed.
 
 ### 3.2 Building Your Own FIPS Binary
 
 ```sh
-# Go 1.24+ — built-in FIPS 140 module
-GOFIPS140=latest go build ./cmd/keel
-
-# Or with BoringCrypto experiment explicitly (Go 1.17–1.23 style, still works in 1.24+)
-GOEXPERIMENT=boringcrypto go build ./cmd/keel
-
-# Verify the binary uses BoringCrypto
-go tool nm keel | grep -i boring
-# Should output symbols like: runtime/internal/sys.boringcrypto or similar
+make max            # dist/keel-fips: GOFIPS140=v1.0.0, tags fips,no_h3
 ```
 
-### 3.3 Verifying the Binary at Build Time
+`make max` also runs the test suite with `GODEBUG=fips140=only` to prove no code path needs non-approved crypto.
+Equivalent manual build:
 
 ```sh
-# Check that the binary was compiled with boringcrypto
-go version -m ./keel | grep GOEXPERIMENT
-# Should output: GOEXPERIMENT=boringcrypto (or similar)
-
-# For Go 1.24+ GOFIPS140 builds:
-go version -m ./keel | grep GOFIPS140
+GOFIPS140=v1.0.0 CGO_ENABLED=0 go build -trimpath -tags 'fips,no_h3' -o keel-fips ./cmd/keel
 ```
 
-### 3.4 Running with FIPS Mode Active
+### 3.3 Running the FIPS Binary
 
 ```sh
-# Go 1.24+: activate FIPS 140-3 at runtime (if binary supports it)
-GOFIPS140=latest ./keel --config keel.yaml
-
-# Or activate FIPS mode via GODEBUG
-GODEBUG=fips140=only ./keel --config keel.yaml
+GODEBUG=fips140=only ./keel-fips
 ```
 
-**`GODEBUG=fips140=only`** is the strictest setting — it causes the Go runtime to panic if any non-FIPS code path in the
-standard library is executed. Use this during testing to surface hidden non-FIPS crypto usage.
+The FIPS binary **fails closed**: unless `GODEBUG` contains `fips140=only` it exits immediately with
+`Failing closed: FIPS build requires GODEBUG=fips140=only`. This guarantees the process can never run with
+non-approved cryptography, at the cost of requiring the strict mode explicitly.
+
+### 3.4 Verifying the Binary at Build Time
+
+```sh
+go version -m ./keel-fips | grep -E 'GOFIPS140|fips140'
+# build   GOFIPS140=v1.0.0-c2097c7c
+# build   DefaultGODEBUG=fips140=on
+```
+
+`make release-ci` with `FIPS_MODE=true` fails the release unless `dist/keel-fips` records `GOFIPS140=v1.0.0`.
 
 ---
 
 ## 4. Verifying FIPS Mode at Runtime
 
+All three signals below report the same value: true only for a FIPS build (`!no_fips`) whose Go Cryptographic Module
+reports FIPS 140 mode (`crypto/fips140.Enabled()`). Environment variables cannot fake it.
+
 ### 4.1 Admin Endpoint
 
 ```sh
-# Check if FIPS mode is active
 curl http://localhost:9999/health/fips
-# Response: {"fips_active": true}
-# Or:       {"fips_active": false}
+# {"fips_active": true}
 ```
 
-**What `fips_active: true` means:** The Keel binary was compiled with BoringCrypto and FIPS 140 mode is active. All
-cryptographic operations in TLS, JWT signing/verification, and any other crypto in Keel are going through BoringSSL's
-FIPS-validated module.
+**`fips_active: true`:** this is a FIPS build and every cryptographic operation in Keel — TLS, JWT signing and
+verification, HMAC, random numbers — runs inside the Go Cryptographic Module in FIPS 140 mode.
 
-**What `fips_active: false` means:** Either the binary was not compiled with BoringCrypto, or FIPS mode was not activated
-at runtime. Not suitable for FIPS-required environments.
+**`fips_active: false`:** either the binary was built with `no_fips`, or FIPS mode is off. Not suitable for
+FIPS-required environments.
 
 ### 4.2 Prometheus Metric
 
 ```promql
-# Is FIPS mode active?
 keel_fips_active == 1
 ```
 
@@ -159,6 +158,8 @@ Alert if `keel_fips_active == 0` in environments that require FIPS:
   annotations:
     summary: "Keel is running without FIPS mode in a FIPS-required environment"
 ```
+
+With `fips.monitor: true`, Keel also re-checks hourly and increments `keel_fips_monitor_failures_total` on failure.
 
 ### 4.3 Version Endpoint
 
@@ -219,19 +220,14 @@ func TestSomething(t *testing.T) {
 
 ---
 
-## 6. Build Tag: `fips` Flavor vs. `no_*` Tags
+## 6. Build Tags of the `fips` Flavor
 
-The `fips` image flavor is not a single build tag — it is a combination of build configuration choices:
+The `fips` flavor is a build configuration, not a single tag:
 
-- Compiled with `GOEXPERIMENT=boringcrypto` (or `GOFIPS140=latest` in Go 1.24+).
-- `no_h3` is implied (HTTP/3's QUIC implementation uses crypto that may not be FIPS-approved).
+- `GOFIPS140=v1.0.0` — compiles in the certified Go Cryptographic Module and enables FIPS mode by default.
+- Tag `fips` — FIPS TLS policy (P-256/P-384 only), the fail-closed `GODEBUG=fips140=only` gate, FIPS status reporting.
+- Tag `no_h3` — HTTP/3 is compiled out; QUIC is not compatible with `fips140=only`.
 - All other features are available.
-
-To check whether the running binary was built for FIPS:
-
-```sh
-go version -m /usr/bin/keel | grep -E "GOEXPERIMENT|GOFIPS140"
-```
 
 ---
 
@@ -239,33 +235,31 @@ go version -m /usr/bin/keel | grep -E "GOEXPERIMENT|GOFIPS140"
 
 **Current status:** Keel is **FIPS-compatible but not independently FIPS-certified.**
 
-What this means:
+- The `fips` flavor performs all cryptography in the Go Cryptographic Module `v1.0.0`, which holds CMVP certificate
+  #5247 (FIPS 140-3). Confirm the current status in the
+  [NIST CMVP database](https://csrc.nist.gov/projects/cryptographic-module-validation-program).
+- Keel itself, as a binary, has not been submitted for independent FIPS 140 validation.
 
-- When built with BoringCrypto, Keel uses cryptographic operations provided by Google's BoringSSL, which **is** FIPS
-  140-2 validated (NIST certificate #3678 for BoringCrypto as of Go 1.21 builds; check the current
-  [NIST CMVP database](https://csrc.nist.gov/projects/cryptographic-module-validation-program) for the latest status).
-- Keel itself, as a binary, has not been submitted for independent FIPS 140 validation. Formal certification of the Keel
-  binary distribution is on the roadmap.
+**For compliance purposes:** most FIPS-required environments (FedRAMP, FISMA) require FIPS-validated cryptographic
+modules, not certification of the whole application. Running the Keel `fips` flavor uses a validated module for all
+cryptographic operations, which is typically sufficient. Consult your compliance officer or accreditor for your
+specific requirements. The Go team states it cannot guarantee that using the module satisfies any particular
+regulation.
 
-**For compliance purposes:** Most FIPS-required environments (FedRAMP, FISMA) require use of FIPS-validated cryptographic
-modules, not necessarily that the entire application be certified. Running the Keel `fips` flavor uses BoringSSL's
-validated module for all cryptographic operations, which is typically sufficient. Consult your compliance officer or
-accreditor for your specific requirements.
-
-**Certification roadmap:** Formal FIPS 140-3 certification of the Keel binary is planned. Track progress in
+**Certification roadmap:** formal FIPS 140-3 certification of the Keel binary is planned. Track progress in
 [docs/ROADMAP.md](ROADMAP.md).
 
 ---
 
 ## 8. Testing FIPS Compliance
 
-To verify your Keel deployment is operating in FIPS mode end-to-end:
+To verify a Keel deployment is operating in FIPS mode end to end:
 
 ```sh
-# 1. Verify the binary
-go version -m $(which keel) | grep -E "GOEXPERIMENT|GOFIPS140"
+# 1. Verify the binary records the certified module
+go version -m ./keel-fips | grep GOFIPS140          # GOFIPS140=v1.0.0-...
 
-# 2. Verify at runtime via health endpoint
+# 2. Verify at runtime via the admin endpoint
 curl -s http://localhost:9999/health/fips | jq .fips_active
 
 # 3. Verify via Prometheus metric
@@ -277,8 +271,7 @@ openssl s_client -connect localhost:8443 -tls1_3 < /dev/null 2>&1 | grep "Protoc
 
 # 5. Verify TLS 1.2 is rejected
 openssl s_client -connect localhost:8443 -tls1_2 < /dev/null 2>&1 | grep -E "alert|handshake failure"
-# Should output a handshake failure (Keel rejects TLS 1.2)
 
-# 6. Run FIPS compliance test suite (when available)
-GOFIPS140=latest go test -tags fips ./tests/fips/...
+# 6. Re-run the suite under strict FIPS mode
+make max
 ```

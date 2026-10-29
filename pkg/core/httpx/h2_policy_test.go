@@ -16,3 +16,11 @@ func TestApplyHTTP2Policy_DefaultNoOp(t *testing.T) {
 		t.Errorf("expected TLSNextProto nil for default HTTP/2 policy, got %v", srv.TLSNextProto)
 	}
 }
+
+// ALPN offers HTTP/2 first, with HTTP/1.1 as the fallback.
+func TestNextProtos_OffersH2(t *testing.T) {
+	got := NextProtos()
+	if len(got) != 2 || got[0] != "h2" || got[1] != "http/1.1" {
+		t.Errorf("NextProtos() = %v, want [h2 http/1.1]", got)
+	}
+}

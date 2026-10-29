@@ -19,6 +19,8 @@ function main() {
   build_min
   log '🔨 Building max (full-feature) binary for integrity testing...'
   build_max
+  log '🔨 Building FIPS binary for integrity testing...'
+  build_fips
   log '🧪 Running BATS integrity suite...'
   run_bats
   log '✅ Integrity suite passed'
@@ -38,6 +40,10 @@ function build_min() {
 
 function build_max() {
   ./scripts/build/ci_max_no_fips.sh
+}
+
+function build_fips() {
+  ./scripts/build/ci_max.sh
 }
 
 function run_bats() {

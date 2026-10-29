@@ -32,7 +32,7 @@ smallest, most secure subset of features *fully app-integrated*—built to be **
 | [docs/observability.md](docs/observability.md) | Health probes, distributed tracing, Prometheus metrics, StatsD, structured logging, access log schema, admin endpoints, SLO signals |
 | [docs/operations.md](docs/operations.md) | Graceful shutdown, signals, Kubernetes pre-stop, circuit breaker, sidecar health probing, hot reload |
 | [docs/deployment.md](docs/deployment.md) | Helm chart (full values reference), Docker Compose test harness, library mode walkthrough |
-| [docs/FIPS.md](docs/FIPS.md) | FIPS compliance: BoringCrypto, build instructions, runtime verification, constraints |
+| [docs/FIPS.md](docs/FIPS.md) | FIPS compliance: Go Cryptographic Module, build instructions, runtime verification, constraints |
 | [docs/release-policy.md](docs/release-policy.md) | Release tagging policy, semver versioning rules, schema-driven version computation |
 | [docs/governance.md](docs/governance.md) | Engineering governance standards submodule — what it is, why, and how to update it |
 | [docs/ai-tooling.md](docs/ai-tooling.md) | AI coding assistant integration — Claude Code, Cursor, GitHub Copilot adapter symlinks |
@@ -119,6 +119,7 @@ Build tags are **negative** ("remove X"), so defaults stay on:
 | `no_otel` | OTLP/OpenTelemetry tracing |
 | `no_prom` | Prometheus `/metrics` |
 | `no_statsd` | StatsD output |
+| `no_pprof` | `/debug/pprof` profiling handlers (`admin.pprof` is then ignored; included in `min`) |
 | `no_remotelog` | Remote log sink support |
 | `no_owasp` | OWASP hardening middleware layer |
 | `no_authn` | Authn middleware layer |
@@ -203,7 +204,8 @@ HTTPS. Keel handles this automatically:
 
 1. Plain HTTP listener on port 80 is kept alive.
 2. `/.well-known/acme-challenge/` path is registered **before** any redirect or authn middleware.
-3. All other HTTP paths are 301-redirected to HTTPS.
+3. All other HTTP paths are 301-redirected to HTTPS, only ever to a configured `tls.acme.domains` entry (a `Host`
+   that is not one goes to the first domain), so the redirect cannot be pointed elsewhere.
 4. Certificate renewal is automatic; Keel reloads the cert without restart or dropped connections.
 
 ACME must not be combined with the `no_acme` build tag. ACME requires `cert_file`/`key_file` to be left empty (Keel

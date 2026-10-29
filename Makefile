@@ -407,7 +407,7 @@ help-local:
 	@echo "  container-stack-test      Run compose suite on the k8s stack (hostPorts, in-node)"
 	@echo "  container-stack-test-keep Same but leave the stack running"
 	@echo "  container-teardown        Uninstall + delete toolbox and cluster"
-	@echo "  container-host-network    Check/enforce host<->guest networking (route, Local Network)"
+	@echo "  container-host-network    Check/enforce the host<->guest bridge route"
 	@echo ""
 	@echo "Lint:"
 	@echo "  lint            gofmt check + go vet + staticcheck"

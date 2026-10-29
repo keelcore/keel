@@ -258,6 +258,8 @@ properties:
                 type: object
             upstream_audience:
                 type: string
+            upstream_h2c:
+                type: boolean
             upstream_health_interval:
                 description: Go duration string (e.g. "5s", "1m30s", "500ms")
                 type: string

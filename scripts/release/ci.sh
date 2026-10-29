@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ci.sh
-# Handles versioning, SBOM generation, and FIPS symbol verification.
+# Handles versioning, SBOM generation, and FIPS module verification.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -49,14 +49,15 @@ function run_syft() {
 
 function verify_fips_compliance() {
   if [ "${FIPS_MODE:-}" = 'true' ]; then
-    log "🛡 Checking FIPS BoringCrypto symbols"
-    check_symbols
+    log "🛡 Checking dist/keel-fips was built with the certified Go Cryptographic Module"
+    check_fips_module
   fi
 }
 
-function check_symbols() {
-  go tool nm 'dist/keel-linux-amd64' | \
-    grep '_Cfunc__goboringcrypto_' || \
+# check_fips_module: the build info must record the pinned, CMVP-certified
+# module (GOFIPS140=v1.0.0-<hash>); see scripts/build/ci_max.sh.
+function check_fips_module() {
+  go version -m 'dist/keel-fips' | grep -qE 'GOFIPS140=v1\.0\.0(-|$)' || \
     handle_fips_failure
 }
 

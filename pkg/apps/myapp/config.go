@@ -7,7 +7,7 @@ import (
 
 	keelconfig "github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/logging"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // AppConfig is the top-level config struct for myapp.

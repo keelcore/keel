@@ -4,8 +4,6 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"strings"
-
-	"github.com/keelcore/keel/pkg/core/probes"
 )
 
 // requireBearer admits a request only with "Authorization: Bearer <token>",
@@ -41,9 +39,7 @@ func (s *Server) adminMux() *http.ServeMux {
 	}
 	mux := buildAdminMux(s.readiness, s.startup, metricsH, requireBearer(admin.Token, s.ReloadHandler()))
 	if admin.PProf {
-		pprof := http.NewServeMux()
-		probes.RegisterPProf(pprof)
-		mux.Handle("/debug/pprof/", requireBearer(admin.Token, pprof))
+		s.mountPProf(mux, admin.Token)
 	}
 	return mux
 }

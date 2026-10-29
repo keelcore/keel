@@ -12,6 +12,11 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- New `no_pprof` build tag drops the profiling handlers (`net/http/pprof`, `runtime/pprof`); the `min`
+  flavor uses it, bringing linux/amd64 keel-min under the 8 MB gate (8.25 MB → was 8.88 MB). pprof was
+  already off by default (`admin.pprof: false`); in `min`, `admin.pprof` is ignored with a warning.
+- YAML parsing moved from the archived `gopkg.in/yaml.v3` to the maintained `go.yaml.in/yaml/v3` v3.0.5
+  (same API; YAML org fork).
 - `.standards` advanced to latest; `release-sbom` / `release-sign` now inherit the canonical
   recipes (arguments passed via `ARGS` from the release workflow).
 - Local k8s harness moved from Colima to Apple `container` (`container cluster`). `make
@@ -25,6 +30,14 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- Sidecar upstream transport built for high concurrency: no per-host or idle connection caps
+  (reused connections, no TIME_WAIT churn), HTTP/2 to TLS upstreams via ALPN, optional plaintext
+  HTTP/2 (`sidecar.upstream_h2c`), no environment proxy, and the TLS branch now has dial, handshake
+  and idle timeouts. A hung upstream returns 502 after `timeouts.write` (response-header deadline).
+- `sidecar.upstream_url` accepts `unix:///path/app.sock` (no TCP port ceiling). Not drop-in: the app
+  must listen on the socket and share a volume with Keel.
+- HTTPS now negotiates HTTP/2 via ALPN (`h2`, then `http/1.1`); `no_h2` builds offer `http/1.1`
+  only. Previously HTTP/2 was never offered, so the `no_h2` tag had no effect.
 - ACME cache writes are atomic (0600 temp file, fsync, rename; key before cert), so a crash
   cannot leave a truncated or mismatched pair.
 - A failed ACME start is logged (`acme_failed`) instead of discarded. HTTP log-sink batches that
@@ -44,6 +57,12 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Security
 
+- FIPS builds pin the CMVP-certified Go Cryptographic Module (`GOFIPS140=v1.0.0`, cert #5247) instead of
+  `latest`; the release check verifies the module from build info. `/health/fips` and `keel_fips_active` now
+  report the runtime FIPS state (as `/version` does) instead of the build tag. `docs/FIPS.md` and related docs
+  rewritten for the native module; BoringCrypto references removed.
+- ACME port-80 redirect only ever targets a configured `tls.acme.domains` entry; a forged `Host`
+  goes to the primary domain (no open redirect). `acme.Manager.HTTPHandler` now takes the domains.
 - Inbound mTLS: `tls.client_ca_file` (`KEEL_TLS_CLIENT_CA`, Helm `keel.tls.clientCASecretName`)
   makes HTTPS and H3 require a client certificate from that CA. Docs no longer claim client
   certificates map to principals; identity remains JWT-only.

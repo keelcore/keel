@@ -57,6 +57,7 @@ data:
       enabled: {{ eq .Values.mode "sidecar" }}
       upstream_url: {{ $v.upstream.url | quote }}
       upstream_audience: {{ $v.upstream.audience | quote }}
+      upstream_h2c: {{ $v.upstream.h2c }}
       upstream_health_path: {{ $v.upstream.healthPath | quote }}
       upstream_health_interval: {{ $v.upstream.healthInterval | quote }}
       upstream_health_timeout: {{ $v.upstream.healthTimeout | quote }}

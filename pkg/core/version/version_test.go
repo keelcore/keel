@@ -205,3 +205,10 @@ func TestHandler_ResponseDecodesInfo(t *testing.T) {
 		t.Error("expected non-empty GoVersion in handler response")
 	}
 }
+
+// FIPSActive is the build flag combined with the live crypto-module state.
+func TestFIPSActive_MatchesRuntimeCheck(t *testing.T) {
+	if got, want := FIPSActive(), fipsRuntimeActive(fipsBuilt); got != want {
+		t.Fatalf("FIPSActive() = %v, want %v", got, want)
+	}
+}

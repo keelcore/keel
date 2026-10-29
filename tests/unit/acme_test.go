@@ -16,7 +16,7 @@ import (
 func TestACME_ChallengeRouteServedWithoutRedirect(t *testing.T) {
 	mgr := acme.New()
 	mgr.SetToken("abc123", "abc123.keyauth")
-	h := mgr.HTTPHandler(443)
+	h := mgr.HTTPHandler(443, []string{"example.com"})
 
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest("GET", "/.well-known/acme-challenge/abc123", nil))
@@ -31,7 +31,7 @@ func TestACME_ChallengeRouteServedWithoutRedirect(t *testing.T) {
 
 func TestACME_UnknownToken_Returns404(t *testing.T) {
 	mgr := acme.New()
-	h := mgr.HTTPHandler(443)
+	h := mgr.HTTPHandler(443, []string{"example.com"})
 
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest("GET", "/.well-known/acme-challenge/unknown", nil))
@@ -43,7 +43,7 @@ func TestACME_UnknownToken_Returns404(t *testing.T) {
 
 func TestACME_NonChallengePath_RedirectsToHTTPS(t *testing.T) {
 	mgr := acme.New()
-	h := mgr.HTTPHandler(8443)
+	h := mgr.HTTPHandler(8443, []string{"example.com"})
 
 	req := httptest.NewRequest("GET", "/app/path?q=1", nil)
 	req.Host = "example.com"
@@ -69,7 +69,7 @@ func TestACME_DeleteToken_RemovesChallenge(t *testing.T) {
 	mgr := acme.New()
 	mgr.SetToken("tok1", "tok1.auth")
 	mgr.DeleteToken("tok1")
-	h := mgr.HTTPHandler(443)
+	h := mgr.HTTPHandler(443, []string{"example.com"})
 
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest("GET", "/.well-known/acme-challenge/tok1", nil))
@@ -92,7 +92,7 @@ func TestACME_Start_ExitsOnContextCancel(t *testing.T) {
 // HTTPHandler: redirect with httpsPort=443 → host must not include ":443".
 func TestACME_Redirect_Port443_NoPortInLocation(t *testing.T) {
 	mgr := acme.New()
-	h := mgr.HTTPHandler(443)
+	h := mgr.HTTPHandler(443, []string{"example.com"})
 
 	req := httptest.NewRequest("GET", "/other/path", nil)
 	req.Host = "example.com"
@@ -114,7 +114,7 @@ func TestACME_Redirect_Port443_NoPortInLocation(t *testing.T) {
 // HTTPHandler: host includes a port (SplitHostPort succeeds → h stripped).
 func TestACME_Redirect_HostWithPort_StripsSrcPort(t *testing.T) {
 	mgr := acme.New()
-	h := mgr.HTTPHandler(8443)
+	h := mgr.HTTPHandler(8443, []string{"example.com"})
 
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Host = "example.com:80" // source port present → SplitHostPort succeeds

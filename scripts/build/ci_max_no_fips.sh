@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ci_max_no_fips.sh
-# Builds a full-feature standalone binary without FIPS/BoringSSL.
+# Builds a full-feature standalone binary without FIPS 140 mode (no_fips).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.

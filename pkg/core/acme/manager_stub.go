@@ -17,7 +17,7 @@ type Manager struct{}
 func New() *Manager                                                   { return &Manager{} }
 func (m *Manager) SetToken(_, _ string)                               {}
 func (m *Manager) DeleteToken(_ string)                               {}
-func (m *Manager) HTTPHandler(_ int) http.Handler                     { return http.NotFoundHandler() }
+func (m *Manager) HTTPHandler(_ int, _ []string) http.Handler         { return http.NotFoundHandler() }
 func (m *Manager) Start(_ context.Context, _ config.ACMEConfig) error { return nil }
 func (m *Manager) SetLogger(_ func(string, map[string]any))           {}
 func (m *Manager) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, error) {

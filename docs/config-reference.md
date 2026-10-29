@@ -137,6 +137,16 @@ sidecar:
                       # For intra-pod (localhost) upstreams, use http:// — TLS is not
                       # needed across the loopback because the pod network namespace is
                       # the trust boundary. For out-of-pod upstreams, use https://.
+                      # unix:///path/app.sock dials a Unix domain socket instead (no TCP
+                      # ports, so no ephemeral-port ceiling). NOT a drop-in: the app must
+                      # listen on that socket, and in Kubernetes both containers must
+                      # mount a shared volume for it (e.g. an emptyDir via extraVolumes /
+                      # extraVolumeMounts). Not combinable with upstream_tls.
+
+  upstream_h2c: false  # Speak plaintext HTTP/2 (prior knowledge) to the upstream: many
+                      # concurrent requests share a few connections. Only enable when the
+                      # upstream serves h2c. Over upstream_tls, HTTP/2 is negotiated
+                      # automatically (ALPN) and this must stay false.
 
   upstream_audience: ""   # aud claim Keel stamps on outbound signed JWTs (my_id /
                       # my_signature_key_file). Set it to the upstream's authn.audience
@@ -293,6 +303,8 @@ admin:
                       #   authorization: { type: Bearer, credentials_file: /etc/prom/keel-token }
   pprof: false        # Serve /debug/pprof/ (still requires token). Probes and /version
                       # are always open on the admin port.
+                      # Compiled out of the min flavor (no_pprof tag): ignored there, with
+                      # a pprof_not_compiled warning.
 
 # -----------------------------------------------------------------------
 # Authn: who Keel accepts requests from and who Keel asserts it is
@@ -394,9 +406,9 @@ tracing:
 # -----------------------------------------------------------------------
 fips:
   monitor: false      # Detect and expose FIPS mode status. When true, Keel checks at
-                      # startup whether the running binary was built with boringcrypto
-                      # and exposes the result via /health/fips and the keel_fips_active
-                      # Prometheus gauge. See docs/FIPS.md for the full FIPS guide.
+                      # startup that this is a FIPS build running in FIPS 140 mode
+                      # (crypto/fips140.Enabled), and exposes /health/fips and keel_fips_active.
+                      # See docs/FIPS.md for the full FIPS guide.
 ```
 
 ---
@@ -430,6 +442,7 @@ modifying the config file — and they work naturally with Kubernetes ConfigMaps
 | `KEEL_TLS_CLIENT_CA` | `tls.client_ca_file` | `""` | Inbound mTLS CA bundle |
 | `KEEL_SIDECAR` | `sidecar.enabled` | `false` | |
 | `KEEL_UPSTREAM_URL` | `sidecar.upstream_url` | `""` | |
+| `KEEL_UPSTREAM_H2C` | `sidecar.upstream_h2c` | `false` | Plaintext HTTP/2 to the upstream |
 | `KEEL_UPSTREAM_AUDIENCE` | `sidecar.upstream_audience` | `""` | |
 | `KEEL_UPSTREAM_TLS` | `sidecar.upstream_tls.enabled` | `false` | |
 | `KEEL_UPSTREAM_CA_FILE` | `sidecar.upstream_tls.ca_file` | `""` | |

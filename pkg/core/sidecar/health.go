@@ -36,9 +36,9 @@ func StartHealthProbe(
 	readiness.AddCheck("upstream", h.check)
 
 	if transport == nil {
-		// Probe over the same upstream TLS (CA, client cert for mTLS) as the
-		// proxy; a bare default transport fails mTLS and the pod never readies.
-		t, err := buildTransport(cfg.UpstreamTLS)
+		// Probe over the same upstream transport as the proxy (TLS/mTLS, h2c,
+		// unix socket); a bare default transport would miss them and never ready.
+		t, err := upstreamTransport(cfg, 0)
 		if err != nil {
 			if log != nil {
 				log.Warn("upstream_health_transport_failed", map[string]any{"err": err.Error()})
@@ -57,7 +57,7 @@ func StartHealthProbe(
 	}
 
 	client := &http.Client{Transport: transport, Timeout: timeout}
-	healthURL := strings.TrimRight(cfg.UpstreamURL, "/") + cfg.UpstreamHealthPath
+	healthURL := strings.TrimRight(upstreamBase(cfg.UpstreamURL), "/") + cfg.UpstreamHealthPath
 
 	go func() {
 		doProbe(client, healthURL, h, log)

@@ -3,15 +3,20 @@
 package sidecar
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/keelcore/keel/pkg/config"
 )
@@ -60,12 +65,12 @@ func (b *limitBody) Close() error { return b.rc.Close() }
 // The optional sign function is called on each outbound request after header
 // policy is applied (e.g. to attach a keel-to-keel Authorization JWT).
 func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, error) {
-	u, err := url.Parse(cfg.Sidecar.UpstreamURL)
+	u, err := url.Parse(upstreamBase(cfg.Sidecar.UpstreamURL))
 	if err != nil {
 		return nil, fmt.Errorf("parse upstream_url: %w", err)
 	}
 
-	transport, err := buildTransport(cfg.Sidecar.UpstreamTLS)
+	transport, err := upstreamTransport(cfg.Sidecar, cfg.Timeouts.Write.Duration)
 	if err != nil {
 		return nil, fmt.Errorf("build upstream transport: %w", err)
 	}
@@ -138,18 +143,18 @@ func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, er
 	return rp, nil
 }
 
-// buildTransport constructs an *http.Transport for upstream connections.
-// When cfg.Enabled is false, a clone of http.DefaultTransport is returned.
-// When cfg.Enabled is true, a TLS 1.3-minimum transport is built with optional
-// CA pool, client cert (mTLS), and insecure-skip-verify.
+// buildTransport constructs an *http.Transport for upstream connections. Both
+// branches start from a clone of http.DefaultTransport (dial, TLS handshake and
+// idle timeouts). When cfg.Enabled is true, a TLS 1.3-minimum client config is
+// added with optional CA pool, client cert (mTLS), and insecure-skip-verify.
 func buildTransport(cfg config.UpstreamTLSConfig) (*http.Transport, error) {
-	if !cfg.Enabled {
-		if dt, ok := httpDefaultTransport.(*http.Transport); ok {
-			return dt.Clone(), nil
-		}
-		return &http.Transport{}, nil
+	t := &http.Transport{}
+	if dt, ok := httpDefaultTransport.(*http.Transport); ok {
+		t = dt.Clone()
 	}
-
+	if !cfg.Enabled {
+		return t, nil
+	}
 	tlsCfg := &tls.Config{
 		MinVersion: tls.VersionTLS13, //nolint:gosec // TLS 1.3 minimum enforced
 	}
@@ -178,7 +183,8 @@ func buildTransport(cfg config.UpstreamTLSConfig) (*http.Transport, error) {
 		tlsCfg.Certificates = []tls.Certificate{cert}
 	}
 
-	return &http.Transport{TLSClientConfig: tlsCfg}, nil
+	t.TLSClientConfig = tlsCfg
+	return t, nil
 }
 
 // applyHeaderPolicy strips denylist headers. If the forward allowlist is
@@ -243,4 +249,48 @@ func (t *signTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("%w: %w", errSignFailed, err)
 	}
 	return t.inner.RoundTrip(out)
+}
+
+// unlimitedIdle lifts net/http's per-host idle cap (default 2). Idle
+// connections only exist up to peak concurrency and IdleConnTimeout reaps them,
+// so concurrency is bounded by limits.max_concurrent, the memory guard and the
+// file-descriptor limit — not by connection churn.
+const unlimitedIdle = math.MaxInt32
+
+// upstreamTransport tunes buildTransport for a sidecar's single upstream:
+// connection reuse without caps, HTTP/2 where the upstream offers it (ALPN over
+// TLS, or h2c when configured), no environment proxy, a response-header
+// deadline so a hung upstream frees its connection, and unix-socket dialing for
+// a unix:// upstream_url.
+func upstreamTransport(sc config.SidecarConfig, responseHeaderTimeout time.Duration) (*http.Transport, error) {
+	t, err := buildTransport(sc.UpstreamTLS)
+	if err != nil {
+		return nil, err
+	}
+	t.Proxy = nil
+	t.MaxConnsPerHost = 0
+	t.MaxIdleConns = 0
+	t.MaxIdleConnsPerHost = unlimitedIdle
+	t.ResponseHeaderTimeout = responseHeaderTimeout
+	t.ForceAttemptHTTP2 = true
+	if sc.UpstreamH2C {
+		t.Protocols = new(http.Protocols)
+		t.Protocols.SetUnencryptedHTTP2(true)
+	}
+	if socket, ok := strings.CutPrefix(sc.UpstreamURL, "unix://"); ok {
+		var d net.Dialer
+		t.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return d.DialContext(ctx, "unix", socket)
+		}
+	}
+	return t, nil
+}
+
+// upstreamBase is the URL requests are addressed to: upstream_url itself, or
+// http://localhost for a unix:// upstream (the socket is dialed instead).
+func upstreamBase(upstreamURL string) string {
+	if strings.HasPrefix(upstreamURL, "unix://") {
+		return "http://localhost"
+	}
+	return upstreamURL
 }

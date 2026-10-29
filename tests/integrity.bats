@@ -184,6 +184,35 @@ cert_dir() {
   [[ "${body}" =~ "keel: ok" ]]
 }
 
+@test "HTTPS negotiates HTTP/2 via ALPN (keel-max); keel-min (no_h2) stays on HTTP/1.1" {
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  local cert_dir
+  cert_dir="$(cert_dir)"
+  [ -f "${cert_dir}/server.crt" ] || skip "TLS certs not found; run 'make gen-certs' first"
+  local cfg pid bin max_ver min_ver
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  h3:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n' \
+    "${cert_dir}/server.crt" "${cert_dir}/server.key" > "${cfg}"
+  for bin in keel-max keel-min; do
+    KEEL_CONFIG="${cfg}" "${bin}" > /dev/null 2>&1 &
+    pid="${!}"
+    local _w=0
+    until curl -s -o /dev/null --max-time 1 --cacert "${cert_dir}/ca.crt" https://127.0.0.1:8443/ || [ "${_w}" -ge 30 ]; do
+      sleep 0.1; _w=$(( _w + 1 ))
+    done
+    if [ "${bin}" = 'keel-max' ]; then
+      max_ver="$(curl -s --http2 -o /dev/null -w '%{http_version}' --max-time 2 --cacert "${cert_dir}/ca.crt" https://127.0.0.1:8443/)"
+    else
+      min_ver="$(curl -s --http2 -o /dev/null -w '%{http_version}' --max-time 2 --cacert "${cert_dir}/ca.crt" https://127.0.0.1:8443/)"
+    fi
+    kill -TERM "${pid}"
+    wait "${pid}" || true
+  done
+  rm -f "${cfg}"
+  [ "${max_ver}" = '2' ]
+  [ "${min_ver}" = '1.1' ]
+}
+
 @test "tls.client_ca_file: HTTPS rejects clients without a trusted certificate (inbound mTLS)" {
   local cert_dir
   cert_dir="$(cert_dir)"
@@ -259,11 +288,12 @@ cert_dir() {
   echo "${body}" | grep -q '"version"'
 }
 
-@test "admin /debug/pprof/ requires admin.pprof and the admin token" {
+@test "admin /debug/pprof/ requires admin.pprof and the admin token (keel-max)" {
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nadmin:\n  pprof: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min &
+  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-max &
   pid="${!}"
   sleep 0.4
   local anon authed
@@ -274,6 +304,23 @@ cert_dir() {
   rm -f "${cfg}"
   [ "${anon}" -eq 401 ]
   [ "${authed}" -eq 200 ]
+}
+
+@test "keel-min (no_pprof): admin.pprof has no effect, 404 and a pprof_not_compiled warning" {
+  local cfg pid log status
+  cfg="$(mktemp)"
+  log="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nadmin:\n  pprof: true\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min > "${log}" 2>&1 &
+  pid="${!}"
+  sleep 0.4
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -H 'Authorization: Bearer bats-admin-token' http://127.0.0.1:9999/debug/pprof/)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [ "${status}" -eq 404 ]
+  grep -q 'pprof_not_compiled' "${log}"
+  rm -f "${log}"
 }
 
 @test "POST /admin/reload requires the admin token" {
@@ -512,6 +559,36 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 
   grep -q 'Bearer ' "${header_file}"
   rm -f "${header_file}"
+}
+
+@test "sidecar: a hung upstream returns 502 after timeouts.write instead of hanging (keel-max)" {
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  command -v nc > /dev/null 2>&1 || skip "nc not available"
+  local upstream_port keel_port cfg pid upstream_pid status started elapsed
+  upstream_port=19884
+  keel_port=19885
+  # Upstream accepts every connection and never answers.
+  while :; do
+    nc -l 127.0.0.1 "${upstream_port}" < /dev/null > /dev/null 2>&1 || true
+  done > /dev/null 2>&1 3>&- &
+  upstream_pid="${!}"
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: true\n    port: %s\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntimeouts:\n  write: 1s\nsidecar:\n  enabled: true\n  upstream_url: "http://127.0.0.1:%s"\n' \
+    "${keel_port}" "${upstream_port}" > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-max > /dev/null 2>&1 &
+  pid="${!}"
+  sleep 0.5
+  started="$(ms_now)"
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:${keel_port}/")" || true
+  elapsed="$(( $(ms_now) - started ))"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  kill "${upstream_pid}" 2>/dev/null || true
+  pkill -f "nc -l 127.0.0.1 ${upstream_port}" 2>/dev/null || true
+  wait "${upstream_pid}" 2>/dev/null || true
+  rm -f "${cfg}"
+  [ "${status}" = '502' ]
+  [ "${elapsed}" -lt 5000 ]
 }
 
 # ---------------------------------------------------------------------------

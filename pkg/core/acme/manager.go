@@ -105,8 +105,9 @@ func (m *Manager) GetCertificate(_ *tls.ClientHelloInfo) (*tls.Certificate, erro
 
 // HTTPHandler returns an http.Handler for the plain-HTTP listener that:
 //   - serves ACME http-01 challenges at /.well-known/acme-challenge/<token>
-//   - redirects all other requests to HTTPS on httpsPort with 301
-func (m *Manager) HTTPHandler(httpsPort int) http.Handler {
+//   - redirects all other requests to HTTPS on httpsPort with 301, only ever
+//     to one of domains (404 when none are configured)
+func (m *Manager) HTTPHandler(httpsPort int, domains []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		const prefix = "/.well-known/acme-challenge/"
 		if strings.HasPrefix(r.URL.Path, prefix) {
@@ -124,18 +125,25 @@ func (m *Manager) HTTPHandler(httpsPort int) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		// HTTPS redirect: rewrite host with httpsPort if non-standard.
-		host := r.Host
-		h, _, err := net.SplitHostPort(host)
+		// HTTPS redirect, only ever to a configured domain: a Host naming one
+		// keeps it; any other Host (an IP, a forged name) goes to the primary
+		// domain, so the client-supplied Host can never pick the target.
+		h, _, err := net.SplitHostPort(r.Host)
 		if err != nil {
-			h = host // no port present
+			h = r.Host // no port present
 		}
-		if httpsPort == 443 {
-			host = h
-		} else {
-			host = fmt.Sprintf("%s:%d", h, httpsPort)
+		target, ok := matchDomain(h, domains)
+		if !ok {
+			if len(domains) == 0 {
+				http.NotFound(w, r)
+				return
+			}
+			target = domains[0]
 		}
-		http.Redirect(w, r, "https://"+host+r.URL.RequestURI(), http.StatusMovedPermanently)
+		if httpsPort != 443 {
+			target = fmt.Sprintf("%s:%d", target, httpsPort)
+		}
+		http.Redirect(w, r, "https://"+target+r.URL.RequestURI(), http.StatusMovedPermanently)
 	})
 }
 
@@ -604,4 +612,16 @@ func httpClientWithCA(path string) (*http.Client, error) {
 			TLSClientConfig: &tls.Config{RootCAs: pool},
 		},
 	}, nil
+}
+
+// matchDomain returns the configured domain equal to host (case-insensitive,
+// ignoring a trailing dot).
+func matchDomain(host string, domains []string) (string, bool) {
+	host = strings.TrimSuffix(host, ".")
+	for _, d := range domains {
+		if strings.EqualFold(host, strings.TrimSuffix(d, ".")) {
+			return d, true
+		}
+	}
+	return "", false
 }

@@ -12,7 +12,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/keelcore/keel/pkg/core/logging"
 )

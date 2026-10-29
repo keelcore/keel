@@ -224,7 +224,7 @@ func (s *Server) startACMEListener(ctx context.Context, sd *lifecycle.Orchestrat
 	s.addListener()
 	go func() {
 		defer wg.Done()
-		errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(cfg.TLS.ACME.ChallengePort), mgr.HTTPHandler(cfg.Listeners.HTTPS.Port), cfg, s.logger)
+		errCh <- s.runner.serveHTTP(ctx, sd, config.AddrFromPort(cfg.TLS.ACME.ChallengePort), mgr.HTTPHandler(cfg.Listeners.HTTPS.Port, cfg.TLS.ACME.Domains), cfg, s.logger)
 	}()
 	return mgr
 }
@@ -414,6 +414,9 @@ func serveHTTPSBound(ctx context.Context, shutdown *lifecycle.Orchestrator, addr
 	srv := newHTTPServer(addr, h, cfg)
 	srv.TLSConfig = tlsCfg
 	httpx.ApplyHTTP2Policy(srv)
+	// ALPN must offer h2 or no client can negotiate it over our own TLS listener;
+	// NextProtos follows the build policy (h2 + http/1.1, or http/1.1 under no_h2).
+	tlsCfg.NextProtos = httpx.NextProtos()
 
 	log.Debug("listener_binding", map[string]any{"addr": addr, "proto": "https"})
 	ln, err := netListen("tcp", addr)

@@ -65,7 +65,7 @@ StatsD"), see the resulting binary size estimate, and get a copy-paste `go build
 
 ```sh
 # For: FIPS + minimal observability, no H3, no StatsD
-GOEXPERIMENT=boringcrypto go build \
+GOFIPS140=v1.0.0 go build \
   -tags 'no_h3,no_statsd,no_remotelog' \
   ./cmd/keel
 # Estimated binary size: ~4–5 MB
@@ -146,7 +146,7 @@ server-side TLS listener. Outbound connections — ACME CA endpoint (`httpClient
 ext-authz transport, and future OTLP exporter — each construct their own `tls.Config{}` and do not go
 through that policy. This means:
 
-1. Under a FIPS toolchain (`GOFIPS140=only` / BoringCrypto), all crypto is enforced at the runtime level
+1. In a FIPS build (`GOFIPS140=v1.0.0`) running in FIPS 140 mode, all crypto is enforced at the runtime level
    regardless of `tls.Config` content — so the gap is closed implicitly but not explicitly.
 2. Without the FIPS toolchain (e.g. the `fips` build tag used as a policy signal), outbound connections may
    negotiate X25519 key exchange or ChaCha20-Poly1305, which are not approved under FIPS 140-2/3.
@@ -159,7 +159,7 @@ through that policy. This means:
   extension of) `BuildTLSConfig`.
 - For outbound clients: derive a `*tls.Config` from `BuildTLSConfig`, then layer caller-specific fields on
   top (e.g. `RootCAs` for private CAs, `ServerName` for SNI overrides).
-- Enumerate cipher suites **explicitly** in `policy_fips.go` rather than relying solely on BoringCrypto
+- Enumerate cipher suites **explicitly** in `policy_fips.go` rather than relying solely on the Go Cryptographic Module's
   runtime enforcement — defence-in-depth; catches misconfiguration before it reaches the crypto layer.
 - Add a unit test that constructs every outbound HTTP/gRPC client in the codebase and asserts
   `MinVersion >= TLS 1.2`, no RC4/DES/3DES in `CipherSuites`, and — under the `fips` tag — no X25519 in

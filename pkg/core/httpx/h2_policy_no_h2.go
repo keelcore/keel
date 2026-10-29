@@ -11,3 +11,6 @@ import (
 func ApplyHTTP2Policy(s *http.Server) {
 	s.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){}
 }
+
+// NextProtos is the ALPN list for keel's TLS listeners: HTTP/1.1 only.
+func NextProtos() []string { return []string{"http/1.1"} }
