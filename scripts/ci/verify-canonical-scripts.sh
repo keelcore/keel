@@ -3,7 +3,9 @@
 # Verifies that canonical CI scripts in a downstream repo are byte-identical
 # to the source-of-truth copies in this standards repository.
 #
-# Usage: verify-canonical-scripts.sh <downstream-repo-root>
+# Usage: verify-canonical-scripts.sh [<downstream-repo-root>]
+#   (default: the current git repo; from a consumer, checks it against its
+#   own .standards submodule)
 #
 # For each mandatory canonical script the script compares sha256sum of:
 #   <standards-repo>/scripts/X  vs  <downstream-repo>/scripts/X
@@ -39,17 +41,28 @@ function log() {
 }
 
 function validate_args() {
-  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
-    if [ "${#}" -eq 0 ] || [ -z "${1:-}" ]; then
-      log '❌ Error: downstream repo root path is required'
-      log 'Usage: verify-canonical-scripts.sh <downstream-repo-root>'
-      exit 1
-    fi
+  if [ "${#}" -gt 1 ]; then
+    log '❌ Error: Unexpected argument'
+    log 'Usage: verify-canonical-scripts.sh [<downstream-repo-root>]'
+    exit 1
   fi
-  if [ ! -d "${1}" ]; then
+  if [ -n "${1:-}" ] && [ ! -d "${1}" ]; then
     log "❌ Error: downstream repo root not found: ${1}"
     exit 1
   fi
+}
+
+# resolve_standards_root: the source of truth. Run from the standards repo, it is
+# that repo. Run from a consumer's own synced copy, the script's toplevel IS the
+# consumer, so the source of truth is the consumer's .standards submodule.
+function resolve_standards_root() {
+  local -r downstream_root="${1}"
+  local root
+  root="$(cd "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)" && pwd -P)"
+  if [ "${root}" = "${downstream_root}" ] && [ -d "${downstream_root}/.standards/scripts" ]; then
+    root="${downstream_root}/.standards"
+  fi
+  printf '%s\n' "${root}"
 }
 
 function sha256_of() {
@@ -92,9 +105,9 @@ function verify_script() {
 
 function main() {
   validate_args "${@:-}"
-  local -r downstream_root="${1}"
-  local standards_root
-  standards_root="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
+  local downstream_root standards_root
+  downstream_root="$(cd "${1:-$(git rev-parse --show-toplevel)}" && pwd -P)"
+  standards_root="$(resolve_standards_root "${downstream_root}")"
 
   log "Verifying canonical scripts against: ${downstream_root}"
   log "Standards source of truth: ${standards_root}"

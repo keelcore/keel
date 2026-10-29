@@ -60,6 +60,8 @@ jobs:
           submodules: recursive
       - name: Run CI/Makefile audit
         run: make audit
+      - name: Verify canonical scripts are byte-identical to .standards
+        run: make verify-canonical
 
   # ---------------------------------------------------------------------------
   # Secret Scan — required gate; runs on every push and PR.

@@ -22,7 +22,81 @@ include .standards/templates/Makefile.canonical
 # scope's src/bin/ exclusion. coverage-go.sh honors this override.
 export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 
-.PHONY: all clean min max max-no-fips build integration-test unit-test test-unit test-consistency test-integrity test-compose test-k8s coverage lint-go lint-helm lint-helm-validate lint-fmt lint-newlines lint-md release-checksums release-checksums-verify release-sbom release-sign release-upload release-rename release-docker release-helm-push release-ci colima-setup colima-deploy colima-test colima-teardown gen-certs gen-schema create-release install-hooks fresh-repo help help-local pre-commit keel-schema-regen setup-helm setup-bats setup-pebble setup-kind setup-staticcheck setup-syft setup-cosign setup-markdownlint setup-docker-macos setup-kubeconform setup-ghcr ci-pr-policy ci-secret-scan ci-dco ci-coverage-delta ci-smoke-windows bats-integrity bats-example ci-build-example dist-chmod clean-local coverage-profile coverage-report audit check-legal-drift size-report roadmap-issues k8s-cluster-test k8s-helm-deploy k8s-kind-load k8s-kind-setup k8s-kind-teardown
+.PHONY: all
+.PHONY: clean
+.PHONY: min
+.PHONY: max
+.PHONY: max-no-fips
+.PHONY: build
+.PHONY: integration-test
+.PHONY: unit-test
+.PHONY: test-unit
+.PHONY: test-consistency
+.PHONY: test-integrity
+.PHONY: test-compose
+.PHONY: test-k8s
+.PHONY: coverage
+.PHONY: lint-go
+.PHONY: lint-helm
+.PHONY: lint-helm-validate
+.PHONY: lint-fmt
+.PHONY: lint-newlines
+.PHONY: lint-md
+.PHONY: release-checksums
+.PHONY: release-checksums-verify
+.PHONY: release-sbom
+.PHONY: release-sign
+.PHONY: release-upload
+.PHONY: release-rename
+.PHONY: release-docker
+.PHONY: release-helm-push
+.PHONY: release-ci
+.PHONY: colima-setup
+.PHONY: colima-deploy
+.PHONY: colima-test
+.PHONY: colima-teardown
+.PHONY: container-host-network
+.PHONY: gen-certs
+.PHONY: gen-schema
+.PHONY: create-release
+.PHONY: install-hooks
+.PHONY: fresh-repo
+.PHONY: help
+.PHONY: help-local
+.PHONY: pre-commit
+.PHONY: keel-schema-regen
+.PHONY: setup-helm
+.PHONY: setup-bats
+.PHONY: setup-pebble
+.PHONY: setup-kind
+.PHONY: setup-staticcheck
+.PHONY: setup-syft
+.PHONY: setup-cosign
+.PHONY: setup-markdownlint
+.PHONY: setup-docker-macos
+.PHONY: setup-kubeconform
+.PHONY: setup-ghcr
+.PHONY: ci-pr-policy
+.PHONY: ci-secret-scan
+.PHONY: ci-dco
+.PHONY: ci-coverage-delta
+.PHONY: ci-smoke-windows
+.PHONY: bats-integrity
+.PHONY: bats-example
+.PHONY: ci-build-example
+.PHONY: dist-chmod
+.PHONY: clean-local
+.PHONY: coverage-profile
+.PHONY: coverage-report
+.PHONY: audit
+.PHONY: check-legal-drift
+.PHONY: size-report
+.PHONY: roadmap-issues
+.PHONY: k8s-cluster-test
+.PHONY: k8s-helm-deploy
+.PHONY: k8s-kind-load
+.PHONY: k8s-kind-setup
+.PHONY: k8s-kind-teardown
 
 # Default target: build the shredded minimalist binary
 all: min
@@ -110,6 +184,11 @@ colima-test:
 colima-teardown:
 	@echo "🧹 Tearing down Colima k8s environment..."
 	./scripts/colima/teardown.sh
+
+## Apple container host networking
+container-host-network:
+	@echo "🛣️  Checking Apple container host networking..."
+	./scripts/container/host-network.sh
 
 ## Certificate Generation
 gen-certs:
@@ -305,6 +384,9 @@ help-local:
 	@echo "  colima-deploy   Build keel:test + helm install to Colima"
 	@echo "  colima-test     Run k8s integration tests"
 	@echo "  colima-teardown Uninstall + stop Colima cluster"
+	@echo ""
+	@echo "Apple container:"
+	@echo "  container-host-network  Check/enforce host<->guest networking (route, Local Network)"
 	@echo ""
 	@echo "Lint:"
 	@echo "  lint            gofmt check + go vet + staticcheck"

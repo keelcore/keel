@@ -335,7 +335,8 @@ EOF
 # A target block spans the target header line through the next blank line
 # or next non-tab/non-target line. Also rewrites .PHONY lines (including
 # backslash-continued multi-line forms) to remove canonical target names,
-# and collapses runs of blank lines to a single blank.
+# emitting one `.PHONY: <target>` line per remaining name, and collapses runs
+# of blank lines to a single blank.
 function write_remainder() {
   local -r removable="${1}"
   local removable_file
@@ -387,13 +388,13 @@ function write_remainder() {
       }
       sub(/^[^:]*:[[:space:]]*/, "", full)
       m = split(full, names, /[[:space:]]+/)
-      out = ""
+      kept = 0
       for (i = 1; i <= m; i++) {
         if (names[i] == "" || (names[i] in removable)) continue
-        out = (out == "" ? names[i] : out " " names[i])
+        process_real(1, ".PHONY: " names[i])
+        kept++
       }
-      if (out != "") process_real(1, ".PHONY: " out)
-      else            process_real(0, "")
+      if (kept == 0) process_real(0, "")
       next
     }
     /^[a-zA-Z_][a-zA-Z0-9_.-]*[[:space:]]*:/ &&
