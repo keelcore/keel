@@ -1,12 +1,11 @@
 package version
 
 import (
+	"crypto/fips140"
 	"encoding/json"
 	"net/http"
-	"os"
 	"runtime"
 	"runtime/debug"
-	"strings"
 )
 
 // Build-time overrides via -ldflags "-X github.com/keelcore/keel/pkg/core/version.Version=1.2.3".
@@ -29,23 +28,17 @@ type Info struct {
 	FIPSActive bool     `json:"fips_active"`
 }
 
-// fipsRuntimeActive returns true when the FIPS runtime mode is active.
-// It mirrors the logic in pkg/core/fips.Check without creating a package dependency.
-// fipsBuild is injected by the caller (typically the build-tag constant fipsBuilt) so
-// that tests can exercise every branch without depending on a specific build tag.
+// fipsModuleEnabled is a seam over crypto/fips140.Enabled for tests.
+var fipsModuleEnabled = fips140.Enabled
+
+// fipsRuntimeActive returns true when this is a FIPS build AND the Go
+// Cryptographic Module reports FIPS 140 mode (crypto/fips140.Enabled), matching
+// pkg/core/fips.Check without a package dependency. Environment variables are
+// not consulted: GOFIPS140 only matters at build time (GOFIPS140=off is
+// non-empty) and GODEBUG is read at process start. fipsBuild is injected by the
+// caller (typically the build-tag constant fipsBuilt) so tests reach every branch.
 func fipsRuntimeActive(fipsBuild bool) bool {
-	if !fipsBuild {
-		return false
-	}
-	if v := os.Getenv("GOFIPS140"); v != "" {
-		return true
-	}
-	for _, token := range strings.Split(os.Getenv("GODEBUG"), ",") {
-		if strings.TrimSpace(token) == "fips140=only" {
-			return true
-		}
-	}
-	return false
+	return fipsBuild && fipsModuleEnabled()
 }
 
 // Get returns the current build info, enriching commit/date from VCS metadata

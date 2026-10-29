@@ -41,10 +41,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 )
 
 // Level ordinals — higher value means less verbose.
@@ -159,5 +161,24 @@ func (l *Logger) write(levelName, msg string, fields map[string]any) {
 		_, _ = fmt.Fprintln(l.out, string(b))
 		return
 	}
-	_, _ = fmt.Fprintf(l.out, "%s [%s] %s %v\n", fields["ts"], levelName, msg, fields)
+	// Text mode escapes control characters so request-derived values (e.g. a
+	// decoded %0a in a path) cannot forge extra log lines.
+	_, _ = fmt.Fprintln(l.out, escapeControl(fmt.Sprintf("%s [%s] %s %v", fields["ts"], levelName, msg, fields)))
+}
+
+// escapeControl replaces control characters with their Go escape (\n, \x1b, …).
+func escapeControl(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			q := strconv.QuoteRune(r)
+			b.WriteString(q[1 : len(q)-1])
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }

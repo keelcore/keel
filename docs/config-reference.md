@@ -81,8 +81,8 @@ listeners:
 
   admin:
     enabled: false
-    port: 9999        # Administrative port: /version, /debug/pprof, /admin/reload,
-                      # /metrics/fips. Never expose this port publicly.
+    port: 9999        # Administrative port: probes, /version, /metrics, /admin/reload,
+                      # /debug/pprof (see admin: below). Never expose this port publicly.
 
 # -----------------------------------------------------------------------
 # TLS: certificate and key material for HTTPS and H3 listeners
@@ -90,6 +90,10 @@ listeners:
 tls:
   cert_file: ""       # Path to PEM-encoded TLS certificate. Leave empty when using ACME.
   key_file: ""        # Path to PEM-encoded private key. Leave empty when using ACME.
+  client_ca_file: ""  # Inbound mTLS: PEM bundle of CAs. When set, HTTPS and H3 reject any
+                      # client that does not present a certificate chaining to one of them.
+                      # The certificate is not mapped to an identity (use JWT authn for that).
+                      # Plain HTTP is unaffected. Restart-required.
 
   acme:
     enabled: false    # When true, Keel manages its own certificate via Let's Encrypt.
@@ -269,6 +273,27 @@ backpressure:
                       # collect pressure metrics without actually shedding traffic
                       # (useful when tuning watermark values).
 
+  min_headroom_bytes: 10485760  # Memory guard (10 MiB). Every 250ms Keel measures
+                      # headroom = effective memory limit − memory Go holds. Below this
+                      # floor it answers 503 (Retry-After: 1) before doing any work, and
+                      # resumes at 2× the floor. The limit is heap_max_bytes, GOMEMLIMIT,
+                      # or 90% of the container (cgroup) RAM limit — headroom before
+                      # swap/OOM. With no limit known nothing is shed. 0 disables.
+
+# -----------------------------------------------------------------------
+# Admin: per-endpoint access on the admin listener
+# -----------------------------------------------------------------------
+admin:
+  token: ""           # Bearer token for /admin/reload and /debug/pprof/. Unset →
+                      # those endpoints answer 403 (reload still works via SIGHUP).
+                      # Secret: set in keel-secrets.yaml or KEEL_ADMIN_TOKEN.
+  metrics_token: ""   # Bearer token for /metrics. Unset → /metrics is open (scrapes
+                      # are network-restricted by the admin NetworkPolicy). Set it and
+                      # give Prometheus the same value:
+                      #   authorization: { type: Bearer, credentials_file: /etc/prom/keel-token }
+  pprof: false        # Serve /debug/pprof/ (still requires token). Probes and /version
+                      # are always open on the admin port.
+
 # -----------------------------------------------------------------------
 # Authn: who Keel accepts requests from and who Keel asserts it is
 # -----------------------------------------------------------------------
@@ -397,8 +422,12 @@ modifying the config file — and they work naturally with Kubernetes ConfigMaps
 | `KEEL_READY_PORT` | `listeners.ready.port` | `9092` | |
 | `KEEL_STARTUP_PORT` | `listeners.startup.port` | `9093` | |
 | `KEEL_ADMIN_PORT` | `listeners.admin.port` | `9999` | |
+| `KEEL_ADMIN_TOKEN` | `admin.token` | `""` | Secret; gates reload and pprof |
+| `KEEL_ADMIN_METRICS_TOKEN` | `admin.metrics_token` | `""` | Secret; empty = /metrics open |
+| `KEEL_ADMIN_PPROF` | `admin.pprof` | `false` | |
 | `KEEL_TLS_CERT` | `tls.cert_file` | `""` | |
 | `KEEL_TLS_KEY` | `tls.key_file` | `""` | |
+| `KEEL_TLS_CLIENT_CA` | `tls.client_ca_file` | `""` | Inbound mTLS CA bundle |
 | `KEEL_SIDECAR` | `sidecar.enabled` | `false` | |
 | `KEEL_UPSTREAM_URL` | `sidecar.upstream_url` | `""` | |
 | `KEEL_UPSTREAM_AUDIENCE` | `sidecar.upstream_audience` | `""` | |
@@ -421,6 +450,7 @@ modifying the config file — and they work naturally with Kubernetes ConfigMaps
 | `KEEL_LOG_JSON` | `logging.json` | `true` | |
 | `KEEL_SHEDDING` | `backpressure.shedding_enabled` | `true` | |
 | `KEEL_HEAP_MAX_BYTES` | `backpressure.heap_max_bytes` | `0` | |
+| `KEEL_MIN_HEADROOM_BYTES` | `backpressure.min_headroom_bytes` | `10485760` | |
 | `KEEL_MAX_HEADER_BYTES` | `security.max_header_bytes` | `65536` | |
 | `KEEL_MAX_REQ_BODY_BYTES` | `security.max_request_body_bytes` | `10485760` | |
 | `KEEL_MAX_RESP_BODY_BYTES` | `security.max_response_body_bytes` | `52428800` | |
@@ -464,6 +494,10 @@ authn:
     - /etc/keel/secrets/signer-a.pem      # Public key of service A, which Keel will accept
     - /etc/keel/secrets/signer-b.pem      # Public key of service B
   my_signature_key_file: /etc/keel/secrets/my-signing.key   # Keel's own private key
+
+admin:
+  token: <random 32+ bytes>               # /admin/reload, /debug/pprof/
+  metrics_token: <random 32+ bytes>       # optional; Prometheus scrape bearer
 ```
 
 **`*_file` key convention:** Any config key that ends in `_file` is treated as a filesystem path. Keel reads the file
@@ -536,7 +570,8 @@ useful for rotating TLS certificates, updating signing keys, and adjusting log l
 **How to trigger:**
 
 - Send `SIGHUP` to the Keel process: `kill -HUP <pid>`
-- Or POST to the admin port: `curl -X POST http://localhost:9999/admin/reload`
+- Or POST to the admin port with the admin token (401 bad/missing token; 403 when `admin.token` is unset):
+  `curl -X POST -H "Authorization: Bearer $KEEL_ADMIN_TOKEN" http://localhost:9999/admin/reload`
 
 **What happens on reload:**
 
@@ -546,29 +581,35 @@ useful for rotating TLS certificates, updating signing keys, and adjusting log l
    that would break the server is rejected silently so the process stays up.
 4. If validation passes, Keel applies changes to the running process.
 
+Both triggers — `SIGHUP` and `POST /admin/reload` — run the same reload, so the lists below apply to both. (SIGINT and
+SIGTERM are shutdown signals, not reload triggers.)
+
 **What can be reloaded (no restart needed):**
 
 - Log level and JSON format (`logging.level`, `logging.json`)
-- Remote log sink endpoint and protocol (`logging.remote_sink.*`) — old sink goroutine is cancelled, new one started
+- Remote log sink endpoint and protocol (`logging.remote_sink.*`) — old sink is detached and closed, new one started
 - Authn signing keys (`authn.trusted_signers`, `authn.trusted_signers_file`) — file is re-read from disk
-- Trusted principal IDs (`authn.trusted_ids`)
+- Trusted principal IDs (`authn.trusted_ids`) — removing a principal revokes it on the next request
 - Outbound JWT identity and signing key (`authn.my_id`, `authn.my_signature_key_file`)
 - Pre-stop sleep duration (`timeouts.prestop_sleep`)
-- Memory backpressure limits (`backpressure.*`)
-- Upstream URL (`sidecar.upstream_url`)
-- TLS certificate and key (zero-downtime cert rotation — new connections use the new cert; in-flight TLS sessions are
-  not affected)
+- Memory backpressure (`backpressure.*`) — the Go memory limit is re-applied and the watermark loop and memory guard
+  restart with the new values
+- TLS certificate and key (zero-downtime cert rotation for HTTPS and HTTP/3 — new connections use the new cert;
+  in-flight TLS sessions are not affected)
 
 **What requires a restart (cannot be hot-reloaded):**
 
 - Listener ports (changing `listeners.http.port` etc.)
-- Protocol bindings (adding/removing HTTPS, H3, or admin listener)
+- Protocol bindings (adding/removing HTTPS, H3, or admin listener) and `tls.client_ca_file`
+- Upstream URL and sidecar settings (`sidecar.*`) — the proxy and its health probe are built at startup
+- Enabling or disabling middleware (`authn.enabled`, `ext_authz.*`, `security.*`, `limits.*`)
 - Build-tag-controlled features
 
 **`/admin/reload` response:**
 
 - `200 OK` — reload succeeded, new config is active.
-- `422 Unprocessable Entity` — reload failed validation; old config is still active. Body contains the validation error.
+- `422 Unprocessable Entity` — reload failed validation; old config is still active. The body is a generic
+  `reload failed`; the validation error is logged (`admin_reload_failed`) rather than returned to the caller.
 
 **Why support reload at all?** TLS certificate rotation is the primary driver. Production certificates expire; ideally
 you rotate them without any downtime or service interruption. With SIGHUP + cert hot reload, a certificate manager

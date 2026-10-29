@@ -11,5 +11,6 @@ func New(_, _ string) (*Client, error)                           { return &Clien
 func (c *Client) Count(_ string, _ int64, _ map[string]string)   {}
 func (c *Client) Timing(_ string, _ int64, _ map[string]string)  {}
 func (c *Client) Gauge(_ string, _ float64, _ map[string]string) {}
+func (c *Client) Close() error                                   { return nil }
 
 func Instrument(_ *Client, next http.Handler) http.Handler { return next }

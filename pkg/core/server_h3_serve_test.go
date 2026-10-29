@@ -199,3 +199,15 @@ func TestStartMainListeners_H3CertLoadFatal(t *testing.T) {
 		s.startMainListeners(context.Background(), newStubSD(s), &sync.WaitGroup{}, make(chan error, 4), http.NotFoundHandler(), nil)
 	})
 }
+
+// An unreadable client CA fails the H3 listener.
+func TestServeH3With_BadClientCAFails(t *testing.T) {
+	certFile, keyFile := generateTestCert(t)
+	cfg := config.Config{}
+	cfg.TLS.CertFile, cfg.TLS.KeyFile = certFile, keyFile
+	cfg.TLS.ClientCAFile = certFile + ".missing"
+	err := serveH3With(context.Background(), "127.0.0.1:0", http.NotFoundHandler(), cfg, discardLog(), nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "client_ca_file") {
+		t.Fatalf("err = %v, want client_ca_file error", err)
+	}
+}

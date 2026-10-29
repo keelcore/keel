@@ -13,7 +13,7 @@ services:
   # A simple HTTP echo server that keel will eventually proxy.
   # Present now so the full topology exists from day one.
   upstream:
-    image: hashicorp/http-echo:latest
+    image: hashicorp/http-echo:1.0.0@sha256:fcb75f691c8b0414d670ae570240cbf95502cc18a9ba57e982ecac589760a186
     command: ["-text=upstream-ok", "-listen=:9000"]
     networks:
       - keel-test
@@ -48,11 +48,9 @@ services:
 
   # ── Jaeger (tracing backend) ──────────────────────────────────────────────────
   jaeger:
-    image: jaegertracing/all-in-one:1.56
+    image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
     networks:
       - keel-test
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
     ports:
       - "16686:16686"   # Jaeger UI (human inspection)
       # OTLP gRPC 4317 reachable inside the Docker network as jaeger:4317
@@ -60,7 +58,7 @@ services:
   # ── OpenTelemetry Collector ───────────────────────────────────────────────────
   # Receives OTLP from keel; exports to Jaeger via internal Docker DNS.
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.97.0
+    image: otel/opentelemetry-collector-contrib:0.163.2@sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849
     depends_on:
       - jaeger
     networks:
@@ -74,7 +72,7 @@ services:
 
   # ── Prometheus ───────────────────────────────────────────────────────────────
   prometheus:
-    image: prom/prometheus:v2.50.1
+    image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
     networks:
       - keel-test
     volumes:
@@ -82,8 +80,6 @@ services:
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
-      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
-      - "--web.console.templates=/usr/share/prometheus/consoles"
       - "--log.level=warn"
     ports:
       - "9090:9090"   # Prometheus UI / query API

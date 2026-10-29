@@ -29,6 +29,9 @@ func New(endpoint, prefix string) (*Client, error) {
 	return &Client{conn: conn, prefix: prefix}, nil
 }
 
+// Close releases the UDP socket.
+func (c *Client) Close() error { return c.conn.Close() }
+
 // Count emits a counter metric.
 func (c *Client) Count(name string, value int64, tags map[string]string) {
 	c.emit(fmt.Sprintf("%s.%s:%d|c%s", c.prefix, name, value, tagsStr(tags)))

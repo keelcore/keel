@@ -208,8 +208,8 @@ func TestAccessLog_ClientIP_XFF_WithComma(t *testing.T) {
 	req.Header.Set("x-forwarded-for", "1.2.3.4, 5.6.7.8")
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
-	if !strings.Contains(buf.String(), `"ip":"1.2.3.4"`) {
-		t.Errorf("expected first XFF entry in log, got: %s", buf.String())
+	if !strings.Contains(buf.String(), `"ip":"192.0.2.1"`) || !strings.Contains(buf.String(), `"xff":"1.2.3.4, 5.6.7.8"`) {
+		t.Errorf("expected socket peer as ip and XFF verbatim as xff, got: %s", buf.String())
 	}
 }
 
@@ -222,8 +222,8 @@ func TestAccessLog_ClientIP_XFF_WithoutComma(t *testing.T) {
 	req.Header.Set("x-forwarded-for", "9.8.7.6")
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
-	if !strings.Contains(buf.String(), `"ip":"9.8.7.6"`) {
-		t.Errorf("expected XFF IP in log, got: %s", buf.String())
+	if !strings.Contains(buf.String(), `"ip":"192.0.2.1"`) || !strings.Contains(buf.String(), `"xff":"9.8.7.6"`) {
+		t.Errorf("expected socket peer as ip and XFF as xff, got: %s", buf.String())
 	}
 }
 

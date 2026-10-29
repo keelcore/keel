@@ -170,14 +170,12 @@ authn:
     - service-b
 ```
 
-#### mTLS Client Certificate Identity (secondary)
+#### Inbound mTLS (transport gate)
 
-When a client presents a TLS client certificate during the handshake, Keel can map the certificate's Subject CN or
-Subject Alternative Name to a principal ID. The same `trusted_ids` allowlist applies — the mapped ID must be in the
-list.
-
-This mechanism is used in environments where services authenticate to each other via client certificates rather than
-bearer tokens (common in service mesh setups without Istio-style transparent mTLS).
+Set `tls.client_ca_file` (env `KEEL_TLS_CLIENT_CA`; Helm `keel.tls.clientCASecretName`, a Secret with `ca.crt`) and
+the HTTPS and H3 listeners require every client to present a certificate that chains to one of those CAs; the handshake
+fails otherwise. This is a transport-level gate only: the certificate's Subject or SANs are **not** mapped to a principal
+and are not checked against `trusted_ids`. Per-caller identity comes from JWT authn above. Plain HTTP is unaffected.
 
 ### 2.3 Trust Model: Upstream and Downstream
 
@@ -545,8 +543,8 @@ Keel can delegate authorization decisions to an external policy engine via `ext_
 inbound request is forwarded to the configured endpoint before reaching the upstream service. The endpoint
 returns allow or deny; Keel enforces the decision with no application code changes required.
 
-This is distinct from the authn layer (§2). Authn establishes *who* the caller is (JWT validation, mTLS
-identity). ExtAuthz asks an external system *whether that caller may perform this action* — a question that
+This is distinct from the authn layer (§2). Authn establishes *who* the caller is (JWT validation). ExtAuthz
+asks an external system *whether that caller may perform this action* — a question that
 may require policy context Keel does not have locally.
 
 ### 6.1 How It Works

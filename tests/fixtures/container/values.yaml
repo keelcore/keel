@@ -39,6 +39,8 @@ keel:
 
   tls:
     certSecretName: ""
+    # Secret holding ca.crt: inbound mTLS — HTTPS/H3 require client certs signed by it.
+    clientCASecretName: ""
     acme:
       enabled: false
       domains: []
@@ -70,6 +72,10 @@ keel:
     highWatermark: 0.85
     lowWatermark: 0.70
     sheddingEnabled: false
+    minHeadroomBytes: 10485760
+
+  admin:
+    pprof: false
 
   authn:
     enabled: false

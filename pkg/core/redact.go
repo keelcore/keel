@@ -24,6 +24,8 @@ func redactedConfig(cfg config.Config) config.Config {
 		}
 	}
 	cfg.Authn.TrustedSigners = signers
+	cfg.Admin.Token = redactSecret(cfg.Admin.Token)
+	cfg.Admin.MetricsToken = redactSecret(cfg.Admin.MetricsToken)
 	cfg.Sidecar.UpstreamURL = redactURL(cfg.Sidecar.UpstreamURL)
 	cfg.ExtAuthz.Endpoint = redactURL(cfg.ExtAuthz.Endpoint)
 	cfg.Logging.RemoteSink.Endpoint = redactURL(cfg.Logging.RemoteSink.Endpoint)
@@ -47,4 +49,13 @@ func redactURL(raw string) string {
 		u.RawQuery = redacted
 	}
 	return u.String()
+}
+
+// redactSecret replaces a set secret; an unset one stays empty so the dump
+// still shows whether it is configured.
+func redactSecret(v string) string {
+	if v == "" {
+		return ""
+	}
+	return redacted
 }

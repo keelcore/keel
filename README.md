@@ -220,9 +220,10 @@ Both layers are default-on and independently opt-outable at build time.
 request size and timeout limits. See [docs/security.md — OWASP Middleware](docs/security.md#1-owasp-hardening-middleware)
 for the full header list with explanations of each one.
 
-**Authn layer** (`no_authn` to opt out) validates incoming JWT bearer tokens (HS256, RS256, ES256) and optionally maps
-mTLS client certificate identities to principals. `trusted_signers` is the list of keys Keel trusts; `trusted_ids` is
-the allowlist of principal identifiers. In sidecar mode, Keel re-signs outbound requests as its own identity (`my_id`).
+**Authn layer** (`no_authn` to opt out) validates incoming JWT bearer tokens (HS256, RS256, ES256). Inbound mTLS
+(`tls.client_ca_file`) gates HTTPS/H3 on a trusted client CA. `trusted_signers` is the list of keys Keel trusts;
+`trusted_ids` is the allowlist of principal identifiers. In sidecar mode, Keel re-signs outbound requests as its own
+identity (`my_id`).
 See [docs/security.md — Authentication Layer](docs/security.md#2-authentication-layer) for the full trust model.
 
 ---
@@ -272,8 +273,8 @@ srv := keel.New(
 
 ### 5.5 Admin Reload Endpoint
 
-`POST /admin/reload` triggers the same hot reload as SIGHUP. Returns 200 on success or 422 if the new config is invalid
-(old config stays active).
+`POST /admin/reload` (with `Authorization: Bearer <admin.token>`) triggers the same hot reload as SIGHUP.
+Returns 200 on success or 422 if the new config is invalid (old config stays active).
 
 ---
 

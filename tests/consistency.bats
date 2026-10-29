@@ -64,7 +64,8 @@ setup_file() {
     case "${tag}" in
       enabled|port|insecure)                                      continue ;;
       cert_file|key_file)                                         continue ;;  # rendered conditionally from k8s secret
-      ca_file|client_cert_file|client_key_file)                   continue ;;  # rendered conditionally from k8s secret
+      ca_file|client_cert_file|client_key_file|client_ca_file)    continue ;;  # rendered conditionally from k8s secret
+      token|metrics_token)                                        continue ;;  # secrets: keel-secrets.yaml or env
     esac
     if ! printf '%s\n' "${RENDERED_CONFIG}" | grep -qE "^\s+${tag}:"; then
       echo "MISSING from rendered configmap: '${tag}'"

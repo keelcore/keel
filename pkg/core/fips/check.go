@@ -5,30 +5,28 @@
 package fips
 
 import (
-	"fmt"
-	"os"
-	"strings"
+	"crypto/fips140"
+	"errors"
 )
 
-// Check verifies that the FIPS 140 runtime mode is active. It returns nil
-// when at least one of the following conditions holds:
+// fipsEnabled reports whether the Go Cryptographic Module runs in FIPS 140
+// mode. A seam over crypto/fips140.Enabled so tests can drive both outcomes.
+var fipsEnabled = fips140.Enabled
+
+// Check verifies that FIPS 140 mode is actually active in this process, as
+// reported by crypto/fips140.Enabled — true for a binary built with GOFIPS140
+// (make max) or run with GODEBUG=fips140=on|only.
 //
-//   - GOFIPS140 is set to a non-empty value, or
-//   - GODEBUG contains the token "fips140=only".
-//
-// If neither condition holds, Check returns a descriptive error. Callers
-// should treat a non-nil return as a fatal misconfiguration when fips.monitor
-// is enabled.
+// Environment variables are not consulted: GOFIPS140 only takes effect at build
+// time (GOFIPS140=off is non-empty yet disables FIPS), and GODEBUG is read at
+// process start, so inspecting either at runtime can report FIPS that is not
+// there. Callers should treat a non-nil return as a fatal misconfiguration
+// when fips.monitor is enabled.
 func Check() error {
-	if v := os.Getenv("GOFIPS140"); v != "" {
+	if fipsEnabled() {
 		return nil
 	}
-	for _, token := range strings.Split(os.Getenv("GODEBUG"), ",") {
-		if strings.TrimSpace(token) == "fips140=only" {
-			return nil
-		}
-	}
-	return fmt.Errorf(
-		"FIPS runtime mode is not active: set GOFIPS140=1 or GODEBUG=fips140=only before starting this binary",
+	return errors.New(
+		"FIPS 140 mode is not active: build with GOFIPS140 (make max) or run with GODEBUG=fips140=on or fips140=only",
 	)
 }

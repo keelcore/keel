@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: upstream
-          image: docker.io/hashicorp/http-echo:latest
+          image: docker.io/hashicorp/http-echo:1.0.0@sha256:fcb75f691c8b0414d670ae570240cbf95502cc18a9ba57e982ecac589760a186
           args: ["-text=upstream-ok", "-listen=:9000"]
           ports:
             - { containerPort: 9000, hostPort: 9000 }
@@ -101,9 +101,7 @@ spec:
     spec:
       containers:
         - name: jaeger
-          image: docker.io/jaegertracing/all-in-one:1.56
-          env:
-            - { name: COLLECTOR_OTLP_ENABLED, value: "true" }
+          image: docker.io/jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
           ports:
             - { containerPort: 16686 }
             - { containerPort: 4317 }
@@ -131,7 +129,7 @@ spec:
     spec:
       containers:
         - name: otel-collector
-          image: docker.io/otel/opentelemetry-collector-contrib:0.97.0
+          image: docker.io/otel/opentelemetry-collector-contrib:0.163.2@sha256:7f22d2a6748110ffb6a59bc0df448bccbf501cdb667d610ede4c61d3863d5849
           args: ["--config=/etc/otelcol-contrib/config.yaml"]
           ports:
             - { containerPort: 4317 }
@@ -168,12 +166,10 @@ spec:
     spec:
       containers:
         - name: prometheus
-          image: docker.io/prom/prometheus:v2.50.1
+          image: docker.io/prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
           args:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.path=/prometheus"
-            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
-            - "--web.console.templates=/usr/share/prometheus/consoles"
             - "--log.level=warn"
           ports:
             - { containerPort: 9090, hostPort: 9090 }

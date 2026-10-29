@@ -383,3 +383,46 @@ func TestDoProbe_Unhealthy_WithLog(t *testing.T) {
 		t.Error("expected readiness=false for unhealthy upstream")
 	}
 }
+
+// When keel signs, the client's Authorization is replaced by keel's; a signing
+// failure is a 502 and the request never reaches the upstream unsigned.
+func TestNew_Signing_ReplacesClientAuthAndFailsClosed(t *testing.T) {
+	var gotAuth string
+	hits := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		gotAuth = r.Header.Get("Authorization")
+	}))
+	defer upstream.Close()
+	cfg := config.Config{Sidecar: config.SidecarConfig{UpstreamURL: upstream.URL}}
+
+	signErr := error(nil)
+	h, err := New(cfg, func(r *http.Request) error {
+		if signErr != nil {
+			return signErr
+		}
+		r.Header.Set("Authorization", "Bearer keel-token")
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	call := func() int {
+		req := httptest.NewRequest(http.MethodGet, "http://sidecar.local/", nil)
+		req.Header.Set("Authorization", "Bearer client-token")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if code := call(); code != http.StatusOK || gotAuth != "Bearer keel-token" {
+		t.Fatalf("signed: status %d auth %q", code, gotAuth)
+	}
+	signErr = errors.New("key unavailable")
+	if code := call(); code != http.StatusBadGateway {
+		t.Fatalf("sign failure: status %d, want 502", code)
+	}
+	if hits != 1 {
+		t.Fatalf("upstream hit %d times, want 1 (unsigned request forwarded)", hits)
+	}
+}

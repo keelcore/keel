@@ -585,7 +585,7 @@ services:
   # hashicorp/http-echo is a minimal HTTP server that returns a fixed text response.
   # It simulates your application without requiring you to build your app just for tests.
   upstream:
-    image: hashicorp/http-echo:latest
+    image: hashicorp/http-echo:1.0.0   # pin by digest in real use (see tests/compose)
     command: ["-text=upstream-ok", "-listen=:3000"]
     ports:
       - "3000:3000"
@@ -643,11 +643,9 @@ services:
   # Jaeger — trace storage and UI.
   # Access the Jaeger UI at http://localhost:16686.
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/jaeger:2.22.0   # v2 all-in-one: OTLP 4317/4318 on by default
     ports:
       - "16686:16686"   # Jaeger UI
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
 ```
 
 ### 3.3 Docker Compose Networking

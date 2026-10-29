@@ -180,3 +180,24 @@ func TestPostDoError(t *testing.T) {
 	// Should return cleanly without panicking on the nil response.
 	s.post([][]byte{[]byte("l\n")})
 }
+
+// A batch the collector rejects (non-2xx) or never receives is counted as
+// dropped, line by line.
+func TestPost_FailedOrRejectedBatchCountsDrops(t *testing.T) {
+	s := NewHTTPSink("http://example/logs", 8, time.Second)
+	status := http.StatusServiceUnavailable
+	s.client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		r := okResponse()
+		r.StatusCode = status
+		return r, nil
+	})}
+	s.post([][]byte{[]byte("a\n"), []byte("b\n")})
+	if got := s.DropsTotal(); got != 2 {
+		t.Fatalf("drops after 503 = %d, want 2", got)
+	}
+	status = http.StatusAccepted
+	s.post([][]byte{[]byte("c\n")})
+	if got := s.DropsTotal(); got != 2 {
+		t.Fatalf("drops after 202 = %d, want 2", got)
+	}
+}

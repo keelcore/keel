@@ -265,3 +265,54 @@ func TestHTTPClientWithCA_SystemPoolErrorFallback(t *testing.T) {
 		t.Error("expected non-nil http client")
 	}
 }
+
+// writeFileAtomic: an fsync failure leaves the old file intact and no temp
+// file behind; a successful write replaces a looser-mode file with 0600.
+func TestWriteFileAtomic_SyncFailureKeepsOldFile_SuccessIs0600(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cert.key")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := syncFile
+	syncFile = func(*os.File) error { return errors.New("disk full") }
+	err := writeFileAtomic(path, []byte("new"))
+	syncFile = orig
+	if err == nil {
+		t.Fatal("expected sync error")
+	}
+	if b, _ := os.ReadFile(path); string(b) != "old" {
+		t.Fatalf("old file clobbered: %q", b)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 1 {
+		t.Fatalf("temp file left behind: %v", ents)
+	}
+
+	if err := writeFileAtomic(path, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	fi, _ := os.Stat(path)
+	if b, _ := os.ReadFile(path); string(b) != "new" || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("got %q mode %v, want new 0600", b, fi.Mode().Perm())
+	}
+}
+
+// storeCert writes the key first; a key write failure stops before the cert.
+func TestStoreCert_WriteKeyPEMError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "cert.key"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der := makeECDSACertDER(t, key, []string{"example.com"}, time.Now().Add(60*24*time.Hour))
+	if err := New().storeCert(dir, []string{"example.com"}, key, [][]byte{der}); err == nil {
+		t.Fatal("expected writeKeyPEM error, got nil")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cert.crt")); !os.IsNotExist(err) {
+		t.Error("cert written after key write failed")
+	}
+}

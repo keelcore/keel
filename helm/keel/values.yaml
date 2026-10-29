@@ -71,6 +71,8 @@ keel:
     # k8s Secret of type kubernetes.io/tls (keys: tls.crt, tls.key).
     # Leave empty when using ACME or when TLS is terminated upstream.
     certSecretName: ""
+    # Secret holding ca.crt: inbound mTLS — HTTPS/H3 require client certs signed by it.
+    clientCASecretName: ""
     acme:
       enabled: false
       domains: []
@@ -128,6 +130,12 @@ keel:
     highWatermark: 0.85
     lowWatermark: 0.70
     sheddingEnabled: true
+    # Memory guard: 503 while headroom below the memory limit is under this (bytes).
+    minHeadroomBytes: 10485760
+
+  admin:
+    # Admin-port pprof (requires admin.token from keel-secrets.yaml or KEEL_ADMIN_TOKEN).
+    pprof: false
 
   authn:
     enabled: true

@@ -9,7 +9,7 @@ import (
 	"github.com/keelcore/keel/pkg/core/logging"
 )
 
-func AuthnJWT(_ config.Config, _ func() []string, next http.Handler, _ *logging.Logger) http.Handler {
+func AuthnJWT(_ config.Config, _ func() []string, next http.Handler, _ *logging.Logger, _ ...AuthnOption) http.Handler {
 	return next
 }
 

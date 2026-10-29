@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"runtime/debug"
 	"testing"
 )
@@ -13,96 +12,42 @@ import (
 // ---------------------------------------------------------------------------
 // fipsRuntimeActive
 //
-// fipsBuild is an injected parameter, so every branch is reachable regardless
-// of whether the binary was compiled with or without the fips build tag.
+// fipsBuild is injected and the crypto-module answer is stubbed, so every
+// branch is reachable regardless of build tag or the test process's FIPS mode.
 // ---------------------------------------------------------------------------
 
-// fipsRuntimeActive returns false immediately when fipsBuild is false,
-// even if GOFIPS140 or GODEBUG would otherwise indicate FIPS mode.
+func stubFIPSModule(t *testing.T, enabled bool) {
+	t.Helper()
+	orig := fipsModuleEnabled
+	fipsModuleEnabled = func() bool { return enabled }
+	t.Cleanup(func() { fipsModuleEnabled = orig })
+}
+
+// A non-FIPS build is never FIPS-active, whatever the crypto module says.
 func TestFIPSRuntimeActive_FipsBuiltFalse_ShortCircuits(t *testing.T) {
-	old := os.Getenv("GOFIPS140")
-	os.Setenv("GOFIPS140", "1")
-	defer os.Setenv("GOFIPS140", old)
-
+	stubFIPSModule(t, true)
 	if fipsRuntimeActive(false) {
-		t.Error("expected false when fipsBuild=false, regardless of env vars")
+		t.Error("expected false when fipsBuild=false")
 	}
 }
 
-// fipsRuntimeActive returns false when fipsBuild is true but neither
-// GOFIPS140 nor GODEBUG fips140=only is set.
-func TestFIPSRuntimeActive_NoEnvVars(t *testing.T) {
-	old1 := os.Getenv("GOFIPS140")
-	old2 := os.Getenv("GODEBUG")
-	os.Setenv("GOFIPS140", "")
-	os.Setenv("GODEBUG", "")
-	defer func() {
-		os.Setenv("GOFIPS140", old1)
-		os.Setenv("GODEBUG", old2)
-	}()
+// A FIPS build reports exactly what the crypto module reports.
+func TestFIPSRuntimeActive_FollowsCryptoModule(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		stubFIPSModule(t, enabled)
+		if got := fipsRuntimeActive(true); got != enabled {
+			t.Errorf("fipsRuntimeActive(true) = %v with module enabled=%v", got, enabled)
+		}
+	}
+}
 
+// Environment variables cannot fake FIPS (GOFIPS140=off is non-empty).
+func TestFIPSRuntimeActive_EnvCannotFakeFIPS(t *testing.T) {
+	stubFIPSModule(t, false)
+	t.Setenv("GOFIPS140", "off")
+	t.Setenv("GODEBUG", "fips140=only")
 	if fipsRuntimeActive(true) {
-		t.Error("expected false when GOFIPS140 and GODEBUG are empty")
-	}
-}
-
-// fipsRuntimeActive returns true when GOFIPS140 is non-empty and fipsBuild is true.
-func TestFIPSRuntimeActive_GOFIPS140Set(t *testing.T) {
-	old := os.Getenv("GOFIPS140")
-	os.Setenv("GOFIPS140", "1")
-	defer os.Setenv("GOFIPS140", old)
-
-	if !fipsRuntimeActive(true) {
-		t.Error("expected true when GOFIPS140=1 and fipsBuild=true")
-	}
-}
-
-// fipsRuntimeActive returns true when GODEBUG contains fips140=only and fipsBuild is true.
-func TestFIPSRuntimeActive_GODEBUGFips(t *testing.T) {
-	oldGOFIPS := os.Getenv("GOFIPS140")
-	oldGODEBUG := os.Getenv("GODEBUG")
-	os.Setenv("GOFIPS140", "")
-	os.Setenv("GODEBUG", "fips140=only")
-	defer func() {
-		os.Setenv("GOFIPS140", oldGOFIPS)
-		os.Setenv("GODEBUG", oldGODEBUG)
-	}()
-
-	if !fipsRuntimeActive(true) {
-		t.Error("expected true when GODEBUG=fips140=only and fipsBuild=true")
-	}
-}
-
-// fipsRuntimeActive returns true when GODEBUG contains fips140=only among
-// multiple comma-separated tokens (exercises the split-and-scan loop).
-func TestFIPSRuntimeActive_GODEBUGMultiToken(t *testing.T) {
-	oldGOFIPS := os.Getenv("GOFIPS140")
-	oldGODEBUG := os.Getenv("GODEBUG")
-	os.Setenv("GOFIPS140", "")
-	os.Setenv("GODEBUG", "http2debug=1,fips140=only,netdns=go")
-	defer func() {
-		os.Setenv("GOFIPS140", oldGOFIPS)
-		os.Setenv("GODEBUG", oldGODEBUG)
-	}()
-
-	if !fipsRuntimeActive(true) {
-		t.Error("expected true when GODEBUG multi-token string contains fips140=only")
-	}
-}
-
-// fipsRuntimeActive trims whitespace from each GODEBUG token before comparing.
-func TestFIPSRuntimeActive_GODEBUGTokenWhitespaceTrimmed(t *testing.T) {
-	oldGOFIPS := os.Getenv("GOFIPS140")
-	oldGODEBUG := os.Getenv("GODEBUG")
-	os.Setenv("GOFIPS140", "")
-	os.Setenv("GODEBUG", "http2debug=1, fips140=only")
-	defer func() {
-		os.Setenv("GOFIPS140", oldGOFIPS)
-		os.Setenv("GODEBUG", oldGODEBUG)
-	}()
-
-	if !fipsRuntimeActive(true) {
-		t.Error("expected true when fips140=only token has leading whitespace")
+		t.Error("fipsRuntimeActive trusted environment variables")
 	}
 }
 

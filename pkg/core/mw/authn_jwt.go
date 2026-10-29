@@ -21,11 +21,12 @@ import (
 	"github.com/keelcore/keel/pkg/core/logging"
 )
 
-func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, log *logging.Logger) http.Handler {
-	allowed := make(map[string]struct{}, len(cfg.Authn.TrustedIDs))
-	for _, id := range cfg.Authn.TrustedIDs {
-		allowed[id] = struct{}{}
+func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, log *logging.Logger, aopts ...AuthnOption) http.Handler {
+	var o authnOptions
+	for _, opt := range aopts {
+		opt(&o)
 	}
+	staticAllowed := TrustedIDSet(cfg.Authn.TrustedIDs)
 	cache := newJWKSCache()
 	var staticSigners []string
 	if getSigners == nil {
@@ -52,6 +53,10 @@ func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, 
 			return
 		}
 
+		allowed := staticAllowed
+		if o.trustedIDs != nil {
+			allowed = o.trustedIDs()
+		}
 		sub, _ := claims["sub"].(string)
 		if len(allowed) > 0 {
 			if _, ok := allowed[sub]; !ok {

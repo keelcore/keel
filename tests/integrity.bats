@@ -184,6 +184,28 @@ cert_dir() {
   [[ "${body}" =~ "keel: ok" ]]
 }
 
+@test "tls.client_ca_file: HTTPS rejects clients without a trusted certificate (inbound mTLS)" {
+  local cert_dir
+  cert_dir="$(cert_dir)"
+  [ -f "${cert_dir}/client.crt" ] || skip "TLS certs not found; run 'make gen-certs' first"
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n  client_ca_file: %s\n' \
+    "${cert_dir}/server.crt" "${cert_dir}/server.key" "${cert_dir}/ca.crt" > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min &
+  pid="${!}"
+  sleep 0.4
+  local anon authed
+  anon="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --cacert "${cert_dir}/ca.crt" https://127.0.0.1:8443/)" || true
+  authed="$(curl -s --max-time 2 --cacert "${cert_dir}/ca.crt" \
+    --cert "${cert_dir}/client.crt" --key "${cert_dir}/client.key" https://127.0.0.1:8443/)"
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  [ "${anon}" = "000" ]
+  [[ "${authed}" =~ "keel: ok" ]]
+}
+
 # ---------------------------------------------------------------------------
 # Request ID and trace context headers
 # ---------------------------------------------------------------------------
@@ -237,34 +259,38 @@ cert_dir() {
   echo "${body}" | grep -q '"version"'
 }
 
-@test "admin /debug/pprof/ returns 200" {
+@test "admin /debug/pprof/ requires admin.pprof and the admin token" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nadmin:\n  pprof: true\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min &
   pid="${!}"
   sleep 0.4
-  local status
-  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:9999/debug/pprof/)"
+  local anon authed
+  anon="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:9999/debug/pprof/)"
+  authed="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -H 'Authorization: Bearer bats-admin-token' http://127.0.0.1:9999/debug/pprof/)"
   kill -TERM "${pid}"
   wait "${pid}" || true
   rm -f "${cfg}"
-  [ "${status}" -eq 200 ]
+  [ "${anon}" -eq 401 ]
+  [ "${authed}" -eq 200 ]
 }
 
-@test "POST /admin/reload returns 200" {
+@test "POST /admin/reload requires the admin token" {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min &
   pid="${!}"
   sleep 0.4
-  local status
-  status="$(curl -s -o /dev/null -w '%{http_code}' -X POST --max-time 2 http://127.0.0.1:9999/admin/reload)"
+  local anon authed
+  anon="$(curl -s -o /dev/null -w '%{http_code}' -X POST --max-time 2 http://127.0.0.1:9999/admin/reload)"
+  authed="$(curl -s -o /dev/null -w '%{http_code}' -X POST --max-time 2 -H 'Authorization: Bearer bats-admin-token' http://127.0.0.1:9999/admin/reload)"
   kill -TERM "${pid}"
   wait "${pid}" || true
   rm -f "${cfg}"
-  [ "${status}" -eq 200 ]
+  [ "${anon}" -eq 401 ]
+  [ "${authed}" -eq 200 ]
 }
 
 # ---------------------------------------------------------------------------
@@ -339,10 +365,10 @@ cert_dir() {
 # ---------------------------------------------------------------------------
 # Portable millisecond timestamp helper.
 # date +%s%3N is GNU-only; macOS date does not support %N.
-# python3 Time::HiRes is available on all supported platforms.
+# perl Time::HiRes is available on all supported platforms.
 # ---------------------------------------------------------------------------
 
-ms_now() { python3 -c 'import time; print(int(time.time()*1000))'; }
+ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 
 # ---------------------------------------------------------------------------
 # Prestop sleep
@@ -399,33 +425,18 @@ ms_now() { python3 -c 'import time; print(int(time.time()*1000))'; }
 # ---------------------------------------------------------------------------
 
 @test "remote_sink protocol http: log lines delivered to HTTP endpoint (keel-max)" {
-  command -v python3 > /dev/null 2>&1 || skip "python3 not available"
+  command -v nc > /dev/null 2>&1 || skip "nc not available"
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   # macOS: brief delay to allow previous test's port 9999 socket to be released.
   [[ "$(uname)" == "Darwin" ]] && sleep 1.0
 
-  local sink_port received_file cfg pid sink_pid py_script
+  local sink_port received_file cfg pid sink_pid
   sink_port=19877
   received_file="$(mktemp)"
-  py_script="$(mktemp)"
 
-  # Minimal HTTP POST acceptor: appends received bodies to received_file.
-  cat > "${py_script}" << 'PYEOF'
-import sys, http.server
-port = int(sys.argv[1])
-out  = sys.argv[2]
-class H(http.server.BaseHTTPRequestHandler):
-    def do_POST(self):
-        n = int(self.headers.get('content-length', 0))
-        data = self.rfile.read(n)
-        with open(out, 'ab') as f:
-            f.write(data + b'\n')
-        self.send_response(200)
-        self.end_headers()
-    def log_message(self, *_): pass
-http.server.HTTPServer(('127.0.0.1', port), H).serve_forever()
-PYEOF
-  python3 "${py_script}" "${sink_port}" "${received_file}" &
+  # One-shot HTTP acceptor: records the request (headers + body), answers 200.
+  printf 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n' \
+    | nc -l 127.0.0.1 "${sink_port}" > "${received_file}" &
   sink_pid="${!}"
   sleep 0.2
 
@@ -441,7 +452,7 @@ PYEOF
   wait "${pid}" || true
   kill "${sink_pid}" 2>/dev/null || true
   wait "${sink_pid}" 2>/dev/null || true
-  rm -f "${cfg}" "${py_script}"
+  rm -f "${cfg}"
 
   local received_bytes
   received_bytes="$(wc -c < "${received_file}" | tr -d '[:space:]')"
@@ -455,36 +466,24 @@ PYEOF
 
 @test "sidecar outbound signing: Authorization Bearer header forwarded to upstream (keel-max)" {
   command -v openssl > /dev/null 2>&1 || skip "openssl not available"
-  command -v python3 > /dev/null 2>&1 || skip "python3 not available"
+  command -v nc > /dev/null 2>&1 || skip "nc not available"
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
 
-  local upstream_port keel_port keyfile header_file cfg pid upstream_pid py_script
+  local upstream_port keel_port keyfile header_file cfg pid upstream_pid
   upstream_port=19878
   keel_port=19879
   keyfile="$(mktemp)"
   header_file="$(mktemp)"
-  py_script="$(mktemp)"
 
   # Generate ECDSA P-256 private key for outbound JWT signing.
   openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "${keyfile}" 2>/dev/null
 
-  # Upstream server: writes the Authorization header value to header_file.
-  cat > "${py_script}" << 'PYEOF'
-import sys, http.server
-port = int(sys.argv[1])
-out  = sys.argv[2]
-class H(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        auth = self.headers.get('Authorization', '')
-        with open(out, 'w') as f:
-            f.write(auth)
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b'ok')
-    def log_message(self, *_): pass
-http.server.HTTPServer(('127.0.0.1', port), H).serve_forever()
-PYEOF
-  python3 "${py_script}" "${upstream_port}" "${header_file}" &
+  # Upstream: answers 200 to every connection (health probes and the proxied
+  # request) and appends each request, incl. Authorization, to header_file.
+  while :; do
+    printf 'HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok' \
+      | nc -l 127.0.0.1 "${upstream_port}" >> "${header_file}"
+  done > /dev/null 2>&1 3>&- &
   upstream_pid="${!}"
   sleep 0.2
 
@@ -497,13 +496,19 @@ PYEOF
   sleep 0.5
 
   curl -s --max-time 2 "http://127.0.0.1:${keel_port}/" > /dev/null || true
-  sleep 0.1
+  # nc answers before it reads the request, so the capture can land after the
+  # response; wait (up to 2 s) for it rather than a fixed sleep.
+  local _w=0
+  until grep -q 'Bearer ' "${header_file}" || [ "${_w}" -ge 20 ]; do
+    sleep 0.1; _w=$(( _w + 1 ))
+  done
 
   kill -TERM "${pid}"
   wait "${pid}" || true
   kill "${upstream_pid}" 2>/dev/null || true
+  pkill -f "nc -l 127.0.0.1 ${upstream_port}" 2>/dev/null || true
   wait "${upstream_pid}" 2>/dev/null || true
-  rm -f "${cfg}" "${keyfile}" "${py_script}"
+  rm -f "${cfg}" "${keyfile}"
 
   grep -q 'Bearer ' "${header_file}"
   rm -f "${header_file}"
@@ -514,31 +519,24 @@ PYEOF
 # ---------------------------------------------------------------------------
 
 @test "authn.trusted_signers_file: request signed with file key returns 200 (keel-max)" {
-  command -v python3 > /dev/null 2>&1 || skip "python3 not available"
+  command -v openssl > /dev/null 2>&1 || skip "openssl not available"
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
 
-  local keel_port signers_file cfg pid token py_script hmac_key
+  local keel_port signers_file cfg pid token hmac_key hdr pay sig now
   keel_port=19880
   signers_file="$(mktemp)"
-  py_script="$(mktemp)"
 
   # Generate a random 32-byte hex HMAC key and write it to the signers file.
-  hmac_key="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+  hmac_key="$(openssl rand -hex 16)"
   printf '%s\n' "${hmac_key}" > "${signers_file}"
 
   # Generate a valid HS256 JWT signed with hmac_key.
-  cat > "${py_script}" << 'PYEOF'
-import sys, json, time, hmac, hashlib, base64
-def b64url(b):
-    return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
-key = sys.argv[1].encode()
-now = int(time.time())
-hdr = b64url(json.dumps({"alg":"HS256","typ":"JWT"}).encode())
-pay = b64url(json.dumps({"sub":"test","iss":"test","iat":now,"exp":now+300}).encode())
-sig = b64url(hmac.new(key, f"{hdr}.{pay}".encode(), hashlib.sha256).digest())
-print(f"{hdr}.{pay}.{sig}")
-PYEOF
-  token="$(python3 "${py_script}" "${hmac_key}")"
+  b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+  now="$(date +%s)"
+  hdr="$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)"
+  pay="$(printf '{"sub":"test","iss":"test","iat":%s,"exp":%s}' "${now}" "$(( now + 300 ))" | b64url)"
+  sig="$(printf '%s.%s' "${hdr}" "${pay}" | openssl dgst -sha256 -hmac "${hmac_key}" -binary | b64url)"
+  token="${hdr}.${pay}.${sig}"
 
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: true\n    port: %s\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: true\n  trusted_signers_file: %s\n' \
@@ -555,7 +553,7 @@ PYEOF
 
   kill -TERM "${pid}"
   wait "${pid}" || true
-  rm -f "${cfg}" "${signers_file}" "${py_script}"
+  rm -f "${cfg}" "${signers_file}"
   [ "${status}" -eq 200 ]
 }
 
@@ -564,38 +562,17 @@ PYEOF
 # ---------------------------------------------------------------------------
 
 @test "remote_sink protocol syslog: data delivered to TCP endpoint (keel-max)" {
-  command -v python3 > /dev/null 2>&1 || skip "python3 not available"
+  command -v nc > /dev/null 2>&1 || skip "nc not available"
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   # macOS: brief delay to allow previous test's port 9999 socket to be released.
   [[ "$(uname)" == "Darwin" ]] && sleep 1.0
 
-  local syslog_port received_file cfg pid syslog_pid py_script
+  local syslog_port received_file cfg pid syslog_pid
   syslog_port=19881
   received_file="$(mktemp)"
-  py_script="$(mktemp)"
 
-  # Minimal TCP acceptor: reads first chunk and writes to received_file.
-  cat > "${py_script}" << 'PYEOF'
-import sys, socket
-port = int(sys.argv[1])
-out  = sys.argv[2]
-srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-srv.bind(('127.0.0.1', port))
-srv.listen(1)
-srv.settimeout(10)
-try:
-    conn, _ = srv.accept()
-    conn.settimeout(5)
-    data = conn.recv(4096)
-    with open(out, 'wb') as f:
-        f.write(data)
-    conn.close()
-except Exception:
-    pass
-srv.close()
-PYEOF
-  python3 "${py_script}" "${syslog_port}" "${received_file}" &
+  # One-shot TCP acceptor: records what keel sends until it closes the connection.
+  nc -l 127.0.0.1 "${syslog_port}" < /dev/null > "${received_file}" &
   syslog_pid="${!}"
   sleep 0.2
 
@@ -610,7 +587,7 @@ PYEOF
   kill -TERM "${pid}"
   wait "${pid}" || true
   wait "${syslog_pid}" 2>/dev/null || true
-  rm -f "${cfg}" "${py_script}"
+  rm -f "${cfg}"
 
   local received_bytes
   received_bytes="$(wc -c < "${received_file}" | tr -d '[:space:]')"
@@ -705,7 +682,7 @@ PYEOF
   local gomodcache pebble_dir pebble_cfg ca_cert cache_dir cfg pid pebble_pid i
 
   gomodcache="$(go env GOMODCACHE 2>/dev/null)" || skip "go not available"
-  pebble_dir="$(ls -d "${gomodcache}/github.com/letsencrypt/pebble@"* 2>/dev/null | sort -V | tail -1)"
+  pebble_dir="$(ls -d "${gomodcache}/github.com/letsencrypt/pebble@"* 2>/dev/null | sort -V | tail -1)" || true
   [ -n "${pebble_dir}" ] || skip "pebble module not in module cache"
 
   ca_cert="${pebble_dir}/test/certs/pebble.minica.pem"

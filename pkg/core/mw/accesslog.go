@@ -3,7 +3,6 @@ package mw
 import (
 	"net"
 	"net/http"
-	"strings"
 
 	"github.com/keelcore/keel/pkg/core/ctxkeys"
 	"github.com/keelcore/keel/pkg/core/logging"
@@ -24,6 +23,9 @@ func AccessLog(log *logging.Logger, next http.Handler) http.Handler {
 			"bytes":  aw.bytesOut,
 			"ip":     clientIP(r),
 		}
+		if xff := r.Header.Get("x-forwarded-for"); xff != "" {
+			fields["xff"] = xff
+		}
 		ctx := r.Context()
 		if id, ok := ctx.Value(ctxkeys.RequestID).(string); ok && id != "" {
 			fields["req_id"] = id
@@ -38,14 +40,9 @@ func AccessLog(log *logging.Logger, next http.Handler) http.Handler {
 	})
 }
 
-// clientIP extracts the client IP, preferring the first entry of X-Forwarded-For.
+// clientIP is the socket peer. X-Forwarded-For is client-controlled unless a
+// trusted proxy sets it, so it is logged separately ("xff"), never as "ip".
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("x-forwarded-for"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr

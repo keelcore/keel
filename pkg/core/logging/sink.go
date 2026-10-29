@@ -17,7 +17,8 @@ const httpSinkBatchSize = 100
 
 // HTTPSink is an io.Writer that buffers log lines and POSTs them in batches
 // to an HTTP endpoint. Writes are non-blocking: lines are dropped when the
-// buffer is full and counted by DropsTotal.
+// buffer is full, or a batch is not delivered (transport error or non-2xx),
+// and counted by DropsTotal.
 type HTTPSink struct {
 	endpoint      string
 	buf           chan []byte
@@ -50,7 +51,8 @@ func (s *HTTPSink) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// DropsTotal returns the number of lines dropped due to buffer overflow.
+// DropsTotal returns the number of lines dropped: buffer overflow or a failed
+// or rejected (non-2xx) POST.
 func (s *HTTPSink) DropsTotal() int64 { return s.drops.Load() }
 
 // Run processes buffered lines until ctx is cancelled, flushing on each
@@ -97,12 +99,17 @@ func (s *HTTPSink) post(lines [][]byte) {
 	body := bytes.Join(lines, nil)
 	req, err := http.NewRequest(http.MethodPost, s.endpoint, bytes.NewReader(body))
 	if err != nil {
+		s.drops.Add(int64(len(lines)))
 		return
 	}
 	req.Header.Set("content-type", "application/x-ndjson")
 	resp, err := s.client.Do(req)
 	if err != nil {
+		s.drops.Add(int64(len(lines)))
 		return
 	}
 	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		s.drops.Add(int64(len(lines)))
+	}
 }

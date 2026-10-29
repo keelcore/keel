@@ -40,3 +40,7 @@ func (o *Orchestrator) GracefulStop(timeout time.Duration, fn func(context.Conte
 	defer cancel()
 	return fn(ctx)
 }
+
+// Stop stops signal delivery to the orchestrator's channel (signal.Stop), so a
+// finished server no longer intercepts SIGINT/SIGTERM.
+func (o *Orchestrator) Stop() { signal.Stop(o.ch) }

@@ -56,6 +56,11 @@ spec:
           secret:
             secretName: {{ .Values.keel.tls.certSecretName }}
         {{- end }}
+        {{- if .Values.keel.tls.clientCASecretName }}
+        - name: keel-client-ca
+          secret:
+            secretName: {{ .Values.keel.tls.clientCASecretName }}
+        {{- end }}
         {{- if .Values.keel.upstream.tlsSecret }}
         - name: upstream-tls
           secret:
@@ -177,6 +182,11 @@ spec:
             {{- if .Values.keel.tls.certSecretName }}
             - name: keel-tls
               mountPath: /etc/keel/tls
+              readOnly: true
+            {{- end }}
+            {{- if .Values.keel.tls.clientCASecretName }}
+            - name: keel-client-ca
+              mountPath: /etc/keel/client-ca
               readOnly: true
             {{- end }}
             {{- if .Values.keel.upstream.tlsSecret }}

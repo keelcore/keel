@@ -306,7 +306,7 @@ be reloaded, and how the reload mechanism works.
 
 **Quick summary:**
 
-- Trigger: `SIGHUP` signal or `POST http://localhost:9999/admin/reload`
+- Trigger: `SIGHUP` signal or `POST http://localhost:9999/admin/reload` with `Authorization: Bearer <admin.token>`
 - On success: new config is active immediately
 - On failure: old config stays active; error is logged and returned in the reload response
 - TLS certificates can be rotated with zero downtime (no dropped connections)
@@ -319,7 +319,7 @@ be reloaded, and how the reload mechanism works.
 kubectl exec -it <pod-name> -- kill -HUP 1
 
 # Or via admin port (if accessible)
-curl -X POST http://<pod-ip>:9999/admin/reload
+curl -X POST -H "Authorization: Bearer ${KEEL_ADMIN_TOKEN}" http://<pod-ip>:9999/admin/reload
 ```
 
 ---

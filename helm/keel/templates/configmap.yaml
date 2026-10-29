@@ -41,6 +41,9 @@ data:
       cert_file: ""
       key_file: ""
       {{- end }}
+      {{- if $v.tls.clientCASecretName }}
+      client_ca_file: /etc/keel/client-ca/ca.crt
+      {{- end }}
       acme:
         enabled: {{ $v.tls.acme.enabled }}
         domains: {{ toJson $v.tls.acme.domains }}
@@ -99,6 +102,10 @@ data:
       high_watermark: {{ $v.backpressure.highWatermark }}
       low_watermark: {{ $v.backpressure.lowWatermark }}
       shedding_enabled: {{ $v.backpressure.sheddingEnabled }}
+      min_headroom_bytes: {{ $v.backpressure.minHeadroomBytes | int64 }}
+
+    admin:
+      pprof: {{ $v.admin.pprof }}
 
     authn:
       enabled: {{ $v.authn.enabled }}

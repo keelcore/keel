@@ -1,10 +1,12 @@
 package mw
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,23 +102,27 @@ func TestAccessLog_PassesThroughAndLogs(t *testing.T) {
 // clientIP
 // ---------------------------------------------------------------------------
 
-// clientIP returns the first entry from X-Forwarded-For when present.
+// clientIP ignores a client-supplied X-Forwarded-For: "ip" is the socket peer.
 func TestClientIP_XFFSingleEntry(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "9.8.7.6:12345"
 	req.Header.Set("x-forwarded-for", "1.2.3.4")
 	got := clientIP(req)
-	if got != "1.2.3.4" {
-		t.Errorf("expected 1.2.3.4, got %q", got)
+	if got != "9.8.7.6" {
+		t.Errorf("expected socket peer 9.8.7.6, got %q", got)
 	}
 }
 
-// clientIP returns the first entry of a comma-separated XFF.
+// A multi-entry X-Forwarded-For is logged verbatim as "xff", never as "ip".
 func TestClientIP_XFFMultipleEntries(t *testing.T) {
+	var buf bytes.Buffer
+	h := AccessLog(logging.New(logging.Config{JSON: true, Out: &buf}), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "9.8.7.6:12345"
 	req.Header.Set("x-forwarded-for", "1.2.3.4, 5.6.7.8")
-	got := clientIP(req)
-	if got != "1.2.3.4" {
-		t.Errorf("expected 1.2.3.4 (first XFF entry), got %q", got)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	if !strings.Contains(buf.String(), `"ip":"9.8.7.6"`) || !strings.Contains(buf.String(), `"xff":"1.2.3.4, 5.6.7.8"`) {
+		t.Errorf("expected ip=peer and xff verbatim, got %s", buf.String())
 	}
 }
 
@@ -361,5 +367,30 @@ func TestClamp01_AboveOne_ReturnsOne(t *testing.T) {
 func TestClamp01_InRange_ReturnsValue(t *testing.T) {
 	if got := clamp01(0.5); got != 0.5 {
 		t.Errorf("clamp01(0.5): expected 0.5, got %f", got)
+	}
+}
+
+// A valid client X-Request-ID is kept; an invalid or oversized one is replaced.
+func TestRequestID_ValidatesInboundID(t *testing.T) {
+	h := RequestID(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	cases := map[string]bool{
+		"0b6c9a2e-7f1d-4c3a-9b8e-2d4f6a8c0e1f": true,
+		"01JB4ZQ2W5Y8N6V3K7T9R1M0PX":           true,
+		"evil\"id":                             false,
+		"a b":                                  false,
+		strings.Repeat("a", maxRequestIDLen+1): false,
+	}
+	for in, keep := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("x-request-id", in)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		got := rec.Header().Get("x-request-id")
+		if keep && got != in {
+			t.Errorf("valid %q replaced with %q", in, got)
+		}
+		if !keep && (got == in || len(got) != 26) {
+			t.Errorf("invalid %q echoed as %q, want fresh ULID", in, got)
+		}
 	}
 }

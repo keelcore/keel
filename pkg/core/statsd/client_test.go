@@ -111,3 +111,22 @@ func TestInstrument(t *testing.T) {
 		t.Fatalf("timing metric missing: %q", joined)
 	}
 }
+
+// Close releases the socket: later emits fail silently instead of sending.
+func TestClient_Close(t *testing.T) {
+	pc, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	c, err := New(pc.LocalAddr().String(), "keel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := c.Close(); err == nil {
+		t.Fatal("second Close should report the socket already closed")
+	}
+}

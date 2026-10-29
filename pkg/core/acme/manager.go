@@ -57,6 +57,7 @@ var (
 	afterFunc      = time.After
 	marshalECKey   = x509.MarshalECPrivateKey
 	systemCertPool = x509.SystemCertPool
+	syncFile       = (*os.File).Sync
 	buildClient    = func(m *Manager, cfg config.ACMEConfig) (acmeClient, error) {
 		return m.setupACMEClient(cfg)
 	}
@@ -411,10 +412,13 @@ func (m *Manager) storeCert(cacheDir string, domains []string, key *ecdsa.Privat
 	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		return fmt.Errorf("cache dir: %w", err)
 	}
-	if err := writeCertPEM(filepath.Join(cacheDir, "cert.crt"), derChain); err != nil {
+	// Each file is replaced atomically. The key is written first: a crash
+	// between the two renames leaves a pair that fails to load, which
+	// loadCachedCert treats as "no cache" (re-issue), never a served mismatch.
+	if err := writeKeyPEM(filepath.Join(cacheDir, "cert.key"), key); err != nil {
 		return err
 	}
-	return writeKeyPEM(filepath.Join(cacheDir, "cert.key"), key)
+	return writeCertPEM(filepath.Join(cacheDir, "cert.crt"), derChain)
 }
 
 func assembleTLSCert(key *ecdsa.PrivateKey, derChain [][]byte) (*tls.Certificate, error) {
@@ -435,13 +439,12 @@ func assembleTLSCert(key *ecdsa.PrivateKey, derChain [][]byte) (*tls.Certificate
 }
 
 func writeCertPEM(path string, derChain [][]byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("write cert: %w", err)
-	}
-	defer f.Close()
+	var buf []byte
 	for _, der := range derChain {
-		_ = pem.Encode(f, &pem.Block{Type: "CERTIFICATE", Bytes: der})
+		buf = append(buf, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
+	if err := writeFileAtomic(path, buf); err != nil {
+		return fmt.Errorf("write cert: %w", err)
 	}
 	return nil
 }
@@ -451,12 +454,27 @@ func writeKeyPEM(path string, key *ecdsa.PrivateKey) error {
 	if err != nil {
 		return fmt.Errorf("marshal key: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
+	if err := writeFileAtomic(path, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})); err != nil {
 		return fmt.Errorf("write key: %w", err)
 	}
-	defer f.Close()
-	return pem.Encode(f, &pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+	return nil
+}
+
+// writeFileAtomic replaces path with data so a crash leaves either the old or
+// the new file, never a truncated one: write a 0600 temp file in the same
+// directory, fsync, close, then rename over path. A fresh temp file means the
+// result is always 0600, whatever mode an older file had.
+func writeFileAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // no-op once renamed
+	_, werr := tmp.Write(data)
+	if err := errors.Join(werr, syncFile(tmp), tmp.Close()); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // loadOrCreateAccountKey loads the ECDSA P-256 account key from cacheDir, or

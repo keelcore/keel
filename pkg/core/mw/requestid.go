@@ -9,12 +9,13 @@ import (
 	"github.com/keelcore/keel/pkg/core/ctxkeys"
 )
 
-// RequestID reads the inbound X-Request-ID header; if absent, generates a
-// ULID. The ID is stored in the request context and echoed on the response.
+// RequestID reads the inbound X-Request-ID header; if absent or not a valid ID
+// (see validRequestID), generates a ULID. The ID is stored in the request
+// context and echoed on the response.
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("x-request-id")
-		if id == "" {
+		if !validRequestID(id) {
 			id = newULID()
 		}
 		ctx := context.WithValue(r.Context(), ctxkeys.RequestID, id)
@@ -54,4 +55,27 @@ func newULID() string {
 	}
 
 	return string(out)
+}
+
+// maxRequestIDLen bounds a client-supplied request ID (UUIDs, ULIDs and W3C
+// trace IDs all fit).
+const maxRequestIDLen = 128
+
+// validRequestID accepts 1..maxRequestIDLen bytes of [A-Za-z0-9._:-] so a
+// client-supplied ID cannot inject log fields, control characters or header
+// content when it is logged and echoed.
+func validRequestID(id string) bool {
+	if id == "" || len(id) > maxRequestIDLen {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == '-', c == '_', c == '.', c == ':':
+		default:
+			return false
+		}
+	}
+	return true
 }

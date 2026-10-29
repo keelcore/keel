@@ -19,6 +19,7 @@ import (
 var (
 	errCircuitOpen      = errors.New("circuit breaker open")
 	errResponseTooLarge = errors.New("upstream response exceeded max_response_body_bytes")
+	errSignFailed       = errors.New("outbound request signing failed")
 )
 
 // Seam for injecting library values in tests. The production value is the bare
@@ -83,9 +84,12 @@ func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, er
 	xffHops := cfg.Sidecar.XFFTrustedHops
 	policy := cfg.Sidecar.HeaderPolicy
 
-	var signFn func(*http.Request) error
-	if len(sign) > 0 {
-		signFn = sign[0]
+	// The sign function runs in a transport wrapper outside the breaker, so a
+	// signing failure aborts the request with 502 (never forwarding unsigned)
+	// and does not count as an upstream failure.
+	signing := len(sign) > 0 && sign[0] != nil
+	if signing {
+		rt = &signTransport{inner: rt, sign: sign[0]}
 	}
 
 	rp := &httputil.ReverseProxy{
@@ -96,10 +100,10 @@ func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, er
 			incomingXFF := pr.In.Header.Get("x-forwarded-for")
 			applyXFF(pr.Out, incomingXFF, pr.In.RemoteAddr, xffMode, xffHops)
 			applyHeaderPolicy(pr.Out, policy)
-			// Outbound signing runs after header policy so the signed token
-			// is never stripped by a denylist rule.
-			if signFn != nil {
-				_ = signFn(pr.Out)
+			// When keel signs outbound requests the client's own credentials are
+			// never forwarded; signTransport attaches keel's token.
+			if signing {
+				pr.Out.Header.Del("Authorization")
 			}
 		},
 		Transport: rt,
@@ -223,4 +227,20 @@ func (t *cbTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	onResult(resp.StatusCode < 500)
 	return resp, nil
+}
+
+// signTransport attaches keel's outbound credentials to each upstream request.
+// It signs a clone, per the RoundTripper contract, and fails the round trip
+// (errSignFailed → 502) rather than forwarding the request unsigned.
+type signTransport struct {
+	inner http.RoundTripper
+	sign  func(*http.Request) error
+}
+
+func (t *signTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	out := req.Clone(req.Context())
+	if err := t.sign(out); err != nil {
+		return nil, fmt.Errorf("%w: %w", errSignFailed, err)
+	}
+	return t.inner.RoundTrip(out)
 }

@@ -510,9 +510,9 @@ restrict it to internal network access or protect it with a NetworkPolicy.
 | --- | --- | --- |
 | `/version` | GET | Returns JSON with binary version, build tags, FIPS mode status, Go version, and process start time |
 | `/health/fips` | GET | Returns `{"fips_active": true}` or `{"fips_active": false}`. Useful for verifying FIPS build compliance |
-| `/metrics` | GET | Prometheus metrics endpoint (all Keel metrics) |
-| `/debug/pprof/` | GET | Go pprof profiling endpoints: `/debug/pprof/goroutine`, `/debug/pprof/heap`, `/debug/pprof/profile`, etc. |
-| `/admin/reload` | POST | Trigger a config + secrets reload (same effect as SIGHUP). Returns 200 on success, 422 with error body on validation failure |
+| `/metrics` | GET | Prometheus metrics endpoint (all Keel metrics). Open unless `admin.metrics_token` is set; then `Authorization: Bearer <metrics_token>` |
+| `/debug/pprof/` | GET | Go pprof profiling endpoints (`goroutine`, `heap`, `profile`, …). Only when `admin.pprof: true`; requires `Authorization: Bearer <admin.token>` |
+| `/admin/reload` | POST | Trigger a config + secrets reload (same effect as SIGHUP). Requires `Authorization: Bearer <admin.token>` (401 bad/missing, 403 when unset). 200 on success, 422 on validation failure |
 
 **Example `/version` response:**
 
@@ -530,13 +530,13 @@ restrict it to internal network access or protect it with a NetworkPolicy.
 **Using pprof:** To take a 30-second CPU profile:
 
 ```sh
-go tool pprof http://localhost:9999/debug/pprof/profile?seconds=30
+curl -s -H "Authorization: Bearer $KEEL_ADMIN_TOKEN" -o cpu.pb.gz "http://localhost:9999/debug/pprof/profile?seconds=30" && go tool pprof cpu.pb.gz
 ```
 
 To take a heap snapshot:
 
 ```sh
-go tool pprof http://localhost:9999/debug/pprof/heap
+curl -s -H "Authorization: Bearer $KEEL_ADMIN_TOKEN" -o heap.pb.gz http://localhost:9999/debug/pprof/heap && go tool pprof heap.pb.gz
 ```
 
 Pprof is invaluable for diagnosing memory leaks and CPU bottlenecks. It should only be accessible on the

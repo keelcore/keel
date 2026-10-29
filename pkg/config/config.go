@@ -71,9 +71,12 @@ type ACMEConfig struct {
 }
 
 type TLSConfig struct {
-	CertFile string     `yaml:"cert_file"`
-	KeyFile  string     `yaml:"key_file"`
-	ACME     ACMEConfig `yaml:"acme"`
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+	// ClientCAFile, when set, makes HTTPS and H3 require a client certificate
+	// that chains to a CA in this PEM bundle (inbound mTLS). Restart-required.
+	ClientCAFile string     `yaml:"client_ca_file"`
+	ACME         ACMEConfig `yaml:"acme"`
 }
 
 type UpstreamTLSConfig struct {
@@ -136,6 +139,9 @@ type BackpressureConfig struct {
 	HighWatermark   float64 `yaml:"high_watermark"`
 	LowWatermark    float64 `yaml:"low_watermark"`
 	SheddingEnabled bool    `yaml:"shedding_enabled"`
+	// MinHeadroomBytes: shed requests (503) while memory headroom below the
+	// effective limit is under this floor; 0 disables the memory guard.
+	MinHeadroomBytes int64 `yaml:"min_headroom_bytes"`
 }
 
 type AuthnConfig struct {
@@ -191,6 +197,16 @@ type TracingConfig struct {
 	OTLP OTLPConfig `yaml:"otlp"`
 }
 
+// AdminConfig controls access to the admin listener's privileged endpoints.
+// Probes, /version, and /fips are always open; /metrics is open unless
+// MetricsToken is set; /admin/reload needs Token; /debug/pprof/* needs PProf
+// and Token. Tokens are secrets: set them in keel-secrets.yaml or via env.
+type AdminConfig struct {
+	Token        string `yaml:"token"`
+	MetricsToken string `yaml:"metrics_token"`
+	PProf        bool   `yaml:"pprof"`
+}
+
 type FIPSConfig struct {
 	Monitor bool `yaml:"monitor"`
 }
@@ -213,6 +229,7 @@ type Config struct {
 	Metrics      MetricsConfig      `yaml:"metrics"`
 	Tracing      TracingConfig      `yaml:"tracing"`
 	FIPS         FIPSConfig         `yaml:"fips"`
+	Admin        AdminConfig        `yaml:"admin"`
 
 	// ignoredEnv lists env overrides that were set but could not be parsed
 	// ("KEY=value"); the previous value was kept. Not part of the config schema.
@@ -274,9 +291,10 @@ func defaults() Config {
 			PrestopSleep:  DurationOf(0),
 		},
 		Backpressure: BackpressureConfig{
-			HighWatermark:   0.85,
-			LowWatermark:    0.70,
-			SheddingEnabled: true,
+			HighWatermark:    0.85,
+			LowWatermark:     0.70,
+			SheddingEnabled:  true,
+			MinHeadroomBytes: 10 << 20,
 		},
 		Authn: AuthnConfig{
 			Enabled: true,
@@ -528,6 +546,7 @@ func applyEnv(cfg *Config) {
 	// TLS
 	applyString("KEEL_TLS_CERT", &cfg.TLS.CertFile)
 	applyString("KEEL_TLS_KEY", &cfg.TLS.KeyFile)
+	applyString("KEEL_TLS_CLIENT_CA", &cfg.TLS.ClientCAFile)
 
 	// Sidecar
 	applyBool("KEEL_SIDECAR", &cfg.Sidecar.Enabled)
@@ -558,6 +577,7 @@ func applyEnv(cfg *Config) {
 
 	// Backpressure
 	applyInt64("KEEL_HEAP_MAX_BYTES", &cfg.Backpressure.HeapMaxBytes)
+	applyInt64("KEEL_MIN_HEADROOM_BYTES", &cfg.Backpressure.MinHeadroomBytes)
 	applyFloat64("KEEL_PRESSURE_HIGH", &cfg.Backpressure.HighWatermark)
 	applyFloat64("KEEL_PRESSURE_LOW", &cfg.Backpressure.LowWatermark)
 	applyBool("KEEL_SHEDDING", &cfg.Backpressure.SheddingEnabled)
@@ -576,6 +596,11 @@ func applyEnv(cfg *Config) {
 	applyDuration("KEEL_AUTHZ_TIMEOUT", &cfg.ExtAuthz.Timeout)
 	applyString("KEEL_AUTHZ_TRANSPORT", &cfg.ExtAuthz.Transport)
 	applyBool("KEEL_AUTHZ_FAIL_OPEN", &cfg.ExtAuthz.FailOpen)
+
+	// Admin
+	applyString("KEEL_ADMIN_TOKEN", &cfg.Admin.Token)
+	applyString("KEEL_ADMIN_METRICS_TOKEN", &cfg.Admin.MetricsToken)
+	applyBool("KEEL_ADMIN_PPROF", &cfg.Admin.PProf)
 
 	// Logging
 	applyBool("KEEL_LOG_JSON", &cfg.Logging.JSON)
