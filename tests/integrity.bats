@@ -658,34 +658,34 @@ PYEOF
 # ---------------------------------------------------------------------------
 
 # RFC 8555 §8.3: unknown challenge token must return 404.
-# Requires root to bind :80; skipped otherwise.
+# challenge_port 5080 stands in for :80 (non-root; allowed under BATS).
 @test "ACME http-01: GET /.well-known/acme-challenge/<unknown> returns 404" {
-  [ "$(id -u)" -eq 0 ] || skip "port 80 requires root"
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [test.example.com]\n    email: test@example.com\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    challenge_port: 5080\n    domains: [test.example.com]\n    email: test@example.com\n    ca_url: "http://127.0.0.1:19991/dead"\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-max &
   pid="${!}"
   sleep 0.4
   local status
-  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:80/.well-known/acme-challenge/nosuchthing)"
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:5080/.well-known/acme-challenge/nosuchthing)"
   kill -TERM "${pid}"
   wait "${pid}" || true
   rm -f "${cfg}"
   [ "${status}" -eq 404 ]
 }
 
-# Non-challenge paths on :80 must redirect to HTTPS (301).
+# Non-challenge paths on the challenge port must redirect to HTTPS (301).
 @test "ACME http-01: non-challenge GET / on port 80 redirects to HTTPS (301)" {
-  [ "$(id -u)" -eq 0 ] || skip "port 80 requires root"
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [test.example.com]\n    email: test@example.com\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    challenge_port: 5080\n    domains: [test.example.com]\n    email: test@example.com\n    ca_url: "http://127.0.0.1:19991/dead"\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-max &
   pid="${!}"
   sleep 0.4
   local status
-  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --no-location http://127.0.0.1:80/)"
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --retry 10 --retry-connrefused --retry-delay 1 --no-location http://127.0.0.1:5080/)"
   kill -TERM "${pid}"
   wait "${pid}" || true
   rm -f "${cfg}"
@@ -760,9 +760,9 @@ PYEOF
 # A valid ECDSA P-256 cert is pre-written to cache_dir. keel is started with
 # a dead ca_url so any CA contact would cause a fatal error. If keel stays
 # alive and the cert file is intact, the cache-load path is working.
-# Requires root because ACME mode opens port 80.
+# challenge_port 5080 stands in for :80 so no root is needed.
 @test "ACME cache reuse: pre-existing cert.crt served without contacting CA" {
-  [ "$(id -u)" -eq 0 ] || skip "port 80 requires root"
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   command -v openssl > /dev/null 2>&1 || skip "openssl not available"
 
   local cache_dir cfg pid
@@ -780,10 +780,10 @@ PYEOF
     > /dev/null 2>&1
 
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [localhost]\n    email: test@example.com\n    ca_url: "http://127.0.0.1:19991/dead"\n    cache_dir: "%s"\n' \
+  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    challenge_port: 5080\n    domains: [localhost]\n    email: test@example.com\n    ca_url: "http://127.0.0.1:19991/dead"\n    cache_dir: "%s"\n' \
     "${cache_dir}" > "${cfg}"
 
-  KEEL_CONFIG="${cfg}" keel-min > /tmp/keel-acme-reuse.log 2>&1 &
+  KEEL_CONFIG="${cfg}" keel-max > /tmp/keel-acme-reuse.log 2>&1 &
   pid="${!}"
   sleep 0.5
 

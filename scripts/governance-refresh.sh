@@ -217,7 +217,7 @@ function maybe_pull_submodule() {
   [ "${IS_SUBMODULE}" -eq 1 ] || return 0
   [ "${DRY_RUN}" -eq 1 ] && return 0
   log "📡 Pulling latest .standards submodule..."
-  git -C "${REPO_ROOT}" submodule update --remote .standards
+  git -C "${REPO_ROOT}" submodule update --remote --merge .standards
 }
 
 # When `make governance-refresh` invokes the consumer's LOCAL copy at

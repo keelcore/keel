@@ -49,7 +49,7 @@ jobs:
       - name: Install syft
         run: make setup-syft
       - name: Generate SBOM
-        run: make release-sbom
+        run: make release-sbom ARGS="--out-dir dist"
       - name: Generate checksums
         run: make release-checksums
       - uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.6.1
@@ -94,7 +94,7 @@ jobs:
       - name: Install cosign
         run: make setup-cosign
       - name: Sign artifacts
-        run: make release-sign
+        run: make release-sign ARGS="--sums-dir dist dist/keel-*"
       - name: Generate SLSA provenance attestation
         uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
         with:

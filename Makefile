@@ -61,14 +61,6 @@ release-checksums:
 	@echo "🔐 Generating SHA256SUMS..."
 	./scripts/release/checksums.sh
 
-release-sbom:
-	@echo "📋 Generating SBOM..."
-	./scripts/release/sbom.sh --out-dir dist
-
-release-sign:
-	@echo "✍️  Signing artifacts..."
-	./scripts/release/sign.sh --sums-dir dist dist/keel-*
-
 release-upload:
 	@echo "🚀 Uploading release artifacts..."
 	RELEASE_TAG=$(TAG) ./scripts/release/upload.sh

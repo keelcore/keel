@@ -21,12 +21,19 @@ function nolint_regex() {
   grep -vE '^[[:space:]]*(#|$)' "${file}" | paste -sd '|' -
 }
 
+# grep_exclude: grep wrapper for exclusion filters. Exit 1 means "every line was
+# excluded" (including empty input), which is a valid empty result, not a
+# failure; only exit >= 2 (a real grep error) propagates.
+function grep_exclude() {
+  grep "$@" || [ "$?" -eq 1 ]
+}
+
 # nolint_filter: stdin→stdout, drop newline-delimited paths matching .nolint.
 function nolint_filter() {
   local re
   re="$(nolint_regex)"
   [ -z "${re}" ] && { cat; return 0; }
-  grep -Ev "${re}"
+  grep_exclude -Ev "${re}"
 }
 
 # nolint_filter0: NUL-delimited variant, for `git ls-files -z` pipelines.
@@ -34,7 +41,7 @@ function nolint_filter0() {
   local re
   re="$(nolint_regex)"
   [ -z "${re}" ] && { cat; return 0; }
-  grep -zEv "${re}"
+  grep_exclude -zEv "${re}"
 }
 
 # filter_paths: stdin→stdout generic exclusion. %s is replaced with the path component.
@@ -45,7 +52,7 @@ function filter_paths() {
     [ -z "${sm}" ] && continue
     pattern="${pattern}|${2//%s/${sm}}"
   done < <(submodule_paths)
-  grep -Ev "${pattern}"
+  grep_exclude -Ev "${pattern}"
 }
 
 # filter_src also honors .nolint so nested vendored trees are excluded from

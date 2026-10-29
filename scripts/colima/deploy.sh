@@ -36,8 +36,8 @@ function log() {
 }
 
 function validate_args() {
-  if [ "${#}" -gt 0 ] && [ -z "${1:-}" ]; then
-    log '❌ Error: Unexpected empty argument'
+  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected argument'
     exit 1
   fi
 }
@@ -55,9 +55,11 @@ function check_colima_running() {
 
 function build_image() {
   local -r profile="${1}"
-  log '🐳 Building keel:test image inside Colima VM via nerdctl...'
-  colima nerdctl --profile "${profile}" -- \
-    build -t 'keel:test' --build-arg 'FLAVOR=min' "${REPO_ROOT}"
+  log '🐳 Building keel:test image inside Colima VM via docker...'
+  docker --context "colima-${profile}" \
+    build -t 'keel:test' --build-arg 'FLAVOR=min' \
+    -f "${REPO_ROOT}/scripts/deploy/docker/Dockerfile" \
+    "${REPO_ROOT}"
   log '✅ keel:test image built'
 }
 

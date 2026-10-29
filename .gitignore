@@ -84,3 +84,6 @@ pnpm-debug.log*
 # ---- test artifacts ----
 test-results.xml
 
+
+# ---- Local plans (working notes, not committed) ----
+docs/plans/

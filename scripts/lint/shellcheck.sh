@@ -50,10 +50,13 @@ function lint() {
   # macos/features/, raspberry_pi/scripts/) get the same lint as helpers.
   # source_files lists repo-owned tracked *.sh with vendored trees and
   # submodules excluded (never a raw git ls-files, which includes vendor/).
+  # Paths travel one per line and NUL-delimited into shellcheck, so names
+  # containing spaces stay whole.
   source_files '*.sh' \
-    | xargs -n 1 realpath \
+    | while IFS= read -r f; do realpath "${f}"; done \
     | sort -u \
-    | xargs shellcheck --shell=bash --severity=warning \
+    | tr '\n' '\0' \
+    | xargs -0 shellcheck --shell=bash --severity=warning \
     || rc="${?}"
   if [ "${rc}" -ne 0 ]; then
     log "❌ shellcheck failed (exit ${rc})"

@@ -10,6 +10,21 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ## [Unreleased]
 
+### Changed
+
+- `.standards` advanced to latest; `release-sbom` / `release-sign` now inherit the canonical
+  recipes (arguments passed via `ARGS` from the release workflow).
+
+### Fixed
+
+- Colima k8s harness runs end to end again: zero-arg `validate_args` no longer rejects an
+  empty argument list (`scripts/colima/*.sh`, `scripts/release/ci.sh`); `deploy.sh` builds
+  with `docker --context colima-<profile>` and the relocated Dockerfile; k3s pinned to
+  `v1.35.0+k3s1`; the repo is shared into the VM when outside `${HOME}`; the gRPC port
+  forwarder carries UDP so H3 is reachable from the host.
+- ACME http-01 BATS tests run without root (challenge port 5080) using `keel-max` and a dead
+  local CA URL.
+
 ## [0.9.7] - 2026-03-13
 
 ### Added

@@ -34,8 +34,8 @@ function log() {
 }
 
 function validate_args() {
-  if [ "${#}" -gt 0 ] && [ -z "${1:-}" ]; then
-    log '❌ Error: Unexpected empty argument'
+  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected argument'
     exit 1
   fi
 }
@@ -77,12 +77,20 @@ function colima_start() {
   local -r cpu="${KEEL_COLIMA_CPU:-4}"
   local -r mem="${KEEL_COLIMA_MEMORY:-8}"
   local -r disk="${KEEL_COLIMA_DISK:-60}"
+  # Share the repo with the VM so compose bind mounts (tests/fixtures) resolve
+  # even when the checkout lives outside ${HOME} (Colima's default share).
+  local repo_root
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  local -a mounts=('--mount' "${HOME}")
+  [[ "${repo_root}/" == "${HOME}/"* ]] || mounts+=('--mount' "${repo_root}")
   colima start "${profile}" \
+    "${mounts[@]}" \
+    --port-forwarder grpc \
     --kubernetes \
     --cpu "${cpu}" \
     --memory "${mem}" \
     --disk "${disk}" \
-    --kubernetes-version 'v1.29.0' \
+    --kubernetes-version 'v1.35.0+k3s1' \
     --runtime docker
 }
 
