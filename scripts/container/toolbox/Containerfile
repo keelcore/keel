@@ -1,0 +1,26 @@
+# scripts/container/toolbox/Containerfile
+# keel-toolbox: the harness control plane for Apple `container`.
+#
+# It lives on the container bridge network, so it reaches the cluster API
+# guest-to-guest. kubectl, helm, and test compilation run here; the
+# host only drives the `container` CLI (vsock), never host -> guest networking.
+# The compose suite itself executes inside the cluster node (hostPorts).
+#
+# Alpine base: no Python in the image (debian golang images pull it in via scm tools).
+FROM golang:1.25.5-alpine
+
+ARG TARGETARCH
+ARG KUBECTL_VERSION=v1.35.5
+ARG HELM_VERSION=v4.3.1
+
+RUN apk add --no-cache bash coreutils curl openssl
+
+RUN curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
+      -o /usr/local/bin/kubectl \
+ && chmod 0755 /usr/local/bin/kubectl \
+ && curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz" \
+      | tar -xz -C /tmp \
+ && install -m 0755 "/tmp/linux-${TARGETARCH}/helm" /usr/local/bin/helm \
+ && rm -rf "/tmp/linux-${TARGETARCH}"
+
+WORKDIR /work

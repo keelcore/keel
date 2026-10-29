@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # audit-make-targets.sh
-# CI/standards compliance auditor — INFORMATIONAL. Enforces five invariants:
+# CI/standards compliance auditor — a GATE. Enforces five invariants:
 #   1. Every workflow run: step is `make <target>` — no direct tool calls.
 #   2. Every scripts/**/*.sh (except scripts/lib/) has a Makefile target.
 #   3. Universal canonical targets (build, lint, test, unit-test,
@@ -13,15 +13,12 @@
 #      script paths).
 #
 # Exit semantics:
-#   - This auditor is INFORMATIONAL. It exits 0 on every successful walk,
-#     whether or not findings are present. Findings are printed for the
-#     contributor; gating belongs to a separate target.
-#     (Per .standards/governance/ci.md "Audit topology" — gating moves to
-#     `make ci-governance-gate` once the governance-refactor lands.)
-#   - Non-zero exit is reserved for HARD errors: malformed args, unreadable
-#     Makefile — not for rule violations. A missing .github/workflows/
-#     directory is NOT a hard error: consumers may use a different CI
-#     provider or not yet have CI wired up; Rule 1 simply skips in that case.
+#   - Exit 0 only when every invariant holds; exit 1 when any finding is
+#     printed. `make audit` is a required CI step (governance/ci.md), so a
+#     finding fails the build.
+#   - Hard errors (malformed args, unreadable Makefile) also exit non-zero.
+#   - A missing .github/workflows/ directory is NOT a finding: consumers may
+#     use a different CI provider or not yet have CI wired up; Rule 1 skips.
 # Safe to run locally: make audit
 
 # bash configuration:
@@ -332,15 +329,14 @@ function main() {
 
   if [ "${overall}" -eq 0 ]; then
     log '✅ CI audit clean: all Makefile target invariants satisfied.'
-  else
-    log ''
-    log 'ℹ️  Audit findings above are INFORMATIONAL — the audit does not gate.'
-    log '   Run `make governance-refresh` to reconcile canonical files; resolve'
-    log '   any remaining findings (e.g., new local script needs a Makefile'
-    log '   target) by hand. Gating is enforced separately by `make ci-governance-gate`.'
+    return 0
   fi
-  # Audit always exits 0 on a successful walk; hard errors (bad args,
-  # unreadable Makefile) exit non-zero via validate_args / set -o errexit.
+  log ''
+  log '❌ CI audit failed: findings above violate the Makefile/CI invariants.'
+  log '   Run `make governance-refresh` to reconcile canonical files; resolve'
+  log '   any remaining findings (e.g., new local script needs a Makefile'
+  log '   target) by hand.'
+  exit 1
 }
 
 main "${@:-}"

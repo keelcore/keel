@@ -10,7 +10,7 @@
 #   1. A yaml tag added to config.go but not rendered in the Helm configmap.
 #   2. A yaml tag added to config.go but missing from config-reference.md.
 #   3. A $v.xxx template variable in configmap.yaml with no matching key in values.yaml.
-#   4. keel.* top-level keys present in values.yaml but absent from colima/values.yaml.
+#   4. keel.* top-level keys present in values.yaml but absent from container/values.yaml.
 #   5. The Helm chart fails to render entirely (template errors).
 
 setup_file() {
@@ -19,7 +19,7 @@ setup_file() {
 
   export CONFIG_GO="${REPO_ROOT}/pkg/config/config.go"
   export VALUES="${REPO_ROOT}/helm/keel/values.yaml"
-  export COLIMA_VALUES="${REPO_ROOT}/tests/fixtures/colima/values.yaml"
+  export CONTAINER_VALUES="${REPO_ROOT}/tests/fixtures/container/values.yaml"
   export CONFIGMAP_TMPL="${REPO_ROOT}/helm/keel/templates/configmap.yaml"
   export CONFIG_REF="${REPO_ROOT}/docs/config-reference.md"
   export SCHEMA_FILE="${REPO_ROOT}/pkg/config/schema.yaml"
@@ -115,9 +115,9 @@ setup_file() {
 }
 
 # ---------------------------------------------------------------------------
-# 5. colima/values.yaml has all keel.* top-level keys present in values.yaml
+# 5. container/values.yaml has all keel.* top-level keys present in values.yaml
 # ---------------------------------------------------------------------------
-@test "colima/values.yaml contains all keel top-level keys from values.yaml" {
+@test "container/values.yaml contains all keel top-level keys from values.yaml" {
   local failed=0
 
   # Extract top-level keys under the keel: block in values.yaml.
@@ -127,9 +127,9 @@ setup_file() {
     "${VALUES}" | tr -d ':' | grep -Ev '^(config|secrets|extraEnv|extraArgs|extraVolumeMounts|extraVolumes)$')"
 
   while IFS= read -r key; do
-    if ! awk '/^keel:/{found=1; next} found && /^[^ ]/{exit} found' "${COLIMA_VALUES}" | \
+    if ! awk '/^keel:/{found=1; next} found && /^[^ ]/{exit} found' "${CONTAINER_VALUES}" | \
         grep -qE "^\s+${key}:"; then
-      echo "MISSING from colima/values.yaml under keel: '${key}'"
+      echo "MISSING from container/values.yaml under keel: '${key}'"
       failed=1
     fi
   done <<< "${keys}"

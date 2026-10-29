@@ -43,7 +43,8 @@ catch those regressions.
 | Unit | `make test-unit` | Always; no external dependencies |
 | Integrity (BATS) | `make test-integrity` | Always; requires installed tools (pebble, opa) |
 | Compose integration | `make test-compose` | `KEEL_COMPOSE_TESTS=1`; requires Docker |
-| Colima k8s | `make colima-test` | Explicit; requires Colima with k8s enabled |
+| Apple container k8s | `make container-test` | Explicit; `make container-setup container-deploy` first |
+| Apple container stack | `make container-stack-test` | Explicit; compose suite on the k8s stack (`make container-setup` first) |
 
 Unit tests live in `_test.go` files throughout `pkg/`. BATS tests live in `tests/integrity.bats`.
 Compose tests live in `tests/compose/`.

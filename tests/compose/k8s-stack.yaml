@@ -1,0 +1,197 @@
+# tests/compose/k8s-stack.yaml
+# Kubernetes equivalent of docker-compose.test.yaml for the Apple `container`
+# harness. Same topology and service names, so the fixture configs resolve
+# unchanged: upstream <- keel -> prometheus / otel-collector -> jaeger.
+#
+# Fixture files arrive as the `keel-fixtures` Secret and `otel-config` /
+# `prometheus-config` ConfigMaps, created by scripts/k8s/stack-test.sh.
+# Every port the compose tests use is a hostPort: bound on all node interfaces
+# and wired node -> pod by the CNI portmap plugin (iptables), no proxies.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: upstream
+spec:
+  selector:
+    matchLabels: { app: upstream }
+  template:
+    metadata:
+      labels: { app: upstream }
+    spec:
+      containers:
+        - name: upstream
+          image: docker.io/hashicorp/http-echo:latest
+          args: ["-text=upstream-ok", "-listen=:9000"]
+          ports:
+            - { containerPort: 9000, hostPort: 9000 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: upstream
+spec:
+  selector: { app: upstream }
+  ports:
+    - { name: http, port: 9000 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keel
+spec:
+  selector:
+    matchLabels: { app: keel }
+  template:
+    metadata:
+      labels: { app: keel }
+    spec:
+      containers:
+        - name: keel
+          image: docker.io/library/keel:test-max
+          imagePullPolicy: Never
+          env:
+            - { name: KEEL_CONFIG, value: /etc/keel/keel.yaml }
+            - { name: KEEL_SECRETS, value: /etc/keel/keel-secrets.yaml }
+          ports:
+            - { containerPort: 8080, hostPort: 8080, protocol: TCP }
+            - { containerPort: 8443, hostPort: 8443, protocol: TCP }
+            - { containerPort: 8443, hostPort: 8443, protocol: UDP }
+            - { containerPort: 9091, hostPort: 9091, protocol: TCP }
+            - { containerPort: 9092, hostPort: 9092, protocol: TCP }
+            - { containerPort: 9093, hostPort: 9093, protocol: TCP }
+            - { containerPort: 9999, hostPort: 9999, protocol: TCP }
+          volumeMounts:
+            - { name: fixtures, mountPath: /etc/keel, readOnly: true }
+      volumes:
+        - name: fixtures
+          secret:
+            secretName: keel-fixtures
+            items:
+              - { key: keel.yaml, path: keel.yaml }
+              - { key: keel-secrets.yaml, path: keel-secrets.yaml }
+              - { key: server.crt, path: certs/server.crt }
+              - { key: server.key, path: certs/server.key }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keel
+spec:
+  selector: { app: keel }
+  ports:
+    - { name: http, port: 8080, protocol: TCP }
+    - { name: https, port: 8443, protocol: TCP }
+    - { name: h3, port: 8443, protocol: UDP }
+    - { name: health, port: 9091, protocol: TCP }
+    - { name: ready, port: 9092, protocol: TCP }
+    - { name: startup, port: 9093, protocol: TCP }
+    - { name: admin, port: 9999, protocol: TCP }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+spec:
+  selector:
+    matchLabels: { app: jaeger }
+  template:
+    metadata:
+      labels: { app: jaeger }
+    spec:
+      containers:
+        - name: jaeger
+          image: docker.io/jaegertracing/all-in-one:1.56
+          env:
+            - { name: COLLECTOR_OTLP_ENABLED, value: "true" }
+          ports:
+            - { containerPort: 16686 }
+            - { containerPort: 4317 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+spec:
+  selector: { app: jaeger }
+  ports:
+    - { name: ui, port: 16686 }
+    - { name: otlp-grpc, port: 4317 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+spec:
+  selector:
+    matchLabels: { app: otel-collector }
+  template:
+    metadata:
+      labels: { app: otel-collector }
+    spec:
+      containers:
+        - name: otel-collector
+          image: docker.io/otel/opentelemetry-collector-contrib:0.97.0
+          args: ["--config=/etc/otelcol-contrib/config.yaml"]
+          ports:
+            - { containerPort: 4317 }
+            - { containerPort: 4318 }
+          volumeMounts:
+            - { name: config, mountPath: /etc/otelcol-contrib, readOnly: true }
+      volumes:
+        - name: config
+          configMap:
+            name: otel-config
+            items:
+              - { key: otel-collector.yaml, path: config.yaml }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+spec:
+  selector: { app: otel-collector }
+  ports:
+    - { name: otlp-grpc, port: 4317 }
+    - { name: otlp-http, port: 4318 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  selector:
+    matchLabels: { app: prometheus }
+  template:
+    metadata:
+      labels: { app: prometheus }
+    spec:
+      containers:
+        - name: prometheus
+          image: docker.io/prom/prometheus:v2.50.1
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--storage.tsdb.path=/prometheus"
+            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+            - "--web.console.templates=/usr/share/prometheus/consoles"
+            - "--log.level=warn"
+          ports:
+            - { containerPort: 9090, hostPort: 9090 }
+          volumeMounts:
+            - { name: config, mountPath: /etc/prometheus, readOnly: true }
+            - { name: data, mountPath: /prometheus }
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+spec:
+  selector: { app: prometheus }
+  ports:
+    - { name: http, port: 9090 }

@@ -51,10 +51,12 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: release-docker
 .PHONY: release-helm-push
 .PHONY: release-ci
-.PHONY: colima-setup
-.PHONY: colima-deploy
-.PHONY: colima-test
-.PHONY: colima-teardown
+.PHONY: container-setup
+.PHONY: container-deploy
+.PHONY: container-test
+.PHONY: container-stack-test
+.PHONY: container-stack-test-keep
+.PHONY: container-teardown
 .PHONY: container-host-network
 .PHONY: gen-certs
 .PHONY: gen-schema
@@ -73,7 +75,6 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: setup-syft
 .PHONY: setup-cosign
 .PHONY: setup-markdownlint
-.PHONY: setup-docker-macos
 .PHONY: setup-kubeconform
 .PHONY: setup-ghcr
 .PHONY: ci-pr-policy
@@ -94,6 +95,8 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: roadmap-issues
 .PHONY: k8s-cluster-test
 .PHONY: k8s-helm-deploy
+.PHONY: k8s-stack-up
+.PHONY: k8s-stack-down
 .PHONY: k8s-kind-load
 .PHONY: k8s-kind-setup
 .PHONY: k8s-kind-teardown
@@ -168,22 +171,30 @@ test-k8s:
 	@echo "⎈ Running kind k8s integration tests..."
 	./scripts/test/k8s.sh
 
-## P3.5 Local k8s (Colima) Targets
-colima-setup:
-	@echo "☸️  Starting local k8s cluster via Colima..."
-	./scripts/colima/setup.sh
+## P3.5 Local k8s (Apple container) Targets
+container-setup:
+	@echo "☸️  Starting local k8s cluster + keel-toolbox via Apple container..."
+	./scripts/container/setup.sh
 
-colima-deploy:
-	@echo "⎈ Building and deploying Keel to Colima k8s..."
-	./scripts/colima/deploy.sh
+container-deploy:
+	@echo "⎈ Building and deploying Keel to Apple container k8s..."
+	./scripts/container/deploy.sh
 
-colima-test:
-	@echo "🧪 Running k8s integration tests against Colima cluster..."
-	./scripts/colima/test.sh
+container-test:
+	@echo "🧪 Running k8s integration tests against Apple container cluster..."
+	./scripts/container/test.sh
 
-colima-teardown:
-	@echo "🧹 Tearing down Colima k8s environment..."
-	./scripts/colima/teardown.sh
+container-stack-test:
+	@echo "🧪 Running compose integration tests on the Apple container k8s stack..."
+	./scripts/container/stack-test.sh
+
+container-stack-test-keep:
+	@echo "🧪 Running stack tests (stack stays up)..."
+	./scripts/container/stack-test.sh --keep-up
+
+container-teardown:
+	@echo "🧹 Tearing down Apple container k8s environment..."
+	./scripts/container/teardown.sh
 
 ## Apple container host networking
 container-host-network:
@@ -289,6 +300,14 @@ k8s-helm-deploy:
 	@echo "⎈ Deploying Helm chart to kind cluster..."
 	./scripts/k8s/helm-deploy.sh
 
+k8s-stack-up:
+	@echo "⎈ Deploying the compose-equivalent k8s stack..."
+	./scripts/k8s/stack.sh up
+
+k8s-stack-down:
+	@echo "🧹 Removing the compose-equivalent k8s stack..."
+	./scripts/k8s/stack.sh down
+
 k8s-kind-load:
 	@echo "⎈ Loading image into kind cluster..."
 	./scripts/k8s/kind-load.sh
@@ -302,10 +321,6 @@ k8s-kind-teardown:
 	./scripts/k8s/kind-teardown.sh
 
 ## Additional Setup Targets
-setup-docker-macos:
-	@echo "🔧 Setting up Docker on macOS runner..."
-	./scripts/ci/setup-docker-macos.sh
-
 setup-kubeconform:
 	@echo "🔧 Installing kubeconform..."
 	./scripts/ci/setup-kubeconform.sh
@@ -379,14 +394,14 @@ help-local:
 	@echo "  test-k8s         kind k8s integration tests (requires Docker)"
 	@echo "  coverage         Generate coverage report (total %%, uncovered, total lines)"
 	@echo ""
-	@echo "Local k8s (Colima / P3.5):"
-	@echo "  colima-setup    Install deps + start local k8s via Colima"
-	@echo "  colima-deploy   Build keel:test + helm install to Colima"
-	@echo "  colima-test     Run k8s integration tests"
-	@echo "  colima-teardown Uninstall + stop Colima cluster"
-	@echo ""
-	@echo "Apple container:"
-	@echo "  container-host-network  Check/enforce host<->guest networking (route, Local Network)"
+	@echo "Local k8s (Apple container / P3.5):"
+	@echo "  container-setup           Start k8s cluster + keel-toolbox via Apple container"
+	@echo "  container-deploy          Build keel:test + helm install to the cluster"
+	@echo "  container-test            Run k8s integration tests"
+	@echo "  container-stack-test      Run compose suite on the k8s stack (hostPorts, in-node)"
+	@echo "  container-stack-test-keep Same but leave the stack running"
+	@echo "  container-teardown        Uninstall + delete toolbox and cluster"
+	@echo "  container-host-network    Check/enforce host<->guest networking (route, Local Network)"
 	@echo ""
 	@echo "Lint:"
 	@echo "  lint            gofmt check + go vet + staticcheck"

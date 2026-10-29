@@ -1,5 +1,5 @@
-# tests/fixtures/colima/values.yaml
-# Helm values for deploying Keel to the local Colima k8s cluster (P3.5).
+# tests/fixtures/container/values.yaml
+# Helm values for deploying Keel to the local Apple container k8s cluster (P3.5).
 # Single replica, HTTP only, no TLS, no authn — optimised for local dev testing.
 
 fullnameOverride: keel
@@ -9,7 +9,7 @@ replicaCount: 1
 image:
   repository: keel
   tag: test
-  pullPolicy: Never   # image was built directly inside the colima VM
+  pullPolicy: Never   # loaded via `container cluster load-image`
 
 mode: library
 

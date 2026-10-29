@@ -21,7 +21,7 @@ function main() {
   validate_args "${@:-}"
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   local -r context="${KEEL_K8S_CONTEXT:?KEEL_K8S_CONTEXT must be set}"
-  local -r values="${REPO_ROOT}/tests/fixtures/colima/values.yaml"
+  local -r values="${REPO_ROOT}/tests/fixtures/container/values.yaml"
   local -r chart="${REPO_ROOT}/helm/keel"
   log "⎈ Deploying keel via Helm (context: ${context})..."
   run_helm "${context}" "${values}" "${chart}"

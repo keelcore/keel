@@ -14,6 +14,14 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 - `.standards` advanced to latest; `release-sbom` / `release-sign` now inherit the canonical
   recipes (arguments passed via `ARGS` from the release workflow).
+- Local k8s harness moved from Colima to Apple `container` (`container cluster`). `make
+  colima-*` → `make container-{setup,deploy,test,teardown}`; scripts in `scripts/container/`.
+  kubectl/helm run in `keel-toolbox`, a container on the bridge network; the host only drives
+  the `container` CLI, so nothing depends on host → guest routing or Local Network privacy.
+- New `make container-stack-test`: the compose suite against `tests/compose/k8s-stack.yaml`.
+  Test ports are hostPorts on all node interfaces (iptables node → pod); the unchanged suite
+  runs inside the node. CI keeps `make test-compose` (Docker Compose) and `make test-k8s` (kind).
+- Removed `setup-docker-macos` (Colima-based, unused).
 
 ### Fixed
 
