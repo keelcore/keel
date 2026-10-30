@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -292,9 +293,12 @@ func TestWriteFileAtomic_SyncFailureKeepsOldFile_SuccessIs0600(t *testing.T) {
 	if err := writeFileAtomic(path, []byte("new")); err != nil {
 		t.Fatal(err)
 	}
-	fi, _ := os.Stat(path)
-	if b, _ := os.ReadFile(path); string(b) != "new" || fi.Mode().Perm() != 0o600 {
-		t.Fatalf("got %q mode %v, want new 0600", b, fi.Mode().Perm())
+	if b, _ := os.ReadFile(path); string(b) != "new" {
+		t.Fatalf("got %q, want new", b)
+	}
+	// Windows has no Unix permission bits; 0600 is meaningful only elsewhere.
+	if fi, _ := os.Stat(path); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v, want 0600", fi.Mode().Perm())
 	}
 }
 

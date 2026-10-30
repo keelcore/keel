@@ -33,7 +33,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 - Sidecar upstream transport built for high concurrency: no per-host or idle connection caps
   (reused connections, no TIME_WAIT churn), HTTP/2 to TLS upstreams via ALPN, optional plaintext
   HTTP/2 (`sidecar.upstream_h2c`), no environment proxy, and the TLS branch now has dial, handshake
-  and idle timeouts. A hung upstream returns 502 after `timeouts.write` (response-header deadline).
+  and idle timeouts. A hung upstream returns 502 after 90% of `timeouts.write` (response-header deadline),
+  leaving the rest of the write deadline to deliver the 502.
 - `sidecar.upstream_url` accepts `unix:///path/app.sock` (no TCP port ceiling). Not drop-in: the app
   must listen on the socket and share a volume with Keel.
 - HTTPS now negotiates HTTP/2 via ALPN (`h2`, then `http/1.1`); `no_h2` builds offer `http/1.1`

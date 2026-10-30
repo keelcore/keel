@@ -20,3 +20,9 @@ id          = "acme-marshal-func-alias"
 description = "Go source identifier 'marshalECKey = x509.MarshalECPrivateKey' in acme/manager.go; the generic-api-key rule matches its entropy, but it is a function alias, not a secret"
 paths       = ['''pkg/core/acme/manager\.go''']
 regexes     = ['''marshalECKey\s+= x509\.MarshalECPrivateKey''']
+
+[[allowlists]]
+id          = "bats-admin-token-fixture"
+description = "Literal bearer token 'bats-admin-token' passed to a throwaway keel process via KEEL_ADMIN_TOKEN in tests/integrity.bats; curl-auth-header matches the Authorization header, but it is a test fixture, not a secret"
+paths       = ['''tests/integrity\.bats''']
+regexes     = ['''Bearer bats-admin-token''']

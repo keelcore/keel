@@ -1,3 +1,5 @@
+//go:build !windows
+
 // pkg/core/lifecycle/shutdown_signal_test.go
 package lifecycle
 

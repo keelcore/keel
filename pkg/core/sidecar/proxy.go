@@ -70,7 +70,7 @@ func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, er
 		return nil, fmt.Errorf("parse upstream_url: %w", err)
 	}
 
-	transport, err := upstreamTransport(cfg.Sidecar, cfg.Timeouts.Write.Duration)
+	transport, err := upstreamTransport(cfg.Sidecar, upstreamHeaderBudget(cfg.Timeouts.Write.Duration))
 	if err != nil {
 		return nil, fmt.Errorf("build upstream transport: %w", err)
 	}
@@ -284,6 +284,14 @@ func upstreamTransport(sc config.SidecarConfig, responseHeaderTimeout time.Durat
 		}
 	}
 	return t, nil
+}
+
+// upstreamHeaderBudget is the upstream response-header deadline: 90% of the
+// server's write timeout, which also runs while keel waits on the upstream.
+// Equal deadlines race, and when the server's fires first the 502 is never
+// written; the remaining 10% is left to write it.
+func upstreamHeaderBudget(write time.Duration) time.Duration {
+	return write - write/10
 }
 
 // upstreamBase is the URL requests are addressed to: upstream_url itself, or

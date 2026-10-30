@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # scripts/test/setup-bats.sh
 # Install bats-core on a developer machine or CI runner.
-# No-op if bats is already present.
+# No-op if bats is already present. Then runs scripts/ci/setup-bats.local.sh
+# if present, allowing each consumer to install extra tools its BATS suites
+# need without modifying the canonical script.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -17,6 +19,10 @@ function main() {
   exec 5>&1
   validate_args "${@:-}"
   install_bats
+  if [ -f scripts/ci/setup-bats.local.sh ]; then
+    log '🔧 Delegating to scripts/ci/setup-bats.local.sh'
+    bash scripts/ci/setup-bats.local.sh
+  fi
 }
 
 function log() {

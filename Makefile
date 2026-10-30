@@ -88,6 +88,7 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: ci-build-example
 .PHONY: dist-chmod
 .PHONY: clean-local
+.PHONY: setup-bats-local
 .PHONY: coverage-profile
 .PHONY: coverage-report
 .PHONY: audit
@@ -358,6 +359,11 @@ dist-chmod:
 clean-local:
 	@echo "🧹 Removing keel build artifacts (dist/, target/)..."
 	bash scripts/clean.local.sh
+
+## BATS tool extras (timeout) — also delegated to by canonical setup-bats.sh (`make setup-bats`)
+setup-bats-local:
+	@echo "⏱️  Installing keel BATS extras (timeout)..."
+	bash scripts/ci/setup-bats.local.sh
 
 ## coverage-profile: write the whole-module Go statement-coverage profile to
 ## coverage.txt (with a total%/uncovered/lines summary). This is the profile
