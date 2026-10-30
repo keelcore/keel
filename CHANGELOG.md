@@ -10,6 +10,12 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ## [Unreleased]
 
+### Changed
+
+- `make create-release` now runs the canonical `.standards` release tagger. Keel's schema-field diff moved to
+  `scripts/release/create-release.local.sh`, which the tagger calls for the bump level; the computed versions and tag
+  subjects are unchanged. New `make create-release DRY_RUN=1` shows the next tag without tagging or pushing.
+
 ## [0.9.13] - 2026-10-30
 
 ### Changed

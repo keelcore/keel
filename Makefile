@@ -61,7 +61,6 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: certs-image
 .PHONY: gen-certs
 .PHONY: gen-schema
-.PHONY: create-release
 .PHONY: install-hooks
 .PHONY: fresh-repo
 .PHONY: help
@@ -89,6 +88,7 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: dist-chmod
 .PHONY: clean-local
 .PHONY: setup-bats-local
+.PHONY: create-release-local
 .PHONY: coverage-profile
 .PHONY: coverage-report
 .PHONY: audit
@@ -216,10 +216,6 @@ gen-certs:
 gen-schema:
 	@echo "📐 Regenerating config field schema..."
 	./scripts/release/gen-schema.sh
-
-create-release:
-	@echo "🏷️  Creating release tag..."
-	./scripts/release/create-release.sh $(if $(FORCE),--force $(FORCE),)
 
 ## Repo Setup Targets
 ## Pre-commit composition: keel's schema-regen runs before the canonical
@@ -365,6 +361,11 @@ setup-bats-local:
 	@echo "⏱️  Installing keel BATS extras (timeout)..."
 	bash scripts/ci/setup-bats.local.sh
 
+## Schema-diff bump hook (PREV_TAG=vX.Y.Z) — also called by canonical create-release.sh (`make create-release`)
+create-release-local:
+	@echo "📐 Computing bump level from the config schema diff..."
+	bash scripts/release/create-release.local.sh $(PREV_TAG)
+
 ## coverage-profile: write the whole-module Go statement-coverage profile to
 ## coverage.txt (with a total%/uncovered/lines summary). This is the profile
 ## ci.sh generates during `make test-unit` and uploads to Codecov — named for
@@ -435,6 +436,7 @@ help-local:
 	@echo "  gen-schema                Regenerate pkg/config/schema.yaml from config.Config"
 	@echo "  create-release            Compute and tag next semver release"
 	@echo "  create-release FORCE=v1.0.0  Force a specific version"
+	@echo "  create-release DRY_RUN=1  Compute and show the next tag; no tag, no push"
 	@echo ""
 	@echo "Setup (CI tooling):"
 	@echo "  setup-helm        Install Helm"

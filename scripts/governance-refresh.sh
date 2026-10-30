@@ -268,9 +268,11 @@ function maybe_stage_submodule() {
 # tree is canonical and must be byte-identical in the consumer. The list is
 # derived from the standards tree, so the only script exempt from sync is one
 # that exists in the consumer but NOT here (a project-local script). The refresh
-# script itself IS shipped so it can self-update on subsequent runs.
+# script itself IS shipped so it can self-update on subsequent runs. *.local.sh
+# hooks are owned by the repo that holds them (the standards repo has its own),
+# so they are never synced: a consumer's hook is never overwritten.
 function canonical_scripts() {
-  find "${STANDARDS_ROOT}/scripts" -name '*.sh' -type f \
+  find "${STANDARDS_ROOT}/scripts" -name '*.sh' ! -name '*.local.sh' -type f \
     | sed "s|^${STANDARDS_ROOT}/||" \
     | sort
 }

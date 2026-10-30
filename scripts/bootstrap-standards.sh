@@ -27,7 +27,9 @@
 #     overwritten; governance-refresh handles Makefile target injection
 #     for canonical targets the consumer is missing.
 #   - Project-specific scripts living alongside canonical ones (e.g.
-#     fetch-data.sh) are never touched.
+#     fetch-data.sh) are never touched, and neither are *.local.sh hooks
+#     (e.g. scripts/release/create-release.local.sh): they are never
+#     canonical, so governance-refresh never copies the standards repo's own.
 #
 # For ongoing reconciliation after bootstrap, the consumer runs
 # `make governance-refresh`.
