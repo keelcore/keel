@@ -481,9 +481,11 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   sink_port=19877
   received_file="$(mktemp)"
 
-  # One-shot HTTP acceptor: records the request (headers + body), answers 200.
-  printf 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n' \
-    | nc -l 127.0.0.1 "${sink_port}" > "${received_file}" &
+  # One-shot HTTP acceptor: records the request (headers + body), then answers
+  # 200 — only after the request arrives, or Go's client discards the early reply.
+  { for _ in $(seq 1 100); do [ -s "${received_file}" ] && break; sleep 0.05; done
+    printf 'HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'
+  } | nc -l 127.0.0.1 "${sink_port}" > "${received_file}" &
   sink_pid="${!}"
   sleep 0.2
 
