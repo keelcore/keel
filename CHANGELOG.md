@@ -10,6 +10,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ## [Unreleased]
 
+## [0.9.13] - 2026-10-30
+
 ### Changed
 
 - New `no_pprof` build tag drops the profiling handlers (`net/http/pprof`, `runtime/pprof`); the `min`
@@ -46,6 +48,17 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   longer panics with a remote sink configured.
 - Shutdown releases the signal handler and the StatsD socket; the sidecar route is registered
   before any listener serves.
+- Sidecar upstream health is its own readiness flag, reported as the `upstream` check: `/readyz`
+  aggregates it (a sidecar is not ready while its upstream is not), and an upstream outage no longer
+  clears the backpressure flag — which made the shedding middleware 503 all traffic.
+- `/readyz` reports NOT ready during the pre-stop sleep (a check the sidecar health probe
+  cannot override).
+- Reloads (SIGHUP / `/admin/reload`) wait for startup to finish and are serialized; listener
+  goroutines no longer read live config.
+- The sidecar's upstream health probe uses the upstream TLS settings (mTLS upstreams can
+  become Ready).
+- Helm: removed the `preStop` exec hook, which could never run in the `scratch` image; keel's
+  built-in `prestop_sleep` covers it.
 - Test stacks pinned by digest and bumped: Prometheus v3.15.1, OpenTelemetry Collector 0.163.2,
   Jaeger 2.22.0, http-echo 1.0.0. BATS helpers no longer use host Python (perl/nc/openssl).
 - Colima k8s harness runs end to end again: zero-arg `validate_args` no longer rejects an
@@ -99,7 +112,6 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   port); `rbac.create` defaults to `false` (keel does not use the Kubernetes API);
   `serviceAccount.automountToken: false`. **Admin-port scraping from another namespace now
   needs `networkPolicy.adminNamespaceSelector`.**
-
 - Container images trust an explicit allowlist of 10 CA roots (ISRG X1/X2, DigiCert Global G2/G3,
   D-TRUST 2020/2023, Telekom Security 2020/2023) copied from the new `keel-certs` image
   (`Dockerfile.certs`, full Mozilla bundle, `make certs-image`) — previously no CA bundle at all,
@@ -108,20 +120,6 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   silently dropped.
 - Request body/response caps and the read timeout apply even with `security.owasp_headers: false`
   or the `no_owasp` build (new `Limits` middleware).
-
-### Fixed
-
-- Sidecar upstream health is its own readiness flag, reported as the `upstream` check: `/readyz`
-  aggregates it (a sidecar is not ready while its upstream is not), and an upstream outage no longer
-  clears the backpressure flag — which made the shedding middleware 503 all traffic.
-- `/readyz` reports NOT ready during the pre-stop sleep (a check the sidecar health probe
-  cannot override).
-- Reloads (SIGHUP / `/admin/reload`) wait for startup to finish and are serialized; listener
-  goroutines no longer read live config.
-- The sidecar's upstream health probe uses the upstream TLS settings (mTLS upstreams can
-  become Ready).
-- Helm: removed the `preStop` exec hook, which could never run in the `scratch` image; keel's
-  built-in `prestop_sleep` covers it.
 
 ## [0.9.12] - 2026-08-07
 
@@ -278,7 +276,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 - No CVEs fixed in this release.
 
-[Unreleased]: https://github.com/keelcore/keel/compare/v0.9.12...HEAD
+[Unreleased]: https://github.com/keelcore/keel/compare/v0.9.13...HEAD
+[0.9.13]: https://github.com/keelcore/keel/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/keelcore/keel/compare/v0.9.11...v0.9.12
 [0.9.11]: https://github.com/keelcore/keel/compare/v0.9.10...v0.9.11
 [0.9.10]: https://github.com/keelcore/keel/compare/v0.9.9...v0.9.10
