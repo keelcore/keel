@@ -8,11 +8,14 @@ replicaCount: 1
 mode: sidecar
 
 image:
-  repository: keelcore/keel
-  tag: "0.5.0"
-  # default | min | fips
-  # Ensures values align with compile-time build tags baked into the image.
+  repository: ghcr.io/keelcore/keel
+  # Empty → "v" + Chart appVersion (the release this chart was published with).
+  tag: ""
+  # default | min | fips | custom — min and fips append "-min" / "-fips" to the
+  # tag, selecting the image built with those compile-time build tags.
   flavor: default
+  # sha256:... — pins the exact image and takes precedence over tag and flavor.
+  digest: ""
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []

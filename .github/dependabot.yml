@@ -27,3 +27,29 @@ updates:
       prefix: "chore(deps)"
     # vendor/ is committed; Dependabot must update it too.
     vendor: true
+
+  # Keep digest-pinned base images current (FROM image:tag@sha256:...).
+  - package-ecosystem: docker
+    directories:
+      - /scripts/deploy/docker
+      - /scripts/container/toolbox
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Keep the .standards submodule pointer current.
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - standards
+    commit-message:
+      prefix: "chore(deps)"

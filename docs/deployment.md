@@ -213,6 +213,10 @@ image:
 | `fips` | Go Cryptographic Module (FIPS 140-3) build | ~6–10 MB | Compliance environments (FedRAMP, HIPAA, PCI) requiring FIPS 140-2/3 validated cryptography |
 | `custom` | user-defined | varies | When you build your own binary with custom tags and want to use the Keel chart |
 
+The chart pulls `ghcr.io/keelcore/keel:v<appVersion>` and appends `-min` or `-fips` for those flavors, so a chart
+published as `0.9.14` with `flavor: fips` runs `ghcr.io/keelcore/keel:v0.9.14-fips`. To pin the exact signed image,
+set `image.digest: sha256:...`; the digest takes precedence over the tag and flavor.
+
 For `custom`, set:
 
 ```yaml
@@ -308,9 +312,10 @@ sidecar:
 
 # --- Image ---
 image:
-  flavor: default         # default | min | fips | custom
-  repository: ""          # Only for flavor: custom
-  tag: ""                 # Only for flavor: custom
+  flavor: default                    # default | min | fips | custom; min/fips append -min/-fips to the tag
+  repository: ghcr.io/keelcore/keel  # override for flavor: custom or a mirror
+  tag: ""                            # empty → "v" + chart appVersion
+  digest: ""                         # sha256:...; pins the image, overrides tag and flavor
   pullPolicy: IfNotPresent
 
 # --- Deployment mode ---

@@ -15,6 +15,19 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 - `make create-release` now runs the canonical `.standards` release tagger. Keel's schema-field diff moved to
   `scripts/release/create-release.local.sh`, which the tagger calls for the bump level; the computed versions and tag
   subjects are unchanged. New `make create-release DRY_RUN=1` shows the next tag without tagging or pushing.
+- Helm chart: the image defaults to `ghcr.io/keelcore/keel` with tag `v<appVersion>` (was `keelcore/keel:0.5.0` on
+  Docker Hub); `image.flavor: min | fips` now selects the `-min` / `-fips` image; new `image.digest` pins the image.
+
+### Security
+
+- Release images are scanned before push (Grype; fails on fixable HIGH/CRITICAL), each carries an SBOM generated from
+  that image, and each digest gets SLSA build provenance in GHCR. Images are signed by digest before `vX.Y`, `vX` and
+  `latest` move; a retried sign or attest that hits an existing Rekor entry is confirmed with `cosign verify` instead
+  of failing the release.
+- CI gates: `govulncheck` (Vulnerability Scan), `gosec` (SAST), CodeQL (`security-extended`), and a fuzz pass over
+  new native fuzz targets for JWKS, JWT, PEM key, ext_authz, ACME host matching and config YAML parsing.
+- Base images are pinned by digest; Dependabot now tracks Docker base images and the `.standards` submodule.
+- The `pkg/apps/myapp` client listener sets `ReadHeaderTimeout` (gosec G114).
 
 ## [0.9.13] - 2026-10-30
 

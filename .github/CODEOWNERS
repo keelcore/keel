@@ -2,24 +2,24 @@
 # Changes to protected paths require review from the designated owner team
 # before merge. Author self-approval is not permitted for these paths.
 #
-# Team slugs below use the keelcore GitHub organization convention.
-# Update to match your actual org/team names.
+# Owners must resolve to users or teams with repository access; an owner that
+# does not resolve makes the ruleset's code-owner review unsatisfiable.
 
 # Global fallback — all files not matched by a later rule.
-*                                       @keelcore/maintainers
+*                                       @PaulCharlton
 
 # Workflow files: any change here can exfiltrate secrets or alter CI policy.
-.github/                                @keelcore/infra
-.github/workflows/                      @keelcore/infra
+.github/                                @PaulCharlton
+.github/workflows/                      @PaulCharlton
 
 # Build and release scripts: changes alter what ships and how.
-scripts/                                @keelcore/infra
-scripts/release/                        @keelcore/infra
+scripts/                                @PaulCharlton
+scripts/release/                        @PaulCharlton
 
 # Module and vendor files: changes alter the dependency supply chain.
-go.mod                                  @keelcore/infra
-go.sum                                  @keelcore/infra
-vendor/                                 @keelcore/infra
+go.mod                                  @PaulCharlton
+go.sum                                  @PaulCharlton
+vendor/                                 @PaulCharlton
 
 # Helm chart: changes affect Kubernetes deployments.
-helm/                                   @keelcore/infra
+helm/                                   @PaulCharlton

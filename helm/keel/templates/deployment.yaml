@@ -79,7 +79,7 @@ spec:
 
         # ── Keel container ────────────────────────────────────────────────────
         - name: keel
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: {{ include "keel.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with .Values.securityContext }}
           securityContext:

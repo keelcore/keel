@@ -69,8 +69,12 @@ func startDemoClientListener(ctx context.Context, srv *keelcore.Server, log *log
 		}
 		go func() { <-ctx.Done(); _ = ln.Close() }()
 		onBound()
-		_ = http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			_, _ = w.Write([]byte("client ok\n"))
-		}))
+		srv := &http.Server{
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte("client ok\n"))
+			}),
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		_ = srv.Serve(ln)
 	}()
 }

@@ -42,6 +42,9 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: lint-fmt
 .PHONY: lint-newlines
 .PHONY: lint-md
+.PHONY: lint-vuln
+.PHONY: lint-gosec
+.PHONY: test-fuzz
 .PHONY: release-checksums
 .PHONY: release-checksums-verify
 .PHONY: release-sbom
@@ -74,6 +77,9 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: setup-staticcheck
 .PHONY: setup-syft
 .PHONY: setup-cosign
+.PHONY: setup-grype
+.PHONY: setup-govulncheck
+.PHONY: setup-gosec
 .PHONY: setup-markdownlint
 .PHONY: setup-kubeconform
 .PHONY: setup-ghcr
@@ -134,6 +140,18 @@ lint-helm:
 lint-helm-validate:
 	@echo "🔍 Validating Helm template against Kubernetes schema..."
 	./scripts/lint/helm-validate.sh
+
+lint-vuln:
+	@echo "🔍 Running govulncheck..."
+	bash scripts/lint/vuln.sh
+
+lint-gosec:
+	@echo "🔍 Running gosec..."
+	bash scripts/lint/gosec.sh
+
+test-fuzz:
+	@echo "🧪 Running fuzz targets..."
+	bash scripts/test/fuzz.sh
 
 ## Release Targets
 release-checksums:
@@ -258,6 +276,18 @@ setup-staticcheck:
 setup-cosign:
 	@echo "🔧 Installing cosign..."
 	./scripts/release/install-cosign.sh
+
+setup-grype:
+	@echo "🔧 Installing grype..."
+	bash scripts/ci/setup-grype.sh
+
+setup-govulncheck:
+	@echo "🔧 Installing govulncheck..."
+	bash scripts/ci/setup-govulncheck.sh
+
+setup-gosec:
+	@echo "🔧 Installing gosec..."
+	bash scripts/ci/setup-gosec.sh
 
 ## CI Gate Targets
 ci-smoke-windows:
@@ -401,6 +431,7 @@ help-local:
 	@echo "  test             Run unit + consistency + BATS integrity tests"
 	@echo "  test-unit        Unit tests only"
 	@echo "  test-consistency Consistency suite only"
+	@echo "  test-fuzz        Short fuzz pass over every Go fuzz target (FUZZTIME=10s)"
 	@echo "  test-integrity   BATS integrity suite only"
 	@echo "  test-compose     Docker Compose integration tests (P3)"
 	@echo "  test-compose-keep  Same but leave compose stack running"
@@ -423,6 +454,8 @@ help-local:
 	@echo "  lint-md         markdownlint-cli check on all tracked .md files"
 	@echo "  lint-helm       Helm chart lint (no cluster required)"
 	@echo "  lint-helm-validate  Helm template schema validation via kubeconform (no cluster required)"
+	@echo "  lint-vuln         Dependency vulnerability gate (govulncheck)"
+	@echo "  lint-gosec        Go security linter (gosec)"
 	@echo ""
 	@echo "Release:"
 	@echo "  release-checksums         Generate dist/SHA256SUMS"
@@ -447,6 +480,9 @@ help-local:
 	@echo "  setup-staticcheck Install staticcheck linter"
 	@echo "  setup-syft        Install syft SBOM tool"
 	@echo "  setup-cosign      Install cosign signing tool"
+	@echo "  setup-grype       Install grype image scanner"
+	@echo "  setup-govulncheck Install govulncheck"
+	@echo "  setup-gosec       Install gosec"
 	@echo ""
 	@echo "CI Gates:"
 	@echo "  ci-pr-policy      Run PR policy check"

@@ -61,8 +61,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Publish — download the already-built artifacts, verify checksums, sign,
-  # and upload to GitHub Release. Requires human approval via environment
-  # protection rules (configure in repo Settings → Environments → release).
+  # and upload to GitHub Release. Requires human approval: the release
+  # environment has a required reviewer and accepts only v* tags.
   #
   # Permissions elevated only in this job:
   #   contents: write — create the GitHub Release and upload assets
@@ -104,11 +104,35 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: make release-upload
-      - name: Build and push container images
+      - name: Install syft
+        run: make setup-syft
+      - name: Install grype
+        run: make setup-grype
+      - name: Build, scan, push and sign container images
+        id: images
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: make release-docker
+      # SLSA provenance per image digest, pushed to GHCR next to each image.
+      - name: Image provenance (max)
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
+        with:
+          subject-name: ghcr.io/keelcore/keel
+          subject-digest: ${{ steps.images.outputs.max_digest }}
+          push-to-registry: true
+      - name: Image provenance (min)
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
+        with:
+          subject-name: ghcr.io/keelcore/keel
+          subject-digest: ${{ steps.images.outputs.min_digest }}
+          push-to-registry: true
+      - name: Image provenance (fips)
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
+        with:
+          subject-name: ghcr.io/keelcore/keel
+          subject-digest: ${{ steps.images.outputs.fips_digest }}
+          push-to-registry: true
       - name: Package and push Helm chart
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
