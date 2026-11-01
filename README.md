@@ -5,16 +5,20 @@
 # The KEEL HTTP(S) Server Kit (Golang)
 
 [![CI](https://img.shields.io/github/actions/workflow/status/keelcore/keel/ci.yml?branch=main)](https://github.com/keelcore/keel/actions)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/keelcore/keel/codeql.yml?branch=main&label=CodeQL)](https://github.com/keelcore/keel/actions/workflows/codeql.yml)
 [![Release](https://img.shields.io/github/v/release/keelcore/keel)](https://github.com/keelcore/keel/releases)
 [![Go Reference](https://pkg.go.dev/badge/github.com/keelcore/keel.svg)](https://pkg.go.dev/github.com/keelcore/keel)
 [![Go](https://img.shields.io/github/go-mod/go-version/keelcore/keel)](go.mod)
+[![Go Report Card](https://goreportcard.com/badge/github.com/keelcore/keel)](https://goreportcard.com/report/github.com/keelcore/keel)
 [![Coverage](https://img.shields.io/codecov/c/github/keelcore/keel)](https://codecov.io/gh/keelcore/keel)
 [![Security](https://img.shields.io/badge/security-SECURITY.md-blue)](./SECURITY.md)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12121/badge)](https://www.bestpractices.dev/projects/12121)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/keelcore/keel/badge)](https://scorecard.dev/viewer/?uri=github.com/keelcore/keel)
 [![SBOM](https://img.shields.io/badge/SBOM-available-brightgreen)](#security-governance)
+[![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](https://github.com/keelcore/keel/attestations)
 [![License](https://img.shields.io/github/license/keelcore/keel)](./LICENSE)
 [![Container](https://img.shields.io/badge/container-5--8MB-success)](#2-stated-objective-10-year-durability)
-[![Helm](https://img.shields.io/badge/helm-chart-success)](docs/deployment.md)
+[![Helm](https://img.shields.io/github/actions/workflow/status/keelcore/keel/helm-lint.yml?branch=main&label=helm)](https://github.com/keelcore/keel/actions/workflows/helm-lint.yml)
 [![FIPS](https://img.shields.io/badge/FIPS-compatible-blue)](docs/FIPS.md)
 
 A small-footprint, security-first HTTP(S) core for Kubernetes and long-lived ops. **Not nginx. Not HAProxy.** This is the
