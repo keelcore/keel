@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/release/sign.sh
 # Signs release artifacts using Sigstore/cosign keyless signing.
-# Produces .sig and .bundle files alongside each artifact.
+# Writes a Sigstore bundle (<artifact>.bundle) alongside each artifact.
 #
 # Usage: scripts/release/sign.sh [--sums-dir DIR] <artifact-path> [<artifact-path> ...]
 #   --sums-dir DIR   directory to write SHA256SUMS and SHA256SUMS.bundle into
