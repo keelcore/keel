@@ -85,7 +85,7 @@ func (h *upstreamHealth) check() error {
 }
 
 func doProbe(client *http.Client, url string, h *upstreamHealth, log *logging.Logger) {
-	resp, err := client.Get(url) //nolint:noctx // client timeout controls the deadline
+	resp, err := client.Get(url) // client timeout controls the deadline
 	if err != nil {
 		h.ok.Store(false)
 		if log != nil {

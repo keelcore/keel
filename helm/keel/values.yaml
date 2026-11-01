@@ -105,6 +105,10 @@ keel:
       enabled: true
       failureThreshold: 5
       resetTimeout: "30s"
+    # Retries of an upstream connect that failed before any byte was sent (safe for every method).
+    retry:
+      dialAttempts: 3
+      dialBackoff: "50ms"
     headerPolicy:
       forward: []
       strip: []

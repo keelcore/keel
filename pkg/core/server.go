@@ -281,7 +281,11 @@ func (s *Server) startSidecar(ctx context.Context, rt *router.Router) {
 	// signFn reads the atomic pointer on every request so SIGHUP key rotation
 	// takes effect immediately without re-creating the sidecar proxy.
 	signFn := newSignFn(&s.signer)
-	h, err := sidecar.New(s.cfg, signFn)
+	h, err := sidecar.NewWithHooks(s.cfg, sidecar.Hooks{
+		Log:        s.logger,
+		DialRetry:  s.met.IncUpstreamDialRetry,
+		DialFailed: s.met.IncUpstreamDialFailure,
+	}, signFn)
 	if err == nil {
 		sidecar.StartHealthProbe(ctx, s.cfg.Sidecar, nil, s.readiness, s.logger)
 		rt.Handle(s.cfg.Listeners.HTTP.Port, "/", h)

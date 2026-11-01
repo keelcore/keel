@@ -65,6 +65,11 @@ func (b *limitBody) Close() error { return b.rc.Close() }
 // The optional sign function is called on each outbound request after header
 // policy is applied (e.g. to attach a keel-to-keel Authorization JWT).
 func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, error) {
+	return NewWithHooks(cfg, Hooks{}, sign...)
+}
+
+// NewWithHooks is New with observers for upstream dial retries.
+func NewWithHooks(cfg config.Config, hooks Hooks, sign ...func(*http.Request) error) (http.Handler, error) {
 	u, err := url.Parse(upstreamBase(cfg.Sidecar.UpstreamURL))
 	if err != nil {
 		return nil, fmt.Errorf("parse upstream_url: %w", err)
@@ -74,6 +79,8 @@ func New(cfg config.Config, sign ...func(*http.Request) error) (http.Handler, er
 	if err != nil {
 		return nil, fmt.Errorf("build upstream transport: %w", err)
 	}
+	transport.DialContext = retryDial(baseDial(transport.DialContext),
+		cfg.Sidecar.Retry.DialAttempts, cfg.Sidecar.Retry.DialBackoff.Duration, hooks)
 
 	var rt http.RoundTripper = transport
 	if cfg.Sidecar.CircuitBreaker.Enabled {
@@ -156,11 +163,11 @@ func buildTransport(cfg config.UpstreamTLSConfig) (*http.Transport, error) {
 		return t, nil
 	}
 	tlsCfg := &tls.Config{
-		MinVersion: tls.VersionTLS13, //nolint:gosec // TLS 1.3 minimum enforced
+		MinVersion: tls.VersionTLS13, // TLS 1.3 minimum enforced
 	}
 
 	if cfg.InsecureSkipVerify {
-		tlsCfg.InsecureSkipVerify = true //nolint:gosec // operator-configured
+		tlsCfg.InsecureSkipVerify = true // operator-configured
 	}
 
 	if cfg.CAFile != "" {

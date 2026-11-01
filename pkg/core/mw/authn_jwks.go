@@ -168,7 +168,7 @@ func fetchJWKS(rawURL string) ([]parsedJWK, error) {
 	if err := requireSecureJWKSURL(rawURL); err != nil {
 		return nil, err
 	}
-	resp, err := jwksClient.Get(rawURL) //nolint:noctx // URL is from trusted operator config
+	resp, err := jwksClient.Get(rawURL) // URL is from trusted operator config
 	if err != nil {
 		return nil, err
 	}

@@ -81,6 +81,8 @@ function deploy_stack() {
     --from-file="keel-secrets.yaml=${fx}/keel-secrets.yaml" \
     --from-file="server.crt=${fx}/certs/server.crt" \
     --from-file="server.key=${fx}/certs/server.key" \
+    --from-file="keel-sidecar.yaml=${fx}/keel-sidecar.yaml" \
+    --from-file="sidecar-sign.key=${fx}/certs/sidecar-sign.key" \
     --dry-run=client -o yaml | kc apply -f -
   kc create configmap otel-config --from-file="otel-collector.yaml=${fx}/otel-collector.yaml" \
     --dry-run=client -o yaml | kc apply -f -
@@ -89,7 +91,7 @@ function deploy_stack() {
   # Server-side apply: client-side apply merges containerPorts by port number
   # alone, dropping the hostPort of keel's UDP 8443 entry (TCP and UDP share 8443).
   kc apply --server-side -f "${REPO_ROOT}/tests/compose/k8s-stack.yaml"
-  for deploy in upstream keel jaeger otel-collector prometheus; do
+  for deploy in upstream keel mockupstream keel-sidecar jaeger otel-collector prometheus; do
     kc rollout status "deployment/${deploy}" --timeout=300s || { dump_logs; exit 1; }
   done
   log '✅ Stack deployed'
@@ -106,6 +108,8 @@ function dump_logs() {
   log '📋 Stack state at failure:'
   kc get pods -o wide 2>&1 | tee -a "${LOG_FILE}" >&5 || true
   kc logs deployment/keel --tail=200 2>&1 | tee -a "${LOG_FILE}" >&5 || true
+  kc logs deployment/keel-sidecar --tail=100 2>&1 | tee -a "${LOG_FILE}" >&5 || true
+  kc logs deployment/mockupstream --tail=100 2>&1 | tee -a "${LOG_FILE}" >&5 || true
 }
 
 function delete_stack() {

@@ -17,7 +17,7 @@ func waitStatus(t *testing.T, url string, want int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(url) //nolint:gosec
+		resp, err := http.Get(url)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == want {
@@ -78,7 +78,7 @@ func waitStatusNot404(t *testing.T, url string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(url) //nolint:gosec
+		resp, err := http.Get(url)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode != 404 {

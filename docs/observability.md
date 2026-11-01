@@ -231,6 +231,8 @@ format that Prometheus parses and stores.
 | `keel_memory_pressure` | Gauge | — | Current heap pressure ratio: `current_heap_bytes / heap_max_bytes`. Range 0.0–1.0 |
 | `keel_upstream_health` | Gauge | — | Upstream health status in sidecar mode: 1 = healthy, 0 = unhealthy |
 | `keel_circuit_open` | Gauge | — | Circuit breaker state in sidecar mode: 1 = open (failing), 0 = closed (normal) |
+| `keel_upstream_dial_retries_total` | Counter | — | Sidecar upstream connects that failed and were retried (`sidecar.retry`) |
+| `keel_upstream_dial_failures_total` | Counter | — | Sidecar requests whose every upstream connect failed (answered 502) |
 | `keel_tls_cert_expiry_seconds` | Gauge | — | Seconds until the current TLS certificate expires. Alert when this falls below 30 days (2592000 seconds) |
 | `keel_fips_active` | Gauge | — | 1 if the binary is running with FIPS-validated cryptography; 0 otherwise |
 

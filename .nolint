@@ -1,0 +1,2 @@
+# Vendored trees below the repo root, excluded from file-path linters (see scripts/lib/paths.sh).
+^tests/mockupstream/vendor/

@@ -56,6 +56,7 @@ var fieldConstraints = map[string]map[string]interface{}{
 	"sidecar.xff_mode":                          {"enum": []string{"append", "replace", "strip"}},
 	"sidecar.xff_trusted_hops":                  {"minimum": 0},
 	"sidecar.circuit_breaker.failure_threshold": {"minimum": 1},
+	"sidecar.retry.dial_attempts":               {"minimum": 1},
 	"sidecar.upstream_url":                      {"format": "uri"},
 	// ExtAuthz
 	"ext_authz.transport": {"enum": []string{"http", "opa"}},

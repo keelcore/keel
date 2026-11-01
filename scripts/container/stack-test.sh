@@ -72,12 +72,20 @@ function build_image() {
     -f "${REPO_ROOT}/scripts/deploy/docker/Dockerfile" \
     "${REPO_ROOT}"
   log '✅ keel:test-max image built'
+  log '🐳 Building keel-mockupstream:test image via Apple container...'
+  container build -t 'keel-mockupstream:test' \
+    -f "${REPO_ROOT}/tests/mockupstream/Containerfile" \
+    "${REPO_ROOT}/tests/mockupstream"
+  log '✅ keel-mockupstream:test image built'
 }
 
 function load_image() {
-  log "📤 Loading keel:test-max into cluster '${NAME}'..."
-  container cluster load-image --name "${NAME}" 'keel:test-max'
-  log '✅ Image loaded'
+  local image
+  for image in 'keel:test-max' 'keel-mockupstream:test'; do
+    log "📤 Loading ${image} into cluster '${NAME}'..."
+    container cluster load-image --name "${NAME}" "${image}"
+  done
+  log '✅ Images loaded'
 }
 
 function install_tests() {

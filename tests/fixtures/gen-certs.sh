@@ -42,6 +42,7 @@ function generate_all() {
   generate_ca "${cert_dir}"
   generate_server_cert "${cert_dir}"
   generate_client_cert "${cert_dir}"
+  generate_signing_key "${cert_dir}"
   cleanup_temp "${cert_dir}"
   log '✅ Certificates generated successfully'
   list_certs "${cert_dir}"
@@ -103,13 +104,22 @@ function generate_client_cert() {
   log '✅ Client certificate generated'
 }
 
+# generate_signing_key: ECDSA P-256 key keel-sidecar signs outbound requests with
+# (authn.my_signature_key_file in keel-sidecar.yaml).
+function generate_signing_key() {
+  local -r dir="${1}"
+  log 'Generating sidecar outbound signing key (ECDSA P-256)...'
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "${dir}/sidecar-sign.key" 2>/dev/null
+  log '✅ Signing key generated'
+}
+
 function cleanup_temp() {
   local -r dir="${1}"
   log 'Removing temporary CSR and extension files...'
   rm -f "${dir}/server.csr" "${dir}/client.csr" "${dir}/server-ext.cnf"
   # Keys are test fixtures mounted into containers running as a different UID.
   # chmod 644 ensures the container user can read them on Linux bind mounts.
-  chmod 644 "${dir}/server.key" "${dir}/client.key" "${dir}/ca.key"
+  chmod 644 "${dir}/server.key" "${dir}/client.key" "${dir}/ca.key" "${dir}/sidecar-sign.key"
 }
 
 function list_certs() {

@@ -20,4 +20,10 @@ const (
 	OTLPgRPC   = 4317
 	OTLPhttp   = 4318
 	JaegerUI   = 16686
+
+	// keel-sidecar (keel as sidecar of mockupstream) and the mock's control plane.
+	SidecarHTTP  = 8180
+	SidecarReady = 9192
+	SidecarAdmin = 9199
+	MockControl  = 9380
 )

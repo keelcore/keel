@@ -32,7 +32,7 @@ func TestVersionInfo_FIPSActiveField_Present(t *testing.T) {
 func TestVersionInfo_FIPSActiveField_IsBool(t *testing.T) {
 	b, _ := json.Marshal(version.Get())
 	var m map[string]any
-	json.Unmarshal(b, &m) //nolint:errcheck
+	json.Unmarshal(b, &m)
 	v, ok := m["fips_active"]
 	if !ok {
 		t.Fatal(`"fips_active" key missing`)

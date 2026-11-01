@@ -31,20 +31,3 @@ wait_for_keel_listener() {
   local -r timeout="${3:-10}"
   wait_for_log "${log}" "\"addr\":\"[^\"]*:${port}\".*\"msg\":\"listener_up\"" "${timeout}"
 }
-
-# wait_for_tcp <host> <port> [timeout-seconds=10]
-# Waits until <host>:<port> accepts a TCP connection. Sends no data, so it is
-# safe for fake upstreams (nc) that capture whatever they receive. For servers
-# that do not log listener_up.
-wait_for_tcp() {
-  local -r host="${1}"
-  local -r port="${2}"
-  local -r timeout="${3:-10}"
-  local i
-  for (( i = 0; i < timeout * 20; i++ )); do
-    ( exec 3<>"/dev/tcp/${host}/${port}" ) 2>/dev/null && return 0
-    sleep 0.05
-  done
-  printf 'wait_for_tcp: %s:%s not accepting connections after %ss\n' "${host}" "${port}" "${timeout}" >&2
-  return 1
-}

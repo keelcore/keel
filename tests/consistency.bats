@@ -12,6 +12,7 @@
 #   3. A $v.xxx template variable in configmap.yaml with no matching key in values.yaml.
 #   4. keel.* top-level keys present in values.yaml but absent from container/values.yaml.
 #   5. The Helm chart fails to render entirely (template errors).
+#   6. The Docker Compose and k8s integration stacks drift apart.
 
 setup_file() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -190,4 +191,76 @@ setup_file() {
   b="$(grep -oE '/certs/[A-Za-z0-9_.-]+\.crt' "${df}/Dockerfile.release" | sort)"
   [ -n "${a}" ]
   [ "${a}" = "${b}" ]
+}
+
+# ---------------------------------------------------------------------------
+# 10–12. The two integration stacks stay in step: Docker Compose (Linux CI) and
+#        the k8s stack (Apple container locally) define the same services, and
+#        every port the Go compose suite uses is reachable in both.
+# ---------------------------------------------------------------------------
+
+# compose_ports: "<service> <port>/<proto>" for each published port.
+compose_ports() {
+  awk '
+    /^services:/ { in_s = 1; next }
+    in_s && /^[^ #]/ { in_s = 0 }
+    in_s && /^  [a-z0-9-]+:[[:space:]]*$/ { svc = $1; sub(":", "", svc); in_p = 0; next }
+    in_s && /^    [a-z_]+:/ { in_p = ($1 == "ports:"); next }
+    in_s && in_p && /^      - / {
+      p = $2; gsub(/"/, "", p); proto = "tcp"
+      if (p ~ /\//) { split(p, a, "/"); p = a[1]; proto = a[2] }
+      n = split(p, b, ":"); print svc, b[n] "/" tolower(proto)
+    }' "${REPO_ROOT}/tests/compose/docker-compose.test.yaml" | sort -u
+}
+
+compose_services() {
+  awk '
+    /^services:/ { in_s = 1; next }
+    in_s && /^[^ #]/ { in_s = 0 }
+    in_s && /^  [a-z0-9-]+:[[:space:]]*$/ { svc = $1; sub(":", "", svc); print svc }
+  ' "${REPO_ROOT}/tests/compose/docker-compose.test.yaml" | sort -u
+}
+
+# k8s_host_ports: "<deployment> <port>/<proto>" for each hostPort.
+k8s_host_ports() {
+  awk '
+    /^kind:/ { dep = ($2 == "Deployment"); name = ""; next }
+    dep && /^  name:/ && name == "" { name = $2; next }
+    dep && /hostPort:/ {
+      port = $0; sub(/.*hostPort:[[:space:]]*/, "", port); sub(/[^0-9].*/, "", port)
+      proto = "tcp"; if ($0 ~ /protocol:[[:space:]]*UDP/) proto = "udp"
+      print name, port "/" proto
+    }' "${REPO_ROOT}/tests/compose/k8s-stack.yaml" | sort -u
+}
+
+k8s_services() {
+  awk '
+    /^kind:/ { dep = ($2 == "Deployment"); name = ""; next }
+    dep && /^  name:/ && name == "" { name = $2; print name }
+  ' "${REPO_ROOT}/tests/compose/k8s-stack.yaml" | sort -u
+}
+
+@test "docker-compose.test.yaml and k8s-stack.yaml define the same services" {
+  local c k
+  c="$(compose_services)"
+  k="$(k8s_services)"
+  [ -n "${c}" ]
+  diff <(printf '%s\n' "${c}") <(printf '%s\n' "${k}")
+}
+
+@test "every k8s-stack hostPort is published by the same docker-compose service" {
+  local missing
+  missing="$(comm -23 <(k8s_host_ports) <(compose_ports))"
+  [ -z "${missing}" ] || { echo "hostPorts not published in docker-compose.test.yaml:"; echo "${missing}"; false; }
+}
+
+@test "every port the compose suite uses is a k8s-stack hostPort" {
+  local name value host_ports missing=''
+  host_ports="$(k8s_host_ports | awk '{ split($2, a, "/"); print a[1] }' | sort -u)"
+  while read -r name value; do
+    grep -qw "${name}" "${REPO_ROOT}"/tests/compose/*_test.go || continue
+    grep -qx "${value}" <<< "${host_ports}" || missing+="${name}=${value} "
+  done < <(awk '/^[[:space:]]+[A-Za-z0-9]+[[:space:]]*=[[:space:]]*[0-9]+/ { print $1, $3 }' \
+    "${REPO_ROOT}/tests/compose/ports.go")
+  [ -z "${missing}" ] || { echo "ports used by tests/compose but not hostPorts: ${missing}"; false; }
 }

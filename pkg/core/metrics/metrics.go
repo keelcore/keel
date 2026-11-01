@@ -53,6 +53,8 @@ type Metrics struct {
 	certExpirySecs      int64 // atomic; seconds until TLS cert expiry
 	logDrops            int64 // atomic; cumulative remote-log drop count
 	fipsMonitorFailures int64 // atomic; cumulative FIPS monitor check failures
+	dialRetries         int64 // atomic; cumulative sidecar upstream dial retries
+	dialFailures        int64 // atomic; sidecar requests whose every upstream dial failed
 	mu                  sync.Mutex
 	collectors          []Collector // embedder series, appended to the exposition
 }
@@ -112,6 +114,16 @@ func (m *Metrics) IncFIPSMonitorFailure() {
 	atomic.AddInt64(&m.fipsMonitorFailures, 1)
 }
 
+// IncUpstreamDialRetry counts a sidecar upstream connect that failed and is retried.
+func (m *Metrics) IncUpstreamDialRetry() {
+	atomic.AddInt64(&m.dialRetries, 1)
+}
+
+// IncUpstreamDialFailure counts a sidecar request whose every upstream connect failed.
+func (m *Metrics) IncUpstreamDialFailure() {
+	atomic.AddInt64(&m.dialFailures, 1)
+}
+
 func (m *Metrics) writeTo(w io.Writer) {
 	m.requests.writeTo(w, "keel_requests_total", "Total HTTP requests processed.")
 	fmt.Fprintf(w, "# HELP keel_http_inflight_requests Current in-flight HTTP requests.\n")
@@ -126,6 +138,12 @@ func (m *Metrics) writeTo(w io.Writer) {
 	fmt.Fprintf(w, "# HELP keel_log_drops_total Cumulative remote-log lines dropped due to buffer overflow.\n")
 	fmt.Fprintf(w, "# TYPE keel_log_drops_total counter\n")
 	fmt.Fprintf(w, "keel_log_drops_total %d\n", atomic.LoadInt64(&m.logDrops))
+	fmt.Fprintf(w, "# HELP keel_upstream_dial_retries_total Sidecar upstream connects that failed and were retried.\n")
+	fmt.Fprintf(w, "# TYPE keel_upstream_dial_retries_total counter\n")
+	fmt.Fprintf(w, "keel_upstream_dial_retries_total %d\n", atomic.LoadInt64(&m.dialRetries))
+	fmt.Fprintf(w, "# HELP keel_upstream_dial_failures_total Sidecar requests whose every upstream connect failed.\n")
+	fmt.Fprintf(w, "# TYPE keel_upstream_dial_failures_total counter\n")
+	fmt.Fprintf(w, "keel_upstream_dial_failures_total %d\n", atomic.LoadInt64(&m.dialFailures))
 	if v := atomic.LoadInt64(&m.fipsMonitorFailures); v > 0 {
 		fmt.Fprintf(w, "# HELP keel_fips_monitor_failures_total Cumulative FIPS monitor check failures detected by the background loop.\n")
 		fmt.Fprintf(w, "# TYPE keel_fips_monitor_failures_total counter\n")

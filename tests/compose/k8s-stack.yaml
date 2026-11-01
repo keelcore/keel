@@ -91,6 +91,77 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: mockupstream
+spec:
+  selector:
+    matchLabels: { app: mockupstream }
+  template:
+    metadata:
+      labels: { app: mockupstream }
+    spec:
+      containers:
+        - name: mockupstream
+          image: docker.io/library/keel-mockupstream:test
+          imagePullPolicy: Never
+          env:
+            - { name: MOCK_UPSTREAM_ADDR, value: ":9300" }
+            - { name: KEEL_HTTP_PORT, value: "9380" }
+            - { name: KEEL_HEALTH_PORT, value: "9381" }
+            - { name: KEEL_READY_PORT, value: "9382" }
+          ports:
+            - { containerPort: 9300 }
+            - { containerPort: 9380, hostPort: 9380 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9382 }
+            periodSeconds: 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mockupstream
+spec:
+  selector: { app: mockupstream }
+  ports:
+    - { name: upstream, port: 9300 }
+    - { name: control, port: 9380 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keel-sidecar
+spec:
+  selector:
+    matchLabels: { app: keel-sidecar }
+  template:
+    metadata:
+      labels: { app: keel-sidecar }
+    spec:
+      containers:
+        - name: keel-sidecar
+          image: docker.io/library/keel:test-max
+          imagePullPolicy: Never
+          env:
+            - { name: KEEL_CONFIG, value: /etc/keel/keel-sidecar.yaml }
+          ports:
+            - { containerPort: 8180, hostPort: 8180, protocol: TCP }
+            - { containerPort: 9192, hostPort: 9192, protocol: TCP }
+            - { containerPort: 9199, hostPort: 9199, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9192 }
+            periodSeconds: 1
+          volumeMounts:
+            - { name: fixtures, mountPath: /etc/keel, readOnly: true }
+      volumes:
+        - name: fixtures
+          secret:
+            secretName: keel-fixtures
+            items:
+              - { key: keel-sidecar.yaml, path: keel-sidecar.yaml }
+              - { key: sidecar-sign.key, path: certs/sidecar-sign.key }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
   name: jaeger
 spec:
   selector:

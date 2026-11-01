@@ -36,7 +36,7 @@ func waitHTTP(t *testing.T, url string, wantStatus int, timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 2 * time.Second}
 	for time.Now().Before(deadline) {
-		resp, err := client.Get(url) //nolint:gosec
+		resp, err := client.Get(url)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == wantStatus {
@@ -62,7 +62,7 @@ func TestCompose_ReadyProbe(t *testing.T) {
 	deadline := time.Now().Add(30 * time.Second)
 	client := &http.Client{Timeout: 2 * time.Second}
 	for time.Now().Before(deadline) {
-		resp, err := client.Get(url) //nolint:gosec
+		resp, err := client.Get(url)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusServiceUnavailable {
@@ -81,7 +81,7 @@ func TestCompose_StartupProbe(t *testing.T) {
 	deadline := time.Now().Add(30 * time.Second)
 	client := &http.Client{Timeout: 2 * time.Second}
 	for time.Now().Before(deadline) {
-		resp, err := client.Get(url) //nolint:gosec
+		resp, err := client.Get(url)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -117,7 +117,7 @@ func TestCompose_OWASPHeaders(t *testing.T) {
 	waitHTTP(t, keelURL(KeelHealth, "/healthz"), http.StatusOK, 30*time.Second)
 
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(keelURL(KeelHTTP, "/")) //nolint:gosec
+	resp, err := client.Get(keelURL(KeelHTTP, "/"))
 	if err != nil {
 		t.Fatalf("GET /: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestCompose_AdminPort(t *testing.T) {
 	waitHTTP(t, keelURL(KeelHealth, "/healthz"), http.StatusOK, 30*time.Second)
 	// Admin port should be listening (exact routes depend on P15 implementation).
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(keelURL(KeelAdmin, "/")) //nolint:gosec
+	resp, err := client.Get(keelURL(KeelAdmin, "/"))
 	if err != nil {
 		t.Fatalf("admin port not reachable: %v", err)
 	}
@@ -177,18 +177,18 @@ func TestCompose_H3Root(t *testing.T) {
 	// Wait for the plain HTTP listener first (signals keel is fully up).
 	waitHTTP(t, keelURL(KeelHealth, "/healthz"), http.StatusOK, 30*time.Second)
 
-	tlsCfg := &tls.Config{InsecureSkipVerify: true} //nolint:gosec // self-signed fixture cert
+	tlsCfg := &tls.Config{InsecureSkipVerify: true} // self-signed fixture cert
 	h3client := &http.Client{
 		Transport: &qhttp3.Transport{TLSClientConfig: tlsCfg},
 		Timeout:   5 * time.Second,
 	}
-	defer h3client.Transport.(*qhttp3.Transport).Close() //nolint:forcetypeassert
+	defer h3client.Transport.(*qhttp3.Transport).Close()
 
 	url := fmt.Sprintf("https://127.0.0.1:%d/", KeelHTTPS)
 	deadline := time.Now().Add(10 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		resp, err := h3client.Get(url) //nolint:gosec
+		resp, err := h3client.Get(url)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {

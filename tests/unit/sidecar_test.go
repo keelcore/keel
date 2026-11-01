@@ -169,7 +169,7 @@ func newMTLSTestServer(t *testing.T) *mtlsTestServer {
 func TestSidecarProxy_PlainHTTP(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("hello")) //nolint:errcheck
+		w.Write([]byte("hello"))
 	}))
 	defer upstream.Close()
 
@@ -200,7 +200,7 @@ func TestSidecarProxy_PlainHTTP(t *testing.T) {
 func TestSidecarProxy_ResponseSizeCap_Returns502(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(strings.Repeat("x", 200))) //nolint:errcheck
+		w.Write([]byte(strings.Repeat("x", 200)))
 	}))
 	defer upstream.Close()
 

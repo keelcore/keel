@@ -73,6 +73,9 @@ data:
         enabled: {{ $v.upstream.circuitBreaker.enabled }}
         failure_threshold: {{ $v.upstream.circuitBreaker.failureThreshold }}
         reset_timeout: {{ $v.upstream.circuitBreaker.resetTimeout | quote }}
+      retry:
+        dial_attempts: {{ $v.upstream.retry.dialAttempts }}
+        dial_backoff: {{ $v.upstream.retry.dialBackoff | quote }}
       header_policy:
         forward: {{ toJson $v.upstream.headerPolicy.forward }}
         strip: {{ toJson $v.upstream.headerPolicy.strip }}

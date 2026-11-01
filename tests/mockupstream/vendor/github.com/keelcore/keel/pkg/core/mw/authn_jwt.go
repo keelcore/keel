@@ -1,0 +1,227 @@
+//go:build !no_authn
+
+package mw
+
+import (
+	"bufio"
+	"crypto/ecdsa"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/logging"
+)
+
+func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, log *logging.Logger, aopts ...AuthnOption) http.Handler {
+	var o authnOptions
+	for _, opt := range aopts {
+		opt(&o)
+	}
+	staticAllowed := TrustedIDSet(cfg.Authn.TrustedIDs)
+	cache := newJWKSCache()
+	var staticSigners []string
+	if getSigners == nil {
+		staticSigners = LoadTrustedSigners(cfg.Authn, log)
+	}
+	opts := jwtParserOptions(cfg.Authn)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("authorization")
+		if auth == "" || !strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+			http.Error(w, "missing bearer token", http.StatusUnauthorized)
+			return
+		}
+		raw := strings.TrimSpace(auth[len("bearer "):])
+
+		signers := staticSigners
+		if getSigners != nil {
+			signers = getSigners()
+		}
+		claims, err := parseWithAllSigners(raw, signers, cache, opts...)
+		if err != nil {
+			log.Warn("authn_fail", map[string]any{"err": err.Error()})
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		allowed := staticAllowed
+		if o.trustedIDs != nil {
+			allowed = o.trustedIDs()
+		}
+		sub, _ := claims["sub"].(string)
+		if len(allowed) > 0 {
+			if _, ok := allowed[sub]; !ok {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// LoadTrustedSigners merges cfg.TrustedSigners with any signers loaded from
+// cfg.TrustedSignersFile. Each line is one HMAC secret or JWKS URL; a PEM public
+// key spans lines from "-----BEGIN" to "-----END" and becomes ONE signer. Blank
+// lines and # comments are ignored. PEM armor outside a block, and an unterminated
+// block, are logged and dropped — never accepted as HMAC secrets.
+// File read errors are logged as warnings and the inline list is returned unchanged.
+func LoadTrustedSigners(cfg config.AuthnConfig, log *logging.Logger) []string {
+	signers := make([]string, len(cfg.TrustedSigners))
+	copy(signers, cfg.TrustedSigners)
+
+	if cfg.TrustedSignersFile == "" {
+		return signers
+	}
+
+	f, err := os.Open(cfg.TrustedSignersFile)
+	if err != nil {
+		log.Warn("trusted_signers_file_open_failed", map[string]any{
+			"file": cfg.TrustedSignersFile,
+			"err":  err.Error(),
+		})
+		return signers
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	var pemLines []string
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		switch {
+		case pemLines != nil:
+			if line == "" {
+				continue
+			}
+			pemLines = append(pemLines, line)
+			if strings.HasPrefix(line, "-----END") {
+				signers = append(signers, strings.Join(pemLines, "\n"))
+				pemLines = nil
+			}
+		case line == "" || strings.HasPrefix(line, "#"):
+		case strings.HasPrefix(line, "-----BEGIN"):
+			pemLines = []string{line}
+		case strings.HasPrefix(line, "-----"):
+			log.Warn("trusted_signers_file_stray_pem_armor", map[string]any{"file": cfg.TrustedSignersFile})
+		default:
+			signers = append(signers, line)
+		}
+	}
+	if pemLines != nil {
+		log.Warn("trusted_signers_file_unterminated_pem", map[string]any{"file": cfg.TrustedSignersFile})
+	}
+	if err := scanner.Err(); err != nil {
+		log.Warn("trusted_signers_file_read_failed", map[string]any{
+			"file": cfg.TrustedSignersFile,
+			"err":  err.Error(),
+		})
+	}
+	return signers
+}
+
+// validJWTMethods are the algorithms keel can verify (HMAC secrets, RSA and EC
+// public keys); anything else — including "none" — is rejected up front.
+var validJWTMethods = []string{"HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256", "ES384", "ES512"}
+
+// jwtClockLeeway tolerates small clock skew between issuer and verifier.
+const jwtClockLeeway = 30 * time.Second
+
+// jwtParserOptions returns the inbound token policy: exp is required (a token
+// without one would be valid forever), algorithms are pinned, and when
+// authn.audience is set the token's aud must name this service — so a token
+// minted for another service by the same signer cannot be replayed here.
+func jwtParserOptions(cfg config.AuthnConfig) []jwt.ParserOption {
+	opts := []jwt.ParserOption{
+		jwt.WithExpirationRequired(),
+		jwt.WithValidMethods(validJWTMethods),
+		jwt.WithLeeway(jwtClockLeeway),
+	}
+	if cfg.Audience != "" {
+		opts = append(opts, jwt.WithAudience(cfg.Audience))
+	}
+	return opts
+}
+
+// parseWithAllSigners tries each trusted signer until one successfully verifies raw.
+func parseWithAllSigners(raw string, signers []string, cache *jwksCache, opts ...jwt.ParserOption) (jwt.MapClaims, error) {
+	if len(signers) == 0 {
+		return nil, errors.New("no trusted signers configured")
+	}
+	var lastErr error
+	for _, s := range signers {
+		claims := jwt.MapClaims{}
+		_, err := jwt.ParseWithClaims(raw, claims, signerKeyfunc(s, cache), opts...)
+		if err == nil {
+			return claims, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+// signerKeyfunc returns a jwt.Keyfunc for a single trusted signer entry.
+func signerKeyfunc(signer string, cache *jwksCache) jwt.Keyfunc {
+	return func(t *jwt.Token) (any, error) {
+		if strings.HasPrefix(signer, "http://") || strings.HasPrefix(signer, "https://") {
+			return cache.keysFor(signer, t)
+		}
+		return resolveStaticKey(signer, t.Method.Alg())
+	}
+}
+
+// resolveStaticKey maps a static signer string to the appropriate verification key.
+// PEM-encoded public keys are parsed as RSA or EC; all other strings are treated
+// as HMAC secrets and are only accepted for HS-family algorithms. Anything that
+// starts with PEM armor ("-----") is PEM-only: a fragment such as
+// "-----END PUBLIC KEY-----" fails to parse and is never usable as an HMAC secret.
+func resolveStaticKey(signer, alg string) (any, error) {
+	if strings.HasPrefix(strings.TrimSpace(signer), "-----") {
+		return parsePEMPublicKey(signer, alg)
+	}
+	switch alg {
+	case "HS256", "HS384", "HS512":
+		return []byte(signer), nil
+	default:
+		return nil, fmt.Errorf("signer is a secret but token uses %s", alg)
+	}
+}
+
+// parsePEMPublicKey decodes a PEM public key and validates it against the
+// algorithm family present in the JWT header (RS* for RSA, ES* for EC).
+func parsePEMPublicKey(pemData, alg string) (any, error) {
+	block, _ := pem.Decode([]byte(pemData))
+	if block == nil {
+		return nil, errors.New("no PEM block found in signer")
+	}
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse public key: %w", err)
+	}
+	switch k := pub.(type) {
+	case *rsa.PublicKey:
+		switch alg {
+		case "RS256", "RS384", "RS512":
+			return k, nil
+		default:
+			return nil, fmt.Errorf("RSA key cannot verify %s token", alg)
+		}
+	case *ecdsa.PublicKey:
+		switch alg {
+		case "ES256", "ES384", "ES512":
+			return k, nil
+		default:
+			return nil, fmt.Errorf("EC key cannot verify %s token", alg)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported public key type %T", pub)
+	}
+}

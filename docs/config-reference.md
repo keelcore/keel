@@ -181,6 +181,13 @@ sidecar:
     reset_timeout: 30s        # Time the circuit stays open before attempting a half-open
                       # probe to check if the upstream has recovered.
 
+  retry:
+    dial_attempts: 3          # Tries per request when connecting to the upstream fails. A failed
+                      # connect sent no request bytes, so every method is retried; the
+                      # circuit breaker sees one outcome per request. 1 disables retries.
+    dial_backoff: 50ms        # Wait before the second try; doubles after each failed try.
+                      # Retries stop when the client goes away or timeouts.read passes.
+
   header_policy:
     forward: []       # Headers to explicitly forward to the upstream. Hop-by-hop headers
                       # (Connection, Transfer-Encoding, etc.) are always stripped per
@@ -448,6 +455,8 @@ modifying the config file — and they work naturally with Kubernetes ConfigMaps
 | `KEEL_UPSTREAM_CA_FILE` | `sidecar.upstream_tls.ca_file` | `""` | |
 | `KEEL_UPSTREAM_CLIENT_CERT` | `sidecar.upstream_tls.client_cert_file` | `""` | |
 | `KEEL_UPSTREAM_CLIENT_KEY` | `sidecar.upstream_tls.client_key_file` | `""` | |
+| `KEEL_UPSTREAM_DIAL_ATTEMPTS` | `sidecar.retry.dial_attempts` | `3` | |
+| `KEEL_UPSTREAM_DIAL_BACKOFF` | `sidecar.retry.dial_backoff` | `50ms` | |
 | `KEEL_OWASP` | `security.owasp_headers` | `true` | |
 | `KEEL_AUTHN` | `authn.enabled` | `true` | |
 | `KEEL_TRUSTED_IDS` | `authn.trusted_ids` | `""` | Comma-separated list |

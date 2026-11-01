@@ -46,6 +46,43 @@ services:
       - "9093:9093"         # /startupz
       - "9999:9999"         # admin (/metrics, /debug/pprof)
 
+  # ── Mock upstream (sidecar resilience) ──────────────────────────────────────
+  # Misbehaves on demand like a legacy service (tests/mockupstream). Upstream
+  # socket :9300 is network-internal; :9380 is its control plane
+  # (POST /mode/{mode}, /down, /up; GET /captures).
+  mockupstream:
+    build:
+      context: tests/mockupstream
+      dockerfile: Containerfile
+    image: keel-mockupstream:test
+    networks:
+      - keel-test
+    environment:
+      MOCK_UPSTREAM_ADDR: ":9300"
+      KEEL_HTTP_PORT: "9380"
+      KEEL_HEALTH_PORT: "9381"
+      KEEL_READY_PORT: "9382"
+    ports:
+      - "9380:9380"         # mock control plane
+
+  # ── Keel as sidecar of the mock upstream ────────────────────────────────────
+  keel-sidecar:
+    image: keel:test
+    pull_policy: never      # built by the keel service
+    depends_on:
+      - keel
+      - mockupstream
+    networks:
+      - keel-test
+    volumes:
+      - ./tests/fixtures:/etc/keel:ro
+    environment:
+      KEEL_CONFIG: /etc/keel/keel-sidecar.yaml
+    ports:
+      - "8180:8180"         # HTTP (proxied to mockupstream:9300)
+      - "9192:9192"         # /readyz
+      - "9199:9199"         # admin (/metrics)
+
   # ── Jaeger (tracing backend) ──────────────────────────────────────────────────
   jaeger:
     image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17

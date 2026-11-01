@@ -58,7 +58,7 @@ func TestServeH3With_ServesRequestAndShutsDown(t *testing.T) {
 	}()
 	<-bound
 
-	tr := &qhttp3.Transport{TLSClientConfig: &cryptotls.Config{InsecureSkipVerify: true}} //nolint:gosec // self-signed test cert
+	tr := &qhttp3.Transport{TLSClientConfig: &cryptotls.Config{InsecureSkipVerify: true}} // self-signed test cert
 	defer tr.Close()
 	client := &http.Client{Transport: tr, Timeout: 5 * time.Second}
 	resp, err := client.Get("https://" + addr + "/")

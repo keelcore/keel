@@ -14,15 +14,16 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-# Port-forward PID — set in start_port_forward, cleared in stop_port_forward.
-PORT_FORWARD_PID=''
 readonly LOG_FILE='/tmp/keel_cluster_test.log'
+# Probe client: an ephemeral container in keel's pod shares its network
+# namespace, so busybox wget reaches 127.0.0.1:<probe port> with no proxy in
+# the path. Same pinned image as scripts/deploy/docker/Dockerfile.certs.
+readonly PROBE_IMAGE='alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f'
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
   local -r context="${KEEL_K8S_CONTEXT:?KEEL_K8S_CONTEXT must be set}"
-  trap 'stop_port_forward' EXIT
   log "🧪 Running Keel k8s integration tests (context: ${context})..."
   test_pod_readiness "${context}"
   test_probe_endpoints "${context}"
@@ -63,47 +64,26 @@ function test_pod_readiness() {
 
 function test_probe_endpoints() {
   local -r context="${1}"
-  log '🔍 Testing probe endpoints via port-forward...'
-  start_port_forward "${context}"
-  wait_http 'http://127.0.0.1:19091/healthz' 'health probe' '30'
-  wait_http 'http://127.0.0.1:19092/readyz'  'ready probe'  '30'
-  stop_port_forward
+  local pod
+  pod="$(kubectl_cmd --context "${context}" -n keel get pod \
+    --selector 'app.kubernetes.io/name=keel' -o jsonpath='{.items[0].metadata.name}')"
+  log "🔍 Testing probe endpoints from inside pod ${pod}..."
+  expect_probe "${context}" "${pod}" 'http://127.0.0.1:9091/healthz' 'ok'
+  expect_probe "${context}" "${pod}" 'http://127.0.0.1:9092/readyz' 'ready'
   log '✅ Probe endpoints responded correctly'
 }
 
-function start_port_forward() {
-  local -r context="${1}"
-  log '🔌 Starting port-forward: 19091→9091, 19092→9092...'
-  kubectl_cmd --context "${context}" -n keel port-forward \
-    svc/keel 19091:9091 19092:9092 &
-  PORT_FORWARD_PID=$!
-  sleep 2
-  kill -0 "${PORT_FORWARD_PID}" 2>/dev/null || { log '❌ Port-forward exited; check service name'; exit 1; }
-  log "✅ Port-forward running (PID: ${PORT_FORWARD_PID})"
-}
-
-function stop_port_forward() {
-  [[ -z "${PORT_FORWARD_PID}" ]] && return 0
-  log '🔌 Stopping port-forward...'
-  kill "${PORT_FORWARD_PID}" 2>/dev/null || true
-  PORT_FORWARD_PID=''
-}
-
-function is_up() {
-  curl -sf --max-time 2 "${1}" > /dev/null 2>&1
-}
-
-function wait_http() {
-  local -r url="${1}" label="${2}" max="${3:-60}"
-  local i
-  i=0
-  log "⏳ Polling ${label} at ${url} (timeout: ${max}s)..."
-  while ! is_up "${url}" && (( i < max )); do
-    sleep 1
-    i=$(( i + 1 ))
-  done
-  is_up "${url}" || { log "❌ Timeout waiting for ${label}"; exit 1; }
-  log "✅ ${label} is ready"
+# expect_probe: GET url from an ephemeral container in pod; the body must
+# contain want (wget exits non-zero on any non-2xx status).
+function expect_probe() {
+  local -r context="${1}" pod="${2}" url="${3}" want="${4}"
+  local body
+  body="$(kubectl_cmd --context "${context}" -n keel debug "pod/${pod}" \
+    --image "${PROBE_IMAGE}" --profile general --quiet --stdin \
+    -- wget -q -T 5 -O - "${url}" < /dev/null)" \
+    || { log "❌ ${url} failed"; exit 1; }
+  [[ "${body}" == *"${want}"* ]] || { log "❌ ${url} body '${body}', want '${want}'"; exit 1; }
+  log "✅ ${url} → ${want}"
 }
 
 function test_graceful_shutdown() {

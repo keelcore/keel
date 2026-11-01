@@ -5,7 +5,8 @@
 #   - shell `date` calls without -u in tracked *.sh files and Makefiles;
 #   - Go time.Local, .Local(), or time.Now().Format without .UTC() in tracked non-test
 #     *.go files.
-# vendor/, node_modules/ and the .standards submodule are not scanned.
+# vendor/ (including nested trees listed in .nolint), node_modules/ and submodules are
+# not scanned.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -21,6 +22,9 @@ set -o pipefail
 readonly BACKTICK=$'\x60'
 readonly SHELL_DATE_RE="(\\$\\(|${BACKTICK}|^[[:space:]]*|[;&|][[:space:]]*)date([[:space:]${BACKTICK})]|\$)"
 readonly GO_LOCAL_RE='time\.Local\b|\.Local\(\)|time\.Now\(\)\.Format\('
+
+# shellcheck source=../lib/paths.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 
 function main() {
   exec 5>&1
@@ -47,8 +51,10 @@ function validate_args() {
   fi
 }
 
+# tracked: repo-owned files matching the pathspecs. source_files (scripts/lib/paths.sh)
+# drops vendor/, submodules and nested vendored trees listed in .nolint.
 function tracked() {
-  git ls-files -- "$@" ':!:vendor/**' ':!:**/node_modules/**' ':!:.standards'
+  source_files "$@" | grep_exclude -vE '(^|/)node_modules/'
 }
 
 # shell_findings prints file:line for date calls that lack -u (comments skipped).

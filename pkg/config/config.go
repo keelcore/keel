@@ -93,6 +93,13 @@ type CircuitBreakerConfig struct {
 	ResetTimeout     Duration `yaml:"reset_timeout"`
 }
 
+// SidecarRetryConfig bounds retries of upstream dials that fail before any
+// request byte is sent, which makes them safe for every method.
+type SidecarRetryConfig struct {
+	DialAttempts int      `yaml:"dial_attempts"`
+	DialBackoff  Duration `yaml:"dial_backoff"`
+}
+
 type HeaderPolicyConfig struct {
 	Forward []string `yaml:"forward"`
 	Strip   []string `yaml:"strip"`
@@ -109,6 +116,7 @@ type SidecarConfig struct {
 	UpstreamHealthTimeout  Duration             `yaml:"upstream_health_timeout"`
 	UpstreamTLS            UpstreamTLSConfig    `yaml:"upstream_tls"`
 	CircuitBreaker         CircuitBreakerConfig `yaml:"circuit_breaker"`
+	Retry                  SidecarRetryConfig   `yaml:"retry"`
 	HeaderPolicy           HeaderPolicyConfig   `yaml:"header_policy"`
 	XFFMode                string               `yaml:"xff_mode"`
 	XFFTrustedHops         int                  `yaml:"xff_trusted_hops"`
@@ -329,6 +337,10 @@ func defaults() Config {
 				FailureThreshold: 5,
 				ResetTimeout:     DurationOf(30 * time.Second),
 			},
+			Retry: SidecarRetryConfig{
+				DialAttempts: 3,
+				DialBackoff:  DurationOf(50 * time.Millisecond),
+			},
 			XFFMode: "append",
 		},
 	}
@@ -427,6 +439,12 @@ func Validate(cfg Config) error {
 	}
 	if cfg.Sidecar.UpstreamTLS.Enabled && cfg.Sidecar.UpstreamH2C {
 		return fmt.Errorf("sidecar.upstream_h2c (plaintext HTTP/2) cannot be used with upstream_tls")
+	}
+	if cfg.Sidecar.Enabled && cfg.Sidecar.Retry.DialAttempts < 1 {
+		return fmt.Errorf("sidecar.retry.dial_attempts must be at least 1; got %d", cfg.Sidecar.Retry.DialAttempts)
+	}
+	if cfg.Sidecar.Enabled && cfg.Sidecar.Retry.DialBackoff.Duration < 0 {
+		return fmt.Errorf("sidecar.retry.dial_backoff must not be negative (%s)", cfg.Sidecar.Retry.DialBackoff.Duration)
 	}
 	// Either gap makes every authz call fail, which fail_open turns into
 	// allow-all; reject the config instead.
@@ -566,6 +584,8 @@ func applyEnv(cfg *Config) {
 	applyString("KEEL_UPSTREAM_CA_FILE", &cfg.Sidecar.UpstreamTLS.CAFile)
 	applyString("KEEL_UPSTREAM_CLIENT_CERT", &cfg.Sidecar.UpstreamTLS.ClientCertFile)
 	applyString("KEEL_UPSTREAM_CLIENT_KEY", &cfg.Sidecar.UpstreamTLS.ClientKeyFile)
+	applyInt("KEEL_UPSTREAM_DIAL_ATTEMPTS", &cfg.Sidecar.Retry.DialAttempts)
+	applyDuration("KEEL_UPSTREAM_DIAL_BACKOFF", &cfg.Sidecar.Retry.DialBackoff)
 
 	// Security
 	applyBool("KEEL_OWASP", &cfg.Security.OWASPHeaders)
