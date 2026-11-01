@@ -655,7 +655,10 @@ cosign verify-blob \
 
 Binaries ship for `linux/amd64` and `linux/arm64` (`keel-<flavor>-linux-<arch>`).
 
-Bundles are attached to each [GitHub Release](https://github.com/keelcore/keel/releases) alongside the binaries.
+Bundles are attached to each [GitHub Release](https://github.com/keelcore/keel/releases) alongside the binaries,
+each under two names with identical content: `<artifact>.bundle` and `<artifact>.sigstore.json` (the extension
+OpenSSF Scorecard recognizes). The release also carries `keel.intoto.jsonl`, the SLSA v1 provenance DSSE envelope
+covering every binary, for `slsa-verifier` and other in-toto tooling.
 
 ### 7.2 Verify a Container Image
 

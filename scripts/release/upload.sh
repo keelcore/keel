@@ -71,12 +71,31 @@ function require_gh() {
   fi
 }
 
+# stage_scorecard_assets names release assets the way OpenSSF Scorecard
+# (Signed-Releases) detects them: each cosign bundle also as
+# <artifact>.sigstore.json, and the SLSA provenance DSSE envelope from
+# PROVENANCE_BUNDLE (actions/attest-build-provenance bundle-path) as
+# keel.intoto.jsonl.
+function stage_scorecard_assets() {
+  local bundle
+  for bundle in dist/*.bundle; do
+    [ -f "${bundle}" ] || continue
+    cp -p "${bundle}" "${bundle%.bundle}.sigstore.json"
+  done
+  if [ -n "${PROVENANCE_BUNDLE:-}" ]; then
+    jq -ce '.dsseEnvelope' "${PROVENANCE_BUNDLE}" > dist/keel.intoto.jsonl
+    log '  Staged dist/keel.intoto.jsonl'
+  fi
+}
+
 function collect_and_upload() {
   local -r tag="${1}"
   local files=()
   local artifact
 
-  for artifact in dist/keel-* dist/SHA256SUMS dist/SHA256SUMS.bundle dist/keel.openvex.json; do
+  stage_scorecard_assets
+  for artifact in dist/keel-* dist/SHA256SUMS dist/SHA256SUMS.bundle dist/SHA256SUMS.sigstore.json \
+    dist/keel.openvex.json dist/keel.intoto.jsonl; do
     [ -f "${artifact}" ] || continue
     files+=("${artifact}")
     log "  Queuing ${artifact}"

@@ -112,7 +112,7 @@ function verify_aliases() {
 function verify_blobs() {
   local blob
   for blob in "${DIST}"/keel-*-linux-* "${DIST}/SHA256SUMS"; do
-    [[ "${blob}" == *.bundle ]] && continue
+    [[ "${blob}" == *.bundle || "${blob}" == *.sigstore.json ]] && continue
     log "🔍 blob ${blob}"
     cosign verify-blob "${VERIFY_IDENTITY[@]}" --bundle "${blob}.bundle" "${blob}" >/dev/null
     [ "${blob}" = "${DIST}/SHA256SUMS" ] || gh attestation verify "${blob}" --repo "${REPO}" >/dev/null

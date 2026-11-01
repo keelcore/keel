@@ -130,6 +130,7 @@ jobs:
       - name: Sign artifacts
         run: make release-sign ARGS="--sums-dir dist dist/keel-*"
       - name: Generate SLSA provenance attestation
+        id: provenance
         uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
         with:
           subject-path: 'dist/keel-*'
@@ -137,6 +138,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
         run: make release-upload
       - name: Install syft
         run: make setup-syft
