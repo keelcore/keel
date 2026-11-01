@@ -75,6 +75,14 @@ jobs:
         run: make setup-syft
       - name: Generate SBOM
         run: make release-sbom ARGS="--out-dir dist"
+      - name: Install govulncheck
+        run: make setup-govulncheck
+      # OpenVEX from govulncheck reachability, generated from the code being released;
+      # docker.sh attests it to every image index.
+      - name: Generate OpenVEX
+        run: make release-vex ARGS="--out-dir dist"
+      - name: Validate OpenVEX
+        run: make lint-vex
       - name: Generate checksums
         run: make release-checksums
       - uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.5.0

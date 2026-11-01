@@ -700,7 +700,9 @@ every image index, and links each one back to the exact workflow run and commit 
 ### 7.5 Read the VEX Statements
 
 Each image index carries an [OpenVEX](https://openvex.dev) attestation stating which reported vulnerabilities do not
-affect keel and why. The source is [`security/keel.openvex.json`](../security/keel.openvex.json).
+affect keel and why. Each release generates it with `govulncheck -format openvex` (`make release-vex`): every
+vulnerability govulncheck finds in a required module but cannot reach from keel's code is stated `not_affected`. The
+same document is attached to the [GitHub Release](https://github.com/keelcore/keel/releases) as `keel.openvex.json`.
 
 ```sh
 cosign verify-attestation \

@@ -48,6 +48,7 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: lint-workflows
 .PHONY: lint-helm-policy
 .PHONY: lint-licenses
+.PHONY: release-vex
 .PHONY: lint-vex
 .PHONY: release-checksums
 .PHONY: release-checksums-verify
@@ -173,10 +174,6 @@ lint-helm-policy:
 lint-licenses:
 	@echo "🔍 Checking dependency licenses..."
 	bash scripts/lint/licenses.sh
-
-lint-vex:
-	@echo "🔍 Validating OpenVEX document..."
-	bash scripts/lint/vex.sh
 
 ## Release Targets
 release-checksums:
@@ -365,6 +362,14 @@ release-helm-push:
 	@echo "⎈ Packaging and pushing Helm chart..."
 	./scripts/release/helm-push.sh
 
+lint-vex:
+	@echo "🔍 Validating generated OpenVEX document..."
+	bash scripts/lint/vex.sh
+
+release-vex:
+	@echo "🧾 Generating OpenVEX (govulncheck)..."
+	bash scripts/release/vex.sh $(ARGS)
+
 release-verify:
 	@echo "🔍 Verifying published release..."
 	bash scripts/release/verify-release.sh
@@ -504,7 +509,6 @@ help-local:
 	@echo "  lint-workflows    Workflow security lint (actionlint, zizmor)"
 	@echo "  lint-helm-policy  Chart policy scan (kubescape)"
 	@echo "  lint-licenses     Dependency license allowlist (go-licenses)"
-	@echo "  lint-vex          Validate security/keel.openvex.json"
 	@echo ""
 	@echo "Release:"
 	@echo "  release-checksums         Generate dist/SHA256SUMS"
@@ -513,6 +517,8 @@ help-local:
 	@echo "  release-sign              Sign artifacts (requires cosign)"
 	@echo "  release-rename            Rename artifacts with platform suffix"
 	@echo "  release-docker            Build and push container images"
+	@echo "  release-vex               Generate dist/keel.openvex.json from govulncheck"
+	@echo "  lint-vex                  Validate dist/keel.openvex.json before it is attested"
 	@echo "  release-verify            Verify signatures and attestations of a published release"
 	@echo "  release-helm-push         Package and push Helm chart"
 	@echo "  release-upload TAG=v1.x.x  Upload to GitHub Release (sets RELEASE_TAG)"

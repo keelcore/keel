@@ -35,8 +35,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 - The `pkg/apps/myapp` client listener sets `ReadHeaderTimeout` (gosec G114).
 - The release verifies its own output as its last step (`make release-verify`): signatures, SBOM, OpenVEX and SLSA
   provenance on every image and binary, the aliases, and the chart signature.
-- OpenVEX: `security/keel.openvex.json` (validated by `make lint-vex`) is attested to every image index; it records
-  GO-2026-5932 (`golang.org/x/crypto/openpgp`) as not affecting keel.
+- OpenVEX: each release generates an OpenVEX document from govulncheck reachability (`make release-vex`), validates
+  it (`make lint-vex`), attests it to every image index and attaches it to the GitHub Release (e.g. GO-2026-5932,
+  `golang.org/x/crypto/openpgp`, not reachable from keel). It is never committed.
 - New CI gates: OpenSSF Scorecard (`scorecard.yml`), workflow security lint (actionlint + zizmor), chart policy scan
   (kubescape, `helm-lint.yml`), dependency license allowlist (go-licenses).
 - Workflows: `persist-credentials: false` on every checkout; the release build runs without the Go module cache;

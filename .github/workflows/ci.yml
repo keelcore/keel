@@ -162,8 +162,6 @@ jobs:
         run: make setup-govulncheck
       - name: govulncheck
         run: make lint-vuln
-      - name: OpenVEX document
-        run: make lint-vex
 
   gosec:
     name: SAST (gosec)

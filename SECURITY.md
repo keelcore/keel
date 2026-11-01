@@ -206,9 +206,9 @@ go install golang.org/x/vuln/cmd/govulncheck@latest
 govulncheck ./...
 ```
 
-**Vulnerabilities that do not affect keel** are published as OpenVEX statements in
-[`security/keel.openvex.json`](security/keel.openvex.json) and attested to every release image, so scanners that read
-VEX can suppress them. See [docs/security.md §7.5](docs/security.md).
+**Vulnerabilities that do not affect keel** are published as OpenVEX statements attested to every release image, so
+scanners that read VEX can suppress them. Each release generates them from govulncheck's reachability analysis of the
+code being shipped. See [docs/security.md §7.5](docs/security.md).
 
 ---
 

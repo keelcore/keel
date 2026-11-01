@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/lint/vex.sh
-# Validates the OpenVEX document (security/keel.openvex.json) that the release
-# attests to every image index: OpenVEX v0.2.0 context, UTC timestamps, and per
+# Validates the release's generated OpenVEX document (dist/keel.openvex.json, from
+# scripts/release/vex.sh) before it is attested: OpenVEX v0.2.0 context, UTC timestamps, and per
 # statement a vulnerability name, products, a valid status, a justification or
 # impact statement for not_affected, and an action statement for affected.
 
@@ -15,7 +15,7 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly VEX_DOCUMENT='security/keel.openvex.json'
+readonly VEX_DOCUMENT='dist/keel.openvex.json'
 # jq program: prints one line per problem; empty output means the document is valid.
 readonly VEX_CHECKS='scripts/lint/vex-checks.jq'
 
