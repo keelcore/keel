@@ -37,6 +37,16 @@ function canonical_scripts() {
     | sort
 }
 
+# excluded_scripts prints the canonical scripts a consumer opts out of, read from
+# <root>/.canonical-exclude: one repo-relative path per line; blank lines and
+# # comments are ignored. Excluded scripts are neither synced nor verified, and
+# audit Rule 5 accepts their canonical targets pointing at a missing file.
+function excluded_scripts() {
+  local -r file="${1}/.canonical-exclude"
+  [ -f "${file}" ] || return 0
+  sed -e 's/#.*//' -e 's/[[:space:]]*$//' "${file}" | grep -v '^$' || true
+}
+
 function log() {
   local -r msg="${1:-}"
   printf '%s\n' "${msg}" | tee -a "${LOG_FILE}"
@@ -119,7 +129,7 @@ function main() {
   local script
   while IFS= read -r script; do
     verify_script "${standards_root}" "${downstream_root}" "${script}" || failed=1
-  done < <(canonical_scripts "${standards_root}")
+  done < <(canonical_scripts "${standards_root}" | grep -vxF -f <(excluded_scripts "${downstream_root}"))
 
   log ""
   if [ "${failed}" -eq 1 ]; then

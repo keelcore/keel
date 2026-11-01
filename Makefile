@@ -45,6 +45,10 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: lint-vuln
 .PHONY: lint-gosec
 .PHONY: test-fuzz
+.PHONY: lint-workflows
+.PHONY: lint-helm-policy
+.PHONY: lint-licenses
+.PHONY: lint-vex
 .PHONY: release-checksums
 .PHONY: release-checksums-verify
 .PHONY: release-sbom
@@ -53,6 +57,7 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: release-rename
 .PHONY: release-docker
 .PHONY: release-helm-push
+.PHONY: release-verify
 .PHONY: release-ci
 .PHONY: container-setup
 .PHONY: container-deploy
@@ -80,6 +85,10 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: setup-grype
 .PHONY: setup-govulncheck
 .PHONY: setup-gosec
+.PHONY: setup-actionlint
+.PHONY: setup-go-licenses
+.PHONY: setup-zizmor
+.PHONY: setup-kubescape
 .PHONY: setup-markdownlint
 .PHONY: setup-kubeconform
 .PHONY: setup-ghcr
@@ -152,6 +161,22 @@ lint-gosec:
 test-fuzz:
 	@echo "🧪 Running fuzz targets..."
 	bash scripts/test/fuzz.sh
+
+lint-workflows:
+	@echo "🔍 Linting workflows (actionlint, zizmor)..."
+	bash scripts/lint/workflows.sh
+
+lint-helm-policy:
+	@echo "🔍 Scanning chart policy (kubescape)..."
+	bash scripts/lint/helm-policy.sh
+
+lint-licenses:
+	@echo "🔍 Checking dependency licenses..."
+	bash scripts/lint/licenses.sh
+
+lint-vex:
+	@echo "🔍 Validating OpenVEX document..."
+	bash scripts/lint/vex.sh
 
 ## Release Targets
 release-checksums:
@@ -289,6 +314,22 @@ setup-gosec:
 	@echo "🔧 Installing gosec..."
 	bash scripts/ci/setup-gosec.sh
 
+setup-actionlint:
+	@echo "🔧 Installing actionlint..."
+	bash scripts/ci/setup-actionlint.sh
+
+setup-go-licenses:
+	@echo "🔧 Installing go-licenses..."
+	bash scripts/ci/setup-go-licenses.sh
+
+setup-zizmor:
+	@echo "🔧 Installing zizmor..."
+	bash scripts/ci/setup-zizmor.sh
+
+setup-kubescape:
+	@echo "🔧 Installing kubescape..."
+	bash scripts/ci/setup-kubescape.sh
+
 ## CI Gate Targets
 ci-smoke-windows:
 	@echo "🪟 Running Windows smoke test..."
@@ -323,6 +364,10 @@ release-docker:
 release-helm-push:
 	@echo "⎈ Packaging and pushing Helm chart..."
 	./scripts/release/helm-push.sh
+
+release-verify:
+	@echo "🔍 Verifying published release..."
+	bash scripts/release/verify-release.sh
 
 ## Kubernetes Helper Targets (internal; called by test-k8s)
 k8s-cluster-test:
@@ -456,6 +501,10 @@ help-local:
 	@echo "  lint-helm-validate  Helm template schema validation via kubeconform (no cluster required)"
 	@echo "  lint-vuln         Dependency vulnerability gate (govulncheck)"
 	@echo "  lint-gosec        Go security linter (gosec)"
+	@echo "  lint-workflows    Workflow security lint (actionlint, zizmor)"
+	@echo "  lint-helm-policy  Chart policy scan (kubescape)"
+	@echo "  lint-licenses     Dependency license allowlist (go-licenses)"
+	@echo "  lint-vex          Validate security/keel.openvex.json"
 	@echo ""
 	@echo "Release:"
 	@echo "  release-checksums         Generate dist/SHA256SUMS"
@@ -464,6 +513,7 @@ help-local:
 	@echo "  release-sign              Sign artifacts (requires cosign)"
 	@echo "  release-rename            Rename artifacts with platform suffix"
 	@echo "  release-docker            Build and push container images"
+	@echo "  release-verify            Verify signatures and attestations of a published release"
 	@echo "  release-helm-push         Package and push Helm chart"
 	@echo "  release-upload TAG=v1.x.x  Upload to GitHub Release (sets RELEASE_TAG)"
 	@echo "  gen-schema                Regenerate pkg/config/schema.yaml from config.Config"
@@ -483,6 +533,10 @@ help-local:
 	@echo "  setup-grype       Install grype image scanner"
 	@echo "  setup-govulncheck Install govulncheck"
 	@echo "  setup-gosec       Install gosec"
+	@echo "  setup-actionlint  Install actionlint"
+	@echo "  setup-go-licenses Install go-licenses"
+	@echo "  setup-zizmor      Install zizmor"
+	@echo "  setup-kubescape   Install kubescape"
 	@echo ""
 	@echo "CI Gates:"
 	@echo "  ci-pr-policy      Run PR policy check"

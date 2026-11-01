@@ -43,6 +43,20 @@ readonly SCRIPTS_DIR="${REPO_ROOT}/scripts"
 # targets inherited via include.
 EXPANDED_MAKEFILE=''
 
+# excluded_scripts prints the canonical scripts a consumer opts out of, read from
+# <root>/.canonical-exclude: one repo-relative path per line; blank lines and
+# # comments are ignored. Excluded scripts are neither synced nor verified, and
+# audit Rule 5 accepts their canonical targets pointing at a missing file.
+function excluded_scripts() {
+  local -r file="${1}/.canonical-exclude"
+  [ -f "${file}" ] || return 0
+  sed -e 's/#.*//' -e 's/[[:space:]]*$//' "${file}" | grep -v '^$' || true
+}
+
+function is_excluded() {
+  excluded_scripts "${REPO_ROOT}" | grep -qxF "${1}"
+}
+
 function log() {
   printf '%s\n' "${1:-}"
 }
@@ -298,8 +312,10 @@ function _eval_recipe_shape() {
     # broken Rule 5 finding always points to a real bug — either consumer
     # drift or a missing canonical script — never to a known-standards-only
     # script masquerading as consumer-facing.
+    # Exception: a script the consumer lists in .canonical-exclude is absent on
+    # purpose, so its canonical target is expected to point at nothing.
     local script_path="${BASH_REMATCH[2]}"
-    if [ ! -f "${REPO_ROOT}/${script_path}" ]; then
+    if [ ! -f "${REPO_ROOT}/${script_path}" ] && ! is_excluded "${script_path}"; then
       log "❌ Rule 5: target '${tgt}' invokes ${script_path} which does not exist on disk."
       return 1
     fi

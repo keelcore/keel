@@ -16,6 +16,10 @@ concurrency:
 permissions:
   contents: read
 
+# Repositories are UTC internally (governance/devsecops.md): every step runs in UTC.
+env:
+  TZ: UTC
+
 jobs:
 
   # ---------------------------------------------------------------------------
@@ -32,8 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
+          persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.4.0
+      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
         with:
           go-version-file: go.mod
           cache: true

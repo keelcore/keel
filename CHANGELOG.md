@@ -17,6 +17,11 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   subjects are unchanged. New `make create-release DRY_RUN=1` shows the next tag without tagging or pushing.
 - Helm chart: the image defaults to `ghcr.io/keelcore/keel` with tag `v<appVersion>` (was `keelcore/keel:0.5.0` on
   Docker Hub); `image.flavor: min | fips` now selects the `-min` / `-fips` image; new `image.digest` pins the image.
+- Helm chart: default `resources` (requests 100m / 64Mi, limits 500m / 128Mi), so keel always derives `GOMEMLIMIT`
+  from a container memory limit.
+- Release binaries and images now ship for `linux/amd64` and `linux/arm64`; every image tag is a multi-arch index.
+- Image `org.opencontainers.image.created` comes from the commit time (UTC), so rebuilding a tag reproduces it.
+- Repository runs in UTC: `TZ=UTC` for every make recipe and workflow; `make lint` rejects non-UTC timestamps.
 
 ### Security
 
@@ -28,6 +33,16 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   new native fuzz targets for JWKS, JWT, PEM key, ext_authz, ACME host matching and config YAML parsing.
 - Base images are pinned by digest; Dependabot now tracks Docker base images and the `.standards` submodule.
 - The `pkg/apps/myapp` client listener sets `ReadHeaderTimeout` (gosec G114).
+- The release verifies its own output as its last step (`make release-verify`): signatures, SBOM, OpenVEX and SLSA
+  provenance on every image and binary, the aliases, and the chart signature.
+- OpenVEX: `security/keel.openvex.json` (validated by `make lint-vex`) is attested to every image index; it records
+  GO-2026-5932 (`golang.org/x/crypto/openpgp`) as not affecting keel.
+- New CI gates: OpenSSF Scorecard (`scorecard.yml`), workflow security lint (actionlint + zizmor), chart policy scan
+  (kubescape, `helm-lint.yml`), dependency license allowlist (go-licenses).
+- Workflows: `persist-credentials: false` on every checkout; the release build runs without the Go module cache;
+  action pin comments corrected to the tags the pinned commits carry (`setup-go` v5.1.0, `upload-artifact` v4.5.0).
+- keel no longer carries or verifies the `.standards` package publishers (`go-publish.sh`, `npm-publish.sh`,
+  `pypi-publish.sh`); they are listed in `.canonical-exclude`.
 
 ## [0.9.13] - 2026-10-30
 

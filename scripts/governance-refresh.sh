@@ -270,11 +270,23 @@ function maybe_stage_submodule() {
 # that exists in the consumer but NOT here (a project-local script). The refresh
 # script itself IS shipped so it can self-update on subsequent runs. *.local.sh
 # hooks are owned by the repo that holds them (the standards repo has its own),
-# so they are never synced: a consumer's hook is never overwritten.
+# so they are never synced: a consumer's hook is never overwritten. Scripts the
+# consumer lists in .canonical-exclude are never synced either.
 function canonical_scripts() {
   find "${STANDARDS_ROOT}/scripts" -name '*.sh' ! -name '*.local.sh' -type f \
     | sed "s|^${STANDARDS_ROOT}/||" \
-    | sort
+    | sort \
+    | grep -vxF -f <(excluded_scripts "${REPO_ROOT}")
+}
+
+# excluded_scripts prints the canonical scripts a consumer opts out of, read from
+# <root>/.canonical-exclude: one repo-relative path per line; blank lines and
+# # comments are ignored. Excluded scripts are neither synced nor verified, and
+# audit Rule 5 accepts their canonical targets pointing at a missing file.
+function excluded_scripts() {
+  local -r file="${1}/.canonical-exclude"
+  [ -f "${file}" ] || return 0
+  sed -e 's/#.*//' -e 's/[[:space:]]*$//' "${file}" | grep -v '^$' || true
 }
 
 # Emit pending script changes as lines of the form:

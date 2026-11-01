@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
 # docker.sh
-# Build, tag, push, and sign container images for all three keel flavors.
-# Uses pre-built binaries from dist/ — build-once, package-once.
+# Build, tag, push, and sign multi-arch container images (linux/amd64 and
+# linux/arm64) for all three keel flavors. Uses pre-built binaries from dist/
+# (dist/keel-<flavor>-linux-<arch>) — build-once, package-once.
 #
-# Per flavor, in order: build → SBOM from the local image + grype scan (fail on
-# fixable HIGH/CRITICAL) → push primary tag → sign + attest that SBOM by digest
-# → record the digest in $GITHUB_OUTPUT → move aliases (max only). Aliases move
-# last, so a failure never leaves vX.Y / vX / latest on an unsigned image.
+# Per flavor and architecture: build → SBOM from the local image + grype scan
+# (fail on fixable HIGH/CRITICAL) → push the arch tag → sign + attest that SBOM
+# by digest. Then per flavor: assemble the multi-arch index under the primary
+# tag → sign it → attest the OpenVEX document to it → record its digest in
+# $GITHUB_OUTPUT → move aliases (max only). Aliases move last, so a failure
+# never leaves vX.Y / vX / latest on an unsigned image.
+#
+# Image metadata is reproducible: org.opencontainers.image.created and
+# SOURCE_DATE_EPOCH come from the commit time (UTC), never the wall clock.
 #
 # Required environment variables:
 #   GITHUB_TOKEN   — GHCR write token (GITHUB_TOKEN in Actions)
 #   GITHUB_ACTOR   — registry username (github.actor in Actions)
 #
-# Image targets:
+# Image targets (each a linux/amd64 + linux/arm64 index):
 #   ghcr.io/keelcore/keel:v1.2.3        (max / default)
 #   ghcr.io/keelcore/keel:v1.2          (max)
 #   ghcr.io/keelcore/keel:v1            (max)
 #   ghcr.io/keelcore/keel:latest        (max)
 #   ghcr.io/keelcore/keel:v1.2.3-min
 #   ghcr.io/keelcore/keel:v1.2.3-fips
+# Per-arch images behind each index: <primary tag>-amd64, <primary tag>-arm64.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -34,6 +41,8 @@ readonly REGISTRY='ghcr.io'
 readonly IMAGE="${REGISTRY}/keelcore/keel"
 readonly DOCKERFILE='scripts/deploy/docker/Dockerfile.release'
 readonly DIST='dist'
+readonly ARCHES='amd64 arm64'
+readonly VEX_DOCUMENT='security/keel.openvex.json'
 readonly SBOM_PREDICATE='https://spdx.dev/Document'
 # Identity of a signature made by this repo's release workflow (keyless, GitHub OIDC).
 readonly -a VERIFY_IDENTITY=(
@@ -54,9 +63,10 @@ function main() {
   require_tool grype 'make setup-grype'
   registry_login
   bash scripts/build/certs-image.sh
-  build_and_push_flavor 'max'  "${DIST}/keel-max-linux-amd64"  "${tag}"
-  build_and_push_flavor 'min'  "${DIST}/keel-min-linux-amd64"  "${tag}"
-  build_and_push_flavor 'fips' "${DIST}/keel-fips-linux-amd64" "${tag}"
+  local flavor
+  for flavor in max min fips; do
+    publish_flavor "${flavor}" "${tag}"
+  done
   log "All container images published and signed"
 }
 
@@ -122,18 +132,37 @@ function semver_major() {
   printf '%s' "${1}" | grep -oE '^v[0-9]+'
 }
 
-function build_and_push_flavor() {
+# publish_flavor builds, scans, pushes and signs each arch image, then the index.
+function publish_flavor() {
   local -r flavor="${1}"
-  local -r binary="${2}"
-  local -r tag="${3}"
+  local -r tag="${2}"
   local -r primary_tag="$(primary_tag_for "${flavor}" "${tag}")"
-  build_image "${flavor}" "${binary}" "${tag}" "${primary_tag}"
-  scan_image "${flavor}" "${primary_tag}"
-  local digest
-  digest="$(push_image "${primary_tag}")"
-  sign_and_attest "${flavor}" "${digest}"
-  record_digest "${flavor}" "${digest}"
+  local -a arch_digests=()
+  local arch
+  for arch in ${ARCHES}; do
+    arch_digests+=("$(publish_arch "${flavor}" "${arch}" "${tag}" "${primary_tag}")")
+  done
+  local index
+  index="$(create_index "${primary_tag}" "${arch_digests[@]}")"
+  sign_image "${index}"
+  attest_predicate "${index}" "${VEX_DOCUMENT}" 'openvex'
+  record_digest "${flavor}" "${index}"
   push_aliases "${flavor}" "${tag}" "${primary_tag}"
+}
+
+# publish_arch builds, scans, pushes, signs and attests one arch image and
+# echoes its digest reference (ghcr.io/keelcore/keel@sha256:...).
+function publish_arch() {
+  local -r flavor="${1}"
+  local -r arch="${2}"
+  local -r ref="${4}-${arch}"
+  build_image "${flavor}" "${arch}" "${3}" "${ref}"
+  scan_image "${ref}" "$(sbom_path "${flavor}" "${arch}")"
+  local digest
+  digest="$(push_image "${ref}")"
+  sign_image "${digest}"
+  attest_predicate "${digest}" "$(sbom_path "${flavor}" "${arch}")" "${SBOM_PREDICATE}"
+  printf '%s\n' "${digest}"
 }
 
 function primary_tag_for() {
@@ -148,32 +177,43 @@ function primary_tag_for() {
 
 function build_image() {
   local -r flavor="${1}"
-  local -r binary="${2}"
+  local -r arch="${2}"
   local -r tag="${3}"
-  local -r primary_tag="${4}"
+  local -r ref="${4}"
+  local -r binary="${DIST}/keel-${flavor}-linux-${arch}"
   [ -f "${binary}" ] || { log "ERROR: binary not found: ${binary}"; exit 1; }
-  local ctx
+  local ctx epoch
   ctx="$(mktemp -d)"
   cp "${binary}" "${ctx}/keel"
-  log "  Building ${primary_tag} (flavor=${flavor})"
+  epoch="$(git log -1 --format=%ct)"
+  log "  Building ${ref} (flavor=${flavor}, linux/${arch})"
+  # --provenance/--sbom off: this script attests its own SBOM and the workflow
+  # attests SLSA provenance, so each pushed arch image stays a plain manifest.
   docker build \
+    --platform "linux/${arch}" --provenance=false --sbom=false \
     --file "${DOCKERFILE}" \
     --build-arg "FLAVOR=${flavor}" \
-    --tag "${primary_tag}" \
+    --build-arg "SOURCE_DATE_EPOCH=${epoch}" \
+    --tag "${ref}" \
     --label "org.opencontainers.image.version=${tag}" \
-    --label "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --label "org.opencontainers.image.created=$(utc_timestamp "${epoch}")" \
     --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
     "${ctx}" >&5
   rm -rf "${ctx}"
 }
 
-# scan_image writes the image's own SBOM (dist/sbom-<flavor>.spdx.json) from the
-# local image and fails the release on any fixable HIGH or CRITICAL finding —
-# before anything is pushed.
+# utc_timestamp formats epoch seconds as RFC 3339 UTC (GNU date, else BSD date).
+function utc_timestamp() {
+  local -r epoch="${1}"
+  date -u -d "@${epoch}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -r "${epoch}" +%Y-%m-%dT%H:%M:%SZ
+}
+
+# scan_image writes the image's own SBOM from the local image and fails the
+# release on any fixable HIGH or CRITICAL finding — before anything is pushed.
 function scan_image() {
-  local -r flavor="${1}"
-  local -r ref="${2}"
-  local -r sbom="$(sbom_path "${flavor}")"
+  local -r ref="${1}"
+  local -r sbom="${2}"
   log "  SBOM ${ref} → ${sbom}"
   syft scan "docker:${ref}" --output "spdx-json=${sbom}" >&5
   log "  Scanning ${ref} (grype, fail on fixable high+)"
@@ -181,10 +221,10 @@ function scan_image() {
 }
 
 function sbom_path() {
-  printf '%s/sbom-%s.spdx.json' "${DIST}" "${1}"
+  printf '%s/sbom-%s-%s.spdx.json' "${DIST}" "${1}" "${2}"
 }
 
-# push_image pushes the primary tag and echoes its immutable digest reference.
+# push_image pushes a tag and echoes its immutable digest reference.
 function push_image() {
   local -r ref="${1}"
   log "  Pushing ${ref}"
@@ -192,7 +232,21 @@ function push_image() {
   docker inspect --format='{{index .RepoDigests 0}}' "${ref}"
 }
 
-# push_aliases moves vX.Y, vX and latest to the already-signed max image.
+# create_index assembles the arch images into one index under the primary tag
+# and echoes the index digest reference.
+function create_index() {
+  local -r primary_tag="${1}"
+  shift
+  log "  Creating index ${primary_tag} ($*)"
+  docker buildx imagetools create --tag "${primary_tag}" "$@" >&5
+  printf '%s@%s\n' "${IMAGE}" "$(index_digest "${primary_tag}")"
+}
+
+function index_digest() {
+  docker buildx imagetools inspect "${1}" --format '{{json .Manifest}}' | jq -r '.digest'
+}
+
+# push_aliases points vX.Y, vX and latest at the already-signed max index.
 # Runs last, so a failed sign or scan never leaves an alias on an unsigned image.
 function push_aliases() {
   local -r flavor="${1}"
@@ -201,14 +255,13 @@ function push_aliases() {
   [ "${flavor}" = 'max' ] && [[ "${tag}" =~ ^v[0-9] ]] || return 0
   local alias
   for alias in "$(semver_minor "${tag}")" "$(semver_major "${tag}")" 'latest'; do
-    docker tag "${primary_tag}" "${IMAGE}:${alias}"
-    log "  Pushing ${IMAGE}:${alias}"
-    docker push "${IMAGE}:${alias}" >&5
+    log "  Pointing ${IMAGE}:${alias} at ${primary_tag}"
+    docker buildx imagetools create --tag "${IMAGE}:${alias}" "${primary_tag}" >&5
   done
 }
 
-# record_digest exposes <flavor>_digest=sha256:... to later workflow steps
-# (image provenance attestation).
+# record_digest exposes <flavor>_digest=sha256:... (the index) to later
+# workflow steps (image provenance attestation, release verification).
 function record_digest() {
   local -r flavor="${1}"
   local -r digest="${2}"
@@ -216,19 +269,12 @@ function record_digest() {
   printf '%s_digest=%s\n' "${flavor}" "${digest##*@}" >> "${GITHUB_OUTPUT}"
 }
 
-function sign_and_attest() {
-  local -r flavor="${1}"
-  local -r digest="${2}"
-  sign_image "${digest}"
-  attest_sbom "${digest}" "$(sbom_path "${flavor}")"
-}
-
 # sign_image is idempotent: a retry that hits Rekor 409 (entry already exists
 # for this digest) succeeds when cosign verify confirms the existing signature.
 function sign_image() {
   local -r digest="${1}"
   log "  Signing ${digest} (cosign keyless)"
-  if cosign sign --yes "${digest}"; then
+  if cosign sign --yes "${digest}" >&5; then
     return 0
   fi
   log "  cosign sign failed; checking for an existing signature on ${digest}"
@@ -236,19 +282,21 @@ function sign_image() {
   log "  ✅ ${digest} already signed by this workflow"
 }
 
-function attest_sbom() {
+# attest_predicate is idempotent in the same way as sign_image.
+# SBOMs use the full SPDX predicate URI rather than the 'spdx' shortname:
+# cosign v3.x shortname validation rejects syft SPDX 2.3 JSON; the URI form
+# treats the predicate as an opaque JSON payload.
+function attest_predicate() {
   local -r digest="${1}"
-  local -r sbom="${2}"
-  log "  Attesting ${sbom} to ${digest}"
-  # Use the full predicate type URI rather than the 'spdx' shortname.
-  # cosign v3.x shortname validation rejects syft SPDX 2.3 JSON;
-  # the URI form treats the predicate as an opaque JSON payload.
-  if cosign attest --yes --predicate "${sbom}" --type "${SBOM_PREDICATE}" "${digest}"; then
+  local -r predicate="${2}"
+  local -r type="${3}"
+  log "  Attesting ${predicate} to ${digest}"
+  if cosign attest --yes --predicate "${predicate}" --type "${type}" "${digest}" >&5; then
     return 0
   fi
-  log "  cosign attest failed; checking for an existing SBOM attestation on ${digest}"
-  cosign verify-attestation "${VERIFY_IDENTITY[@]}" --type "${SBOM_PREDICATE}" "${digest}" >/dev/null
-  log "  ✅ ${digest} already carries this workflow's SBOM attestation"
+  log "  cosign attest failed; checking for an existing ${type} attestation on ${digest}"
+  cosign verify-attestation "${VERIFY_IDENTITY[@]}" --type "${type}" "${digest}" >/dev/null
+  log "  ✅ ${digest} already carries this workflow's ${type} attestation"
 }
 
 main "${@:-}"

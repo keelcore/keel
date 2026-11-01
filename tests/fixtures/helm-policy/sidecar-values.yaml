@@ -1,0 +1,21 @@
+# Sidecar-mode values for the chart policy scan (scripts/lint/helm-policy.sh).
+# The app container is the user's; these are the hardened settings a user is
+# expected to supply, so the scan judges the chart, not an empty placeholder.
+mode: sidecar
+sidecar:
+  app:
+    image: example.invalid/app
+    tag: "1.0.0"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 128Mi
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      capabilities:
+        drop: ["ALL"]

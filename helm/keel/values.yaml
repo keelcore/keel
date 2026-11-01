@@ -288,7 +288,15 @@ securityContext:
   capabilities:
     drop: ["ALL"]
 
-resources: {}
+# keel derives GOMEMLIMIT from the container memory limit (90% of it), so a
+# memory limit is always set. Raise both for high-throughput or sidecar-heavy pods.
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi
 nodeSelector: {}
 tolerations: []
 affinity: {}

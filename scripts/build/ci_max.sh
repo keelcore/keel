@@ -53,6 +53,12 @@ function execute_fips_build() {
 }
 
 function verify_fips_symbols() {
+  # A cross build (e.g. linux/arm64 on an amd64 runner) cannot execute its test
+  # binaries; the host-arch build of the same source runs this check.
+  if [ "$(go env GOARCH)" != "$(go env GOHOSTARCH)" ]; then
+    log "Skipping FIPS test run for cross build ($(go env GOARCH) on $(go env GOHOSTARCH))"
+    return 0
+  fi
   log "Verifying FIPS enforcement via test run (GODEBUG=fips140=only)"
   GOFIPS140="${FIPS_MODULE}" GODEBUG=fips140=only \
     go test -v -count=1 -tags "no_h3" ./...

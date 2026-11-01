@@ -10,7 +10,9 @@
 ARG FLAVOR=max
 # CA source: keel-certs (Dockerfile.certs; build it first with make certs-image).
 ARG CERTS_IMAGE=keel-certs:latest
-FROM ${CERTS_IMAGE} AS certs
+# Platform-neutral files only: pin to the build platform so a linux/arm64 build
+# uses the locally built keel-certs image instead of resolving an arm64 variant.
+FROM --platform=$BUILDPLATFORM ${CERTS_IMAGE} AS certs
 
 # ── Runtime: scratch, numeric non-root ────────────────────────────────────────
 FROM scratch
