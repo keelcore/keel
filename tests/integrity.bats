@@ -5,6 +5,8 @@ set -o nounset
 set -o errexit
 set -o pipefail
 
+load helpers/wait
+
 # ---------------------------------------------------------------------------
 # Setup: put dist/ on PATH so tests can invoke keel-min / keel-fips directly.
 # ---------------------------------------------------------------------------
@@ -124,9 +126,9 @@ cert_dir() {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
   local body
   body="$(curl -s --max-time 2 http://127.0.0.1:8080/)"
   kill -TERM "${pid}"
@@ -139,9 +141,9 @@ cert_dir() {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: true\n  ready:\n    enabled: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9091
   local body
   body="$(curl -s --max-time 2 http://127.0.0.1:9091/healthz)"
   kill -TERM "${pid}"
@@ -154,9 +156,9 @@ cert_dir() {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9092
   local body
   body="$(curl -s --max-time 2 http://127.0.0.1:9092/readyz)"
   kill -TERM "${pid}"
@@ -173,9 +175,9 @@ cert_dir() {
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n' \
     "${cert_dir}/server.crt" "${cert_dir}/server.key" > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8443
   local body
   body="$(curl -s --max-time 2 --cacert "${cert_dir}/ca.crt" https://127.0.0.1:8443/)"
   kill -TERM "${pid}"
@@ -194,12 +196,9 @@ cert_dir() {
   printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  h3:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n' \
     "${cert_dir}/server.crt" "${cert_dir}/server.key" > "${cfg}"
   for bin in keel-max keel-min; do
-    KEEL_CONFIG="${cfg}" "${bin}" > /dev/null 2>&1 &
+    KEEL_CONFIG="${cfg}" "${bin}" > "${BATS_TEST_TMPDIR}/${bin}.log" 2>&1 &
     pid="${!}"
-    local _w=0
-    until curl -s -o /dev/null --max-time 1 --cacert "${cert_dir}/ca.crt" https://127.0.0.1:8443/ || [ "${_w}" -ge 30 ]; do
-      sleep 0.1; _w=$(( _w + 1 ))
-    done
+    wait_for_keel_listener "${BATS_TEST_TMPDIR}/${bin}.log" 8443
     if [ "${bin}" = 'keel-max' ]; then
       max_ver="$(curl -s --http2 -o /dev/null -w '%{http_version}' --max-time 2 --cacert "${cert_dir}/ca.crt" https://127.0.0.1:8443/)"
     else
@@ -221,9 +220,9 @@ cert_dir() {
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n  client_ca_file: %s\n' \
     "${cert_dir}/server.crt" "${cert_dir}/server.key" "${cert_dir}/ca.crt" > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8443
   local anon authed
   anon="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --cacert "${cert_dir}/ca.crt" https://127.0.0.1:8443/)" || true
   authed="$(curl -s --max-time 2 --cacert "${cert_dir}/ca.crt" \
@@ -243,9 +242,9 @@ cert_dir() {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
   local headers
   headers="$(curl -sI --max-time 2 http://127.0.0.1:8080/ 2>&1)"
   kill -TERM "${pid}"
@@ -258,9 +257,9 @@ cert_dir() {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
   local headers
   headers="$(curl -sI --max-time 2 http://127.0.0.1:8080/ 2>&1)"
   kill -TERM "${pid}"
@@ -277,9 +276,9 @@ cert_dir() {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9999
   local body
   body="$(curl -s --max-time 2 http://127.0.0.1:9999/version)"
   kill -TERM "${pid}"
@@ -293,9 +292,9 @@ cert_dir() {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nadmin:\n  pprof: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-max &
+  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9999
   local anon authed
   anon="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:9999/debug/pprof/)"
   authed="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -H 'Authorization: Bearer bats-admin-token' http://127.0.0.1:9999/debug/pprof/)"
@@ -313,7 +312,7 @@ cert_dir() {
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nadmin:\n  pprof: true\n' > "${cfg}"
   KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min > "${log}" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${log}" 9999
   status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -H 'Authorization: Bearer bats-admin-token' http://127.0.0.1:9999/debug/pprof/)"
   kill -TERM "${pid}"
   wait "${pid}" || true
@@ -327,9 +326,9 @@ cert_dir() {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min &
+  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9999
   local anon authed
   anon="$(curl -s -o /dev/null -w '%{http_code}' -X POST --max-time 2 http://127.0.0.1:9999/admin/reload)"
   authed="$(curl -s -o /dev/null -w '%{http_code}' -X POST --max-time 2 -H 'Authorization: Bearer bats-admin-token' http://127.0.0.1:9999/admin/reload)"
@@ -357,17 +356,9 @@ cert_dir() {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nmetrics:\n  prometheus: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-max &
+  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  # macOS: keel-max (full build) cold-starts slowly; poll for admin port readiness.
-  if [[ "$(uname)" == "Darwin" ]]; then
-    local _q=0
-    until curl -s --max-time 0.1 http://127.0.0.1:9999/ > /dev/null 2>&1 || [ "${_q}" -ge 30 ]; do
-      sleep 0.1; _q=$(( _q + 1 ))
-    done
-  else
-    sleep 0.4
-  fi
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9999
   local status
   status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:9999/metrics)"
   kill -TERM "${pid}"
@@ -381,9 +372,9 @@ cert_dir() {
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nmetrics:\n  prometheus: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-max &
+  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9999
   local status
   status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:9999/metrics)"
   kill -TERM "${pid}"
@@ -534,15 +525,15 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
       | nc -l 127.0.0.1 "${upstream_port}" >> "${header_file}"
   done > /dev/null 2>&1 3>&- &
   upstream_pid="${!}"
-  sleep 0.2
+  wait_for_tcp 127.0.0.1 "${upstream_port}"
 
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: true\n    port: %s\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n  my_id: test-svc\n  my_signature_key_file: %s\nsidecar:\n  enabled: true\n  upstream_url: "http://127.0.0.1:%s"\n' \
     "${keel_port}" "${keyfile}" "${upstream_port}" > "${cfg}"
 
-  KEEL_CONFIG="${cfg}" keel-max &
+  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.5
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" "${keel_port}"
 
   curl -s --max-time 2 "http://127.0.0.1:${keel_port}/" > /dev/null || true
   # nc answers before it reads the request, so the capture can land after the
@@ -577,9 +568,9 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: true\n    port: %s\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntimeouts:\n  write: 1s\nsidecar:\n  enabled: true\n  upstream_url: "http://127.0.0.1:%s"\n' \
     "${keel_port}" "${upstream_port}" > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-max > /dev/null 2>&1 &
+  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.5
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" "${keel_port}"
   started="$(ms_now)"
   status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:${keel_port}/")" || true
   elapsed="$(( $(ms_now) - started ))"
@@ -621,9 +612,9 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   printf 'listeners:\n  http:\n    enabled: true\n    port: %s\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: true\n  trusted_signers_file: %s\n' \
     "${keel_port}" "${signers_file}" > "${cfg}"
 
-  KEEL_CONFIG="${cfg}" keel-max &
+  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" "${keel_port}"
 
   local status
   status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 \
@@ -720,11 +711,11 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    challenge_port: 5080\n    domains: [test.example.com]\n    email: test@example.com\n    ca_url: "http://127.0.0.1:19991/dead"\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-max &
+  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 5080
   local status
-  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:5080/.well-known/acme-challenge/nosuchthing)"
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:5080/.well-known/acme-challenge/nosuchthing)"
   kill -TERM "${pid}"
   wait "${pid}" || true
   rm -f "${cfg}"
@@ -737,11 +728,11 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    challenge_port: 5080\n    domains: [test.example.com]\n    email: test@example.com\n    ca_url: "http://127.0.0.1:19991/dead"\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-max &
+  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
-  sleep 0.4
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 5080
   local status
-  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --retry 10 --retry-connrefused --retry-delay 1 --no-location http://127.0.0.1:5080/)"
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 --no-location http://127.0.0.1:5080/)"
   kill -TERM "${pid}"
   wait "${pid}" || true
   rm -f "${cfg}"
@@ -880,9 +871,10 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
     "${http_port}" "${health_port}" > "${cfg}"
 
   # First instance holds both ports.
-  KEEL_CONFIG="${cfg}" keel-min > /dev/null 2>&1 &
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/holder.log" 2>&1 &
   holder="${!}"
-  curl -s -o /dev/null --max-time 2 --retry 10 --retry-connrefused --retry-delay 1 "http://127.0.0.1:${health_port}/healthz" || true
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/holder.log" "${http_port}"
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/holder.log" "${health_port}"
 
   # Second instance cannot bind either port; every listener is attempted, both
   # failures are reported, and it exits on its own (124 = still running).
