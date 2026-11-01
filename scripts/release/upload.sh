@@ -76,7 +76,7 @@ function collect_and_upload() {
   local files=()
   local artifact
 
-  for artifact in dist/keel-* dist/SHA256SUMS dist/keel.openvex.json; do
+  for artifact in dist/keel-* dist/SHA256SUMS dist/SHA256SUMS.bundle dist/keel.openvex.json; do
     [ -f "${artifact}" ] || continue
     files+=("${artifact}")
     log "  Queuing ${artifact}"
