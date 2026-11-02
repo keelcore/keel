@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # go.sh
-# Check that every repo-owned Go source file is gofmt-clean.
+# Check that every repo-owned Go source file is gofmt-clean, then run go vet and
+# staticcheck (pinned by scripts/ci/setup-staticcheck.sh) in every repo-owned Go module.
 #
 # Scoped to superproject-tracked *.go via go_source_files (lib/paths.sh), so
 # vendored and submodule trees (vendor/, vendors/, .standards/) are excluded —
@@ -8,8 +9,8 @@
 # missing: Go edits (including test files added by a coverage ratchet) could reach
 # a commit with no gofmt check in the lint set.
 #
-# Exits 1 if any file is not gofmt-clean (CI mode).
-# Pass --fix to rewrite offending files in place instead of failing.
+# Exits 1 on any gofmt, go vet or staticcheck finding (CI mode).
+# Pass --fix to rewrite unformatted files in place instead; vet and staticcheck do not run.
 #
 # Run locally:  bash scripts/lint/go.sh
 # Auto-fix:     bash scripts/lint/go.sh --fix
@@ -33,6 +34,8 @@ function main() {
   local fix=0
   [ "${1:-}" = "--fix" ] && fix=1
   check_gofmt "${fix}"
+  [ "${fix}" -eq 1 ] && return 0
+  check_modules
 }
 
 function log() {
@@ -81,6 +84,48 @@ function check_gofmt() {
     exit 1
   fi
   log '✅ gofmt: all Go sources formatted'
+}
+
+# go_bin: where `go install` puts binaries (GOBIN, else the first GOPATH entry's bin).
+function go_bin() {
+  local gobin
+  gobin="$(go env GOBIN)"
+  [ -n "${gobin}" ] || gobin="$(go env GOPATH | cut -d: -f1)/bin"
+  printf '%s\n' "${gobin}"
+}
+
+# ensure_staticcheck: the pinned staticcheck from `make setup-staticcheck` (go install) is found
+# in the Go install directory whether or not that directory is on PATH.
+function ensure_staticcheck() {
+  local gobin
+  gobin="$(go_bin)"
+  if [ -x "${gobin}/staticcheck" ]; then
+    PATH="${gobin}:${PATH}"
+    return 0
+  fi
+  log "❌ staticcheck not found in ${gobin} (install with: make setup-staticcheck)"
+  exit 1
+}
+
+# go_module_dirs: directories of the repo-owned go.mod files (vendored and submodule trees excluded).
+function go_module_dirs() {
+  source_files '*go.mod' | while IFS= read -r mod; do dirname "${mod}"; done
+}
+
+function check_modules() {
+  ensure_staticcheck
+  local dir
+  local failed=0
+  while IFS= read -r dir; do
+    log "🔍 go vet + staticcheck: ${dir}"
+    (cd "${dir}" && go vet ./...) || failed=1
+    (cd "${dir}" && staticcheck ./...) || failed=1
+  done < <(go_module_dirs)
+  if [ "${failed}" -ne 0 ]; then
+    log '❌ go vet / staticcheck reported findings (fix them in source; rules turn off only in linter configuration)'
+    exit 1
+  fi
+  log '✅ go vet + staticcheck: clean'
 }
 
 main "${@:-}"

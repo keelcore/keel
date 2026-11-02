@@ -3,6 +3,9 @@
 package mw
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -140,10 +143,8 @@ func TestFetchJWKS_UnreachableEndpoint_ReturnsError(t *testing.T) {
 
 // fetchJWKS parses a minimal valid JWK Set with one EC key.
 func TestFetchJWKS_ValidECKey(t *testing.T) {
-	// Build a minimal P-256 JWK JSON.
-	// x and y are base64url-encoded 32-byte zeros (not a valid key, but parses).
-	x := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
-	y := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	// Build a minimal P-256 JWK JSON from a generated key.
+	x, y := p256JWKCoords(t)
 	body := fmt.Sprintf(`{"keys":[{"kty":"EC","crv":"P-256","x":%q,"y":%q,"kid":"k1"}]}`, x, y)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -215,8 +216,7 @@ func TestJWKSCache_Get_CacheHit(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
-		x := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
-		y := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+		x, y := p256JWKCoords(t)
 		body := fmt.Sprintf(`{"keys":[{"kty":"EC","crv":"P-256","x":%q,"y":%q,"kid":"k1"}]}`, x, y)
 		w.Header().Set("content-type", "application/json")
 		fmt.Fprint(w, body)
@@ -279,11 +279,34 @@ func TestFetchJWKS_ValidRSAKey(t *testing.T) {
 	}
 }
 
+// p256JWKCoords returns the base64url JWK x and y of a generated P-256 key: the 32-byte
+// coordinates of its uncompressed SEC 1 encoding (0x04 || X || Y).
+func p256JWKCoords(t testing.TB) (string, string) {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	point, err := priv.PublicKey.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(point[1:33]), base64.RawURLEncoding.EncodeToString(point[33:])
+}
+
 // parseECJWK with P-384 curve returns a key.
 func TestParseJWK_EC_P384_Valid(t *testing.T) {
-	// P-384 requires 48-byte coordinates.
-	x := base64.RawURLEncoding.EncodeToString(make([]byte, 48))
-	y := base64.RawURLEncoding.EncodeToString(make([]byte, 48))
+	priv, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Uncompressed SEC 1 point: 0x04 || X || Y, 48-byte coordinates for P-384.
+	point, err := priv.PublicKey.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := base64.RawURLEncoding.EncodeToString(point[1:49])
+	y := base64.RawURLEncoding.EncodeToString(point[49:])
 	rawStr := fmt.Sprintf(`{"kty":"EC","crv":"P-384","x":%q,"y":%q}`, x, y)
 	raw := json.RawMessage(rawStr)
 	k, err := parseJWK(raw)
@@ -292,5 +315,15 @@ func TestParseJWK_EC_P384_Valid(t *testing.T) {
 	}
 	if k.key == nil {
 		t.Error("expected non-nil EC P-384 key")
+	}
+}
+
+// parseECJWK rejects coordinates that are not a point on the curve.
+func TestParseJWK_EC_P384_OffCurve(t *testing.T) {
+	x := base64.RawURLEncoding.EncodeToString(make([]byte, 48))
+	y := base64.RawURLEncoding.EncodeToString(make([]byte, 48))
+	raw := json.RawMessage(fmt.Sprintf(`{"kty":"EC","crv":"P-384","x":%q,"y":%q}`, x, y))
+	if _, err := parseJWK(raw); err == nil {
+		t.Error("expected an error for an off-curve P-384 point")
 	}
 }

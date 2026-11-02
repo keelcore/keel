@@ -291,8 +291,7 @@ func TestParsePEMPublicKey_UnsupportedType(t *testing.T) {
 
 func ecJWKSServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	x := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
-	y := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	x, y := p256JWKCoords(t)
 	body := fmt.Sprintf(`{"keys":[{"kty":"EC","crv":"P-256","x":%q,"y":%q,"kid":"k1"}]}`, x, y)
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("content-type", "application/json")

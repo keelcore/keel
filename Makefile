@@ -80,7 +80,6 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: setup-bats
 .PHONY: setup-pebble
 .PHONY: setup-kind
-.PHONY: setup-staticcheck
 .PHONY: setup-syft
 .PHONY: setup-cosign
 .PHONY: setup-grype
@@ -292,10 +291,6 @@ setup-kind:
 	@echo "🔧 Installing kind and creating cluster..."
 	./scripts/ci/setup-kind.sh
 
-setup-staticcheck:
-	@echo "🔧 Installing staticcheck..."
-	bash scripts/ci/setup-staticcheck.sh
-
 setup-cosign:
 	@echo "🔧 Installing cosign..."
 	./scripts/release/install-cosign.sh
@@ -506,7 +501,7 @@ help-local:
 	@echo "Lint:"
 	@echo "  lint            gofmt check + go vet + staticcheck"
 	@echo "  lint-fmt        gofmt -s check only"
-	@echo "  lint-go         go vet + staticcheck only"
+	@echo "  lint-go         gofmt check + go vet + staticcheck"
 	@echo "  lint-md         markdownlint-cli check on all tracked .md files"
 	@echo "  lint-helm       Helm chart lint (no cluster required)"
 	@echo "  lint-helm-validate  Helm template schema validation via kubeconform (no cluster required)"

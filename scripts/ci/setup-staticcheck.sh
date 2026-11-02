@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/ci/setup-staticcheck.sh
-# Install a pinned staticcheck into the Go toolchain bin. No-op if that version is present.
+# Install a pinned staticcheck into the Go install directory (GOBIN, else GOPATH/bin). No-op if that version is present.
 #
 # Pinned version: v0.8.2
 
@@ -41,9 +41,18 @@ function validate_args() {
   fi
 }
 
+# go_bin: where `go install` puts binaries (GOBIN, else the first GOPATH entry's bin).
+function go_bin() {
+  local gobin
+  gobin="$(go env GOBIN)"
+  [ -n "${gobin}" ] || gobin="$(go env GOPATH | cut -d: -f1)/bin"
+  printf '%s\n' "${gobin}"
+}
+
 function is_pinned_version_installed() {
-  command -v staticcheck >/dev/null 2>&1 && \
-    go version -m "$(command -v staticcheck)" 2>/dev/null | grep -qE "^\s+mod\s+\S+\s+${TOOL_VERSION}\b"
+  local -r bin="$(go_bin)/staticcheck"
+  [ -x "${bin}" ] && \
+    go version -m "${bin}" 2>/dev/null | grep -qE "^\s+mod\s+\S+\s+${TOOL_VERSION}\b"
 }
 
 main "${@:-}"

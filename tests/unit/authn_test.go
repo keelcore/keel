@@ -393,13 +393,24 @@ func rsaJWK(pub *rsa.PublicKey, kid string) map[string]any {
 	}
 }
 
+// ecCoord returns the base64url JWK coordinate (0 = x, 1 = y) of pub: the fixed-size
+// field element from its uncompressed SEC 1 encoding (0x04 || X || Y), per RFC 7518 §6.2.1.
+func ecCoord(pub *ecdsa.PublicKey, i int) string {
+	b, err := pub.Bytes()
+	if err != nil {
+		panic("ecdsa.PublicKey.Bytes: " + err.Error())
+	}
+	size := (len(b) - 1) / 2
+	return base64.RawURLEncoding.EncodeToString(b[1+i*size : 1+(i+1)*size])
+}
+
 func ecJWK(pub *ecdsa.PublicKey, kid, crv string) map[string]any {
 	return map[string]any{
 		"kty": "EC",
 		"kid": kid,
 		"crv": crv,
-		"x":   base64.RawURLEncoding.EncodeToString(pub.X.Bytes()),
-		"y":   base64.RawURLEncoding.EncodeToString(pub.Y.Bytes()),
+		"x":   ecCoord(pub, 0),
+		"y":   ecCoord(pub, 1),
 	}
 }
 
@@ -687,8 +698,8 @@ func TestJWKS_EC_UnsupportedCurve(t *testing.T) {
 		"kty": "EC",
 		"kid": "bad",
 		"crv": "P-521", // unsupported
-		"x":   base64.RawURLEncoding.EncodeToString(priv.PublicKey.X.Bytes()),
-		"y":   base64.RawURLEncoding.EncodeToString(priv.PublicKey.Y.Bytes()),
+		"x":   ecCoord(&priv.PublicKey, 0),
+		"y":   ecCoord(&priv.PublicKey, 1),
 	}
 	srv := jwksServerWith(t, []any{badKey})
 	defer srv.Close()
@@ -727,7 +738,7 @@ func TestJWKS_EC_BadBase64X(t *testing.T) {
 		"kid": "bad",
 		"crv": "P-256",
 		"x":   "!!!not-valid-base64url",
-		"y":   base64.RawURLEncoding.EncodeToString(priv.PublicKey.Y.Bytes()),
+		"y":   ecCoord(&priv.PublicKey, 1),
 	}
 	srv := jwksServerWith(t, []any{badKey})
 	defer srv.Close()
@@ -753,7 +764,7 @@ func TestJWKS_EC_BadBase64Y(t *testing.T) {
 		"kty": "EC",
 		"kid": "bad",
 		"crv": "P-256",
-		"x":   base64.RawURLEncoding.EncodeToString(priv.PublicKey.X.Bytes()),
+		"x":   ecCoord(&priv.PublicKey, 0),
 		"y":   "!!!not-valid-base64url",
 	}
 	srv := jwksServerWith(t, []any{badKey})

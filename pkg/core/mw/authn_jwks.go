@@ -272,11 +272,17 @@ func parseECJWK(raw json.RawMessage) (*ecdsa.PublicKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode JWK y: %w", err)
 	}
-	return &ecdsa.PublicKey{
-		Curve: curve,
-		X:     new(big.Int).SetBytes(x),
-		Y:     new(big.Int).SetBytes(y),
-	}, nil
+	// Uncompressed SEC 1 point: 0x04 || X || Y, each coordinate left-padded to the
+	// curve's field size (some issuers strip leading zero bytes).
+	size := (curve.Params().BitSize + 7) / 8
+	if len(x) > size || len(y) > size {
+		return nil, fmt.Errorf("JWK %s coordinate longer than %d bytes", jwk.Crv, size)
+	}
+	point := make([]byte, 1+2*size)
+	point[0] = 4
+	copy(point[1+size-len(x):1+size], x)
+	copy(point[1+2*size-len(y):], y)
+	return ecdsa.ParseUncompressedPublicKey(curve, point)
 }
 
 // requireSecureJWKSURL rejects a JWKS URL that is not https, unless it targets

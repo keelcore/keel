@@ -427,7 +427,7 @@ func TestLoadOrCreateAccountKey_CreatesAndCaches(t *testing.T) {
 		t.Fatal("expected non-nil key after load")
 	}
 	// Both keys should have the same public key.
-	if key1.PublicKey.X.Cmp(key2.PublicKey.X) != 0 {
+	if !key1.PublicKey.Equal(&key2.PublicKey) {
 		t.Error("expected same key on second call (loaded from cache)")
 	}
 }
