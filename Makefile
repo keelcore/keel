@@ -105,6 +105,7 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: clean-local
 .PHONY: setup-bats-local
 .PHONY: create-release-local
+.PHONY: update-pins-local
 .PHONY: coverage-profile
 .PHONY: coverage-report
 .PHONY: audit
@@ -445,6 +446,11 @@ setup-bats-local:
 create-release-local:
 	@echo "📐 Computing bump level from the config schema diff..."
 	bash scripts/release/create-release.local.sh $(PREV_TAG)
+
+## Pin hook (WHAT=pins|holds) — also called by canonical update-pins.sh (`make update-pins`)
+update-pins-local:
+	@echo "📌 keel pin hook: $(WHAT)"
+	bash scripts/release/update-pins.local.sh $(WHAT)
 
 ## coverage-profile: write the whole-module Go statement-coverage profile to
 ## coverage.txt (with a total%/uncovered/lines summary). This is the profile
