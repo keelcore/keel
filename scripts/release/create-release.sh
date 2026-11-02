@@ -18,12 +18,25 @@
 # While the major version is 0 the bump is demoted one step (major -> minor,
 # minor -> patch, patch -> patch only if there are commits since the tag).
 #
+# Pins: every pinned external input is checked first (scripts/release/
+# update-pins.sh --discover-only). Any stale pin — an eligible newer release that
+# was not adopted — blocks the release, listed with the consequence of staying
+# on it. --allow-stale-pins "<reason>" authorizes the release anyway; the
+# override is still audit-logged: in the signed tag message (Pins-Override
+# trailers: reason, git identity, UTC time, every stale pin), and appended as a
+# JSON line to <git-dir>/release-audit.log. Every tag message carries the pin
+# summary.
+#
 # Usage:
-#   create-release.sh [--force vX.Y.Z] [--dry-run]
+#   create-release.sh [--force vX.Y.Z] [--dry-run] [--allow-stale-pins "<reason>"]
 #     --force vX.Y.Z  Use this version instead of the computed one, validated
 #                     per governance/ci.md "--force Override Rules".
 #     --dry-run       Compute and print the version and tag message; never
-#                     prompt, tag or push. Failed preconditions are warnings.
+#                     prompt, tag or push. Failed preconditions and stale pins
+#                     are warnings.
+#     --allow-stale-pins "<reason>"
+#                     Release despite stale pins; the reason is required and
+#                     recorded.
 #
 # Env (testing only):
 #   CREATE_RELEASE_TTY  file the approval answer is read from (default /dev/tty)
@@ -44,6 +57,12 @@ declare -r DEMOTION_NOTE=' (pre-1.0 demotion)'
 declare -rx CREATE_RELEASE_TTY="${CREATE_RELEASE_TTY:-/dev/tty}"
 declare FINDINGS_FILE
 FINDINGS_FILE="$(mktemp "${TMPDIR:-/tmp}/create_release_findings.XXXXXX")"
+declare PINS_TSV
+PINS_TSV="$(mktemp "${TMPDIR:-/tmp}/create_release_pins.XXXXXX")"
+# Set by check_pins: the discovery summary, the stale pins, the override reason.
+PINS_SUMMARY=''
+PINS_STALE=''
+PINS_OVERRIDE=''
 
 function main() {
   exec 5>&1
@@ -52,8 +71,10 @@ function main() {
   local force dry_run
   force="$(parse_force "${@:-}")"
   dry_run="$(parse_dry_run "${@:-}")"
+  PINS_OVERRIDE="$(parse_allow_stale_pins "${@:-}")"
   ensure_repo_root
   check_preconditions "${dry_run}"
+  check_pins "${dry_run}"
   run_release "${force}" "${dry_run}"
 }
 
@@ -63,11 +84,12 @@ function log() {
 }
 
 function cleanup() {
-  rm -f "${FINDINGS_FILE}"
+  rm -f "${FINDINGS_FILE}" "${PINS_TSV}"
 }
 
-# Accepts any order of: (nothing), --dry-run, --force vX.Y.Z. Empty arguments
-# (the GitHub Actions "${@:-}" artifact) are ignored.
+# Accepts any order of: (nothing), --dry-run, --force vX.Y.Z,
+# --allow-stale-pins "<reason>". Empty arguments (the GitHub Actions "${@:-}"
+# artifact) are ignored.
 function validate_args() {
   while [ "${#}" -gt 0 ]; do
     case "${1}" in
@@ -76,8 +98,25 @@ function validate_args() {
         validate_version_arg "${2:-}"
         shift 2
         ;;
+      --allow-stale-pins)
+        if [ -z "${2:-}" ] || [[ "${2}" == --* ]]; then
+          log '❌ Error: --allow-stale-pins needs a reason: --allow-stale-pins "<why releasing with stale pins is acceptable>"'
+          exit 1
+        fi
+        shift 2
+        ;;
       *) usage_error ;;
     esac
+  done
+}
+
+function parse_allow_stale_pins() {
+  while [ "${#}" -gt 0 ]; do
+    if [ "${1}" = '--allow-stale-pins' ]; then
+      printf '%s' "${2}"
+      return 0
+    fi
+    shift
   done
 }
 
@@ -89,7 +128,7 @@ function validate_version_arg() {
 }
 
 function usage_error() {
-  log '❌ Usage: create-release.sh [--force vX.Y.Z] [--dry-run]'
+  log '❌ Usage: create-release.sh [--force vX.Y.Z] [--dry-run] [--allow-stale-pins "<reason>"]'
   exit 1
 }
 
@@ -183,6 +222,70 @@ function check_clean_tree() {
     log '❌ working tree is not clean; commit or stash changes first'
     return 1
   fi
+}
+
+# check_pins DRY_RUN: discover every pin; stale pins block the release unless
+# --allow-stale-pins gave a reason (a dry run only warns).
+function check_pins() {
+  local -r dry_run="${1}"
+  local -r driver="$(dirname "${BASH_SOURCE[0]}")/update-pins.sh"
+  local report
+  log '📌 Checking pins...'
+  if ! report="$(bash "${driver}" --discover-only --tsv "${PINS_TSV}" 5>&1)"; then
+    log "${report}"
+    log '❌ Pin discovery failed; the release cannot show its pins are current.'
+    [ "${dry_run}" = '1' ] && return 0
+    exit 1
+  fi
+  PINS_SUMMARY="$(printf '%s\n' "${report}" | sed -n 's/^update-pins (discovery) — //p' | head -1)"
+  PINS_STALE="$(awk -F'\t' -v OFS='\t' '$6 == "stale" { print $1, $2, $4, $7, $NF }' "${PINS_TSV}")"
+  if [ -z "${PINS_STALE}" ]; then
+    log "✅ Pins: ${PINS_SUMMARY}"
+    return 0
+  fi
+  log "⛔ Stale pins (${PINS_SUMMARY}):"
+  local kind name current cand consequence
+  while IFS=$'\t' read -r kind name current cand consequence; do
+    log "  ${kind} ${name} ${current} -> ${cand}: ${consequence}"
+  done <<< "${PINS_STALE}"
+  if [ -n "${PINS_OVERRIDE}" ]; then
+    log "⚠️  Releasing with stale pins, authorized: ${PINS_OVERRIDE} (recorded in the tag and the audit log)"
+  elif [ "${dry_run}" = '1' ]; then
+    log '⚠️  (dry run) This release would be blocked by stale pins.'
+  else
+    log '❌ Release blocked by stale pins. Refresh them (make update-pins, then make update-pins APPLY=1),'
+    log '   or authorize: make create-release ALLOW_STALE_PINS="<reason>"'
+    exit 1
+  fi
+}
+
+# pin_trailers: the tag-message lines that record the pin state; with an
+# override, who authorized it, when, why, and every stale pin.
+function pin_trailers() {
+  [ -n "${PINS_SUMMARY}" ] && printf 'Pins: %s\n' "${PINS_SUMMARY}"
+  [ -n "${PINS_OVERRIDE}" ] && [ -n "${PINS_STALE}" ] || return 0
+  printf 'Pins-Override: %s\n' "${PINS_OVERRIDE}"
+  printf 'Pins-Override-By: %s <%s>\n' "$(git config user.name)" "$(git config user.email)"
+  printf 'Pins-Override-At: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  local kind name current cand consequence
+  while IFS=$'\t' read -r kind name current cand consequence; do
+    printf 'Pins-Stale: %s %s %s -> %s (%s)\n' "${kind}" "${name}" "${current}" "${cand}" "${consequence}"
+  done <<< "${PINS_STALE}"
+}
+
+# audit_override VERSION: one JSON line per authorized override, appended to the
+# repository's local audit log.
+function audit_override() {
+  local -r version="${1}"
+  [ -n "${PINS_OVERRIDE}" ] && [ -n "${PINS_STALE}" ] || return 0
+  local -r audit="$(git rev-parse --git-dir)/release-audit.log"
+  printf '%s\n' "${PINS_STALE}" | jq -Rnc \
+    --arg tag "v${version}" --arg reason "${PINS_OVERRIDE}" \
+    --arg by "$(git config user.name) <$(git config user.email)>" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{at: $at, tag: $tag, event: "allow-stale-pins", reason: $reason, by: $by,
+      stale: [inputs | select(length > 0) | split("\t") | {kind: .[0], pin: .[1], current: .[2], candidate: .[3]}]}' \
+    >> "${audit}"
+  log "📝 Override recorded in ${audit}"
 }
 
 function run_release() {
@@ -464,7 +567,9 @@ function build_tag_message() {
     printf '\n'
     cat "${FINDINGS_FILE}"
   fi
-  printf '\nGenerated-by: scripts/release/create-release.sh\n'
+  printf '\n'
+  pin_trailers
+  printf 'Generated-by: scripts/release/create-release.sh\n'
 }
 
 function tag_or_preview() {
@@ -477,6 +582,7 @@ function tag_or_preview() {
   fi
   prompt_approval "${version}"
   create_tag "${version}" "${msg}"
+  audit_override "${version}"
   push_tag "${version}"
 }
 

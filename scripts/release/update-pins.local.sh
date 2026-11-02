@@ -4,10 +4,18 @@
 # (`make update-pins`). Project-owned, never canonical.
 #
 # Usage: update-pins.local.sh pins|holds
-#   pins   records for pins the generic discovery cannot resolve:
-#          kind<TAB>name<TAB>file:line<TAB>current<TAB>source
-#   holds  inputs that are not external pins, with the reason:
-#          name-regex<TAB>reason
+#        update-pins.local.sh verify KIND NAME FILE PLATFORM
+#        update-pins.local.sh combined|cleanup PLATFORM
+#        update-pins.local.sh apply ROOT KIND NAME CURRENT CANDIDATE LOCATIONS
+#   pins      records for pins the generic discovery cannot resolve:
+#             kind<TAB>name<TAB>file:line<TAB>current<TAB>source
+#   holds     inputs that are not external pins, with the reason:
+#             name-regex<TAB>reason
+#   verify    make targets that exercise one pin (empty: the driver's default)
+#   combined  make targets for the combined run: builds first, then the full unit
+#             and integration set, including the container stack
+#   cleanup   remove the toolbox the combined run started
+#   apply     write a pin the driver cannot (exit 0 done, 3 not handled)
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -20,20 +28,31 @@ set -o errexit
 set -o pipefail
 
 readonly TOOLBOX='scripts/container/toolbox/Containerfile'
+# The combined run's toolbox mounts the throwaway worktree, so it never shares a
+# name with the developer's keel-toolbox (which mounts the working tree).
+readonly PINS_TOOLBOX='keel-toolbox-pins'
 
 function main() {
   validate_args "${@:-}"
-  case "${1}" in
+  local -r cmd="${1}"
+  shift
+  case "${cmd}" in
     pins) pins ;;
     holds) holds ;;
+    verify) verify "$@" ;;
+    combined) combined "$@" ;;
+    cleanup) cleanup ;;
+    apply) apply "$@" ;;
   esac
 }
 
 function validate_args() {
-  if [ "${#}" -ne 1 ] || [[ "${1}" != 'pins' && "${1}" != 'holds' ]]; then
-    printf 'Usage: update-pins.local.sh pins|holds\n' >&2
-    exit 1
-  fi
+  case "${1:-}" in
+    pins | holds | verify | combined | cleanup | apply) ;;
+    *)
+      printf 'Usage: update-pins.local.sh pins|holds|verify|combined|cleanup|apply ...\n' >&2
+      exit 1 ;;
+  esac
 }
 
 # toolbox_arg NAME: "<line>\t<value>" of `ARG NAME=value` in the toolbox Containerfile.
@@ -57,6 +76,79 @@ function holds() {
     '^example\.invalid/' 'placeholder image in a Helm policy test fixture' \
     '^REQUIRED_GO$' 'a version-prefix check on the installed Go, not a pin (go.mod pins the toolchain)' \
     '^KUBE_MIN$' 'oldest Kubernetes API the chart supports; raised deliberately, not on release'
+}
+
+# verify KIND NAME FILE PLATFORM: each tool's install plus the target that runs it.
+function verify() {
+  local -r kind="${1}" name="${2}" platform="${4}"
+  case "${kind}:${name}" in
+    gomod:*) printf 'min max test' ;;
+    gotool:*/gosec) printf 'setup-gosec lint-gosec' ;;
+    gotool:*/govulncheck) printf 'setup-govulncheck lint-vuln' ;;
+    gotool:*/actionlint) printf 'setup-actionlint lint-workflows' ;;
+    gotool:*/go-licenses*) printf 'setup-go-licenses lint-licenses' ;;
+    gotool:*/gotestsum) printf 'test-unit' ;;
+    gotool:*/staticcheck) printf 'setup-staticcheck' ;;
+    gotool:*/pebble) printf 'setup-pebble min max test' ;;
+    npm:markdownlint-cli) printf 'setup-markdownlint lint-markdown' ;;
+    tool:KUBESCAPE) linux_only "${platform}" 'setup-kubescape lint-helm-policy' ;;
+    tool:ZIZMOR) linux_only "${platform}" 'setup-zizmor lint-workflows' ;;
+    tool:KUBECONFORM) linux_only "${platform}" 'setup-kubeconform lint-helm-validate' ;;
+    tool:KUBECTL | tool:HELM)
+      # Rebuilding the toolbox image verifies the new version's checksums.
+      if [ "${platform}" = 'Darwin' ]; then printf 'KEEL_TOOLBOX_NAME=%s container-setup' "${PINS_TOOLBOX}"; fi ;;
+  esac
+}
+
+function linux_only() {
+  if [ "${1}" = 'Linux' ]; then printf '%s' "${2}"; fi
+}
+
+# combined PLATFORM: builds, lint, audit, unit + integrity BATS, then the
+# integration stack — Apple container locally, Docker Compose on Linux.
+function combined() {
+  if [ "${1}" = 'Darwin' ]; then
+    printf 'KEEL_TOOLBOX_NAME=%s min max lint audit test container-setup container-stack-test' "${PINS_TOOLBOX}"
+  else
+    printf 'min max lint audit test test-compose'
+  fi
+}
+
+function cleanup() {
+  if command -v container > /dev/null 2>&1; then
+    container rm -f "${PINS_TOOLBOX}" > /dev/null 2>&1 || true
+  fi
+}
+
+# apply ROOT KIND NAME CURRENT CANDIDATE LOCATIONS: kubectl and helm in the
+# toolbox Containerfile, with the checksums their CDNs publish.
+function apply() {
+  local -r root="${1}" kind="${2}" name="${3}" current="${4}" cand="${5}"
+  [ "${kind}" = 'tool' ] || return 3
+  local -r file="${root}/${TOOLBOX}"
+  local arch sum
+  case "${name}" in
+    KUBECTL | HELM) ;;
+    *) return 3 ;;
+  esac
+  replace_arg "${file}" "${name}_VERSION" "${current}" "${cand}"
+  for arch in amd64 arm64; do
+    if [ "${name}" = 'KUBECTL' ]; then
+      sum="$(curl -fsSL --retry 3 "https://dl.k8s.io/release/${cand}/bin/linux/${arch}/kubectl.sha256")"
+    else
+      sum="$(curl -fsSL --retry 3 "https://get.helm.sh/helm-${cand}-linux-${arch}.tar.gz.sha256sum" | awk '{print $1}')"
+    fi
+    [[ "${sum}" =~ ^[0-9a-f]{64}$ ]] || { printf 'no published checksum for %s %s %s\n' "${name}" "${cand}" "${arch}"; return 1; }
+    ARG="${name}_SHA256_$(tr '[:lower:]' '[:upper:]' <<< "${arch}")" SUM="${sum}" \
+      perl -pi -e 's/^(ARG \Q$ENV{ARG}\E=)[0-9a-f]{64}$/$1$ENV{SUM}/' "${file}"
+    grep -q "=${sum}$" "${file}" || { printf 'checksum not written for %s %s\n' "${name}" "${arch}"; return 1; }
+  done
+}
+
+function replace_arg() {
+  local -r file="${1}" arg="${2}" current="${3}" cand="${4}"
+  ARG="${arg}" CUR="${current}" CAND="${cand}" perl -pi -e 's/^(ARG \Q$ENV{ARG}\E=)\Q$ENV{CUR}\E$/$1$ENV{CAND}/' "${file}"
+  grep -q "^ARG ${arg}=${cand}$" "${file}" || { printf '%s not updated in %s\n' "${arg}" "${file}"; return 1; }
 }
 
 main "${@:-}"

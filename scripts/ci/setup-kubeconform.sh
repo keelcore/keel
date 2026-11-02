@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup-kubeconform.sh
 # Install kubeconform for offline Kubernetes schema validation.
-# Linux: download binary from GitHub releases.
+# Linux: download the release tarball and verify its committed SHA-256.
 # macOS: Homebrew.
 # No-op if kubeconform is already present.
 
@@ -16,6 +16,9 @@ set -o errexit
 set -o pipefail
 
 readonly KUBECONFORM_VERSION='v0.6.7'
+# Published in the release's CHECKSUMS file.
+readonly KUBECONFORM_SHA256_AMD64='95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73'
+readonly KUBECONFORM_SHA256_ARM64='dc82f79bb03c5479b1ae5fd4af221e4b5a3111f62bf01a2795d9c5c20fa96644'
 
 function main() {
   exec 5>&1
@@ -54,19 +57,24 @@ function validate_args() {
 }
 
 function install_linux() {
-  local arch
+  local arch sum
   arch="$(uname -m)"
   case "${arch}" in
-    x86_64)  arch='amd64' ;;
-    aarch64) arch='arm64' ;;
+    x86_64)  arch='amd64'; sum="${KUBECONFORM_SHA256_AMD64}" ;;
+    aarch64) arch='arm64'; sum="${KUBECONFORM_SHA256_ARM64}" ;;
     *)
       log "ERROR: unsupported arch: ${arch}"
       exit 1
       ;;
   esac
   local -r url="https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-${arch}.tar.gz"
-  curl -fsSL "${url}" | sudo tar -xzf - -C /usr/local/bin kubeconform
+  local tmp
+  tmp="$(mktemp -d)"
+  curl -fsSL "${url}" -o "${tmp}/kubeconform.tar.gz"
+  printf '%s  %s\n' "${sum}" "${tmp}/kubeconform.tar.gz" | sha256sum --check --quiet
+  sudo tar -xzf "${tmp}/kubeconform.tar.gz" -C /usr/local/bin kubeconform
   sudo chmod +x /usr/local/bin/kubeconform
+  rm -rf "${tmp}"
 }
 
 function install_macos() {

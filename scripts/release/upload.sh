@@ -127,9 +127,14 @@ function ensure_release() {
     return
   fi
   log "  Release ${tag} not found; creating"
-  local version notes tmp
+  local version notes overrides tmp
   version="${tag#v}"
   notes="$(extract_changelog "${version}")"
+  overrides="$(pin_overrides "${tag}")"
+  if [ -n "${overrides}" ]; then
+    notes="$(printf '%s\n\n## Pin overrides\n\nThis release was authorized with stale pins (create-release --allow-stale-pins):\n\n%s\n' \
+      "${notes}" "$(printf '%s\n' "${overrides}" | sed 's/^/- /')")"
+  fi
   if [ -n "${notes}" ]; then
     tmp="$(mktemp /tmp/keel-release-XXXXXX.md)"
     printf '%s\n' "${notes}" >"${tmp}"
@@ -139,6 +144,12 @@ function ensure_release() {
     gh release create "${tag}" --title "${tag}" --generate-notes
   fi
   log "  Release ${tag} created"
+}
+
+# pin_overrides TAG: the Pins-Override* and Pins-Stale trailers create-release
+# wrote into the signed tag message (empty when the release had no override).
+function pin_overrides() {
+  git tag -l --format='%(contents)' "${1}" | grep -E '^Pins-(Override|Override-By|Override-At|Stale):' || true
 }
 
 main "${@:-}"

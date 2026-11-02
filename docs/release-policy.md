@@ -70,6 +70,25 @@ mismatch between the committed file and the reflection output fails CI.
 | `cmd/config-schema/main.go` | Go tool: reflection-walk of `config.Config` → dotted YAML paths |
 | `make gen-schema` | Alias for `gen-schema.sh` |
 | `make create-release-local PREV_TAG=v0.9.13` | Run the hook alone against a previous tag |
+| `scripts/release/update-pins.local.sh` | Keel's pin hook (`make update-pins`): pins, holds, verification targets, appliers |
+| `make update-pins-local WHAT=pins` | Run the pin hook alone (`pins`, `holds`) |
+
+---
+
+## Pin Refresh
+
+The canonical `make update-pins` (`governance/ci.md` "Pin Refresh") runs before every release; stale pins block
+`make create-release`. Keel's hook adds:
+
+- **Pins:** kubectl and helm in the toolbox `Containerfile` (downloaded from dl.k8s.io and get.helm.sh), resolved
+  against their GitHub releases and applied with the checksums those CDNs publish.
+- **Holds:** the locally built `keel:test` and `keel-mockupstream:test` images, the `example.invalid` Helm fixture
+  image, the `REQUIRED_GO` toolchain-prefix check, and `KUBE_MIN` (the oldest Kubernetes API the chart supports).
+- **Verification:** Go modules run `make min max test`; each Go tool installs and runs its own lint target (gosec,
+  govulncheck, actionlint, go-licenses); toolbox tools rebuild a separate `keel-toolbox-pins` toolbox.
+- **Combined run:** `min max lint audit test`, then the integration stack: Apple `container`
+  (`container-setup container-stack-test`, in `keel-toolbox-pins`, which mounts the throwaway worktree) on macOS,
+  Docker Compose (`test-compose`) on Linux. `keel-toolbox-pins` is removed when the run ends.
 
 ---
 
