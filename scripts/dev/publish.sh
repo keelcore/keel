@@ -18,6 +18,11 @@
 #
 # Env: GITHUB_TOKEN and GITHUB_ACTOR (registry login for push and merge; GitHub Actions sets
 # GITHUB_ACTOR).
+#
+# Project hook: after each mode, `bash scripts/dev/publish.local.sh MODE` runs when the repository
+# holds it (resolved from the repository root, never canonical) — e.g. to check the published
+# packages. In local mode GITHUB_TOKEN is exported only when the login needs it (the developer's gh
+# credential, read once).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -32,6 +37,8 @@ set -o pipefail
 # shellcheck source=../lib/dev-image.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/dev-image.sh"
 
+readonly LOCAL_HOOK='scripts/dev/publish.local.sh'
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
@@ -40,11 +47,18 @@ function main() {
     merge) registry_login; for_each_image merge_image ;;
     ref) for_each_image write_ref ;;
     local)
-      # The login lives only for the push: a stored credential would be read (keychain) on every pull.
+      # Credentials follow the container system's lifecycle: one login (one gh credential read)
+      # when `container` holds none for the registry, never a logout; later runs reuse it.
       local_login
-      trap 'container registry logout "$(dev_registry | cut -d/ -f1)" > /dev/null 2>&1 || true' EXIT
       for_each_image local_image ;;
   esac
+  run_hook "${1}"
+}
+
+# run_hook MODE: the project's publish hook, when it has one.
+function run_hook() {
+  [ -f "${LOCAL_HOOK}" ] || return 0
+  bash "${LOCAL_HOOK}" "${1}"
 }
 
 function log() {
@@ -63,6 +77,7 @@ function validate_args() {
 }
 
 function registry_login() {
+  [ -z "${DOCKER_CONFIG:-}" ] || mkdir -p "${DOCKER_CONFIG}"
   printf '%s' "${GITHUB_TOKEN:?GITHUB_TOKEN is required}" \
     | docker login "$(dev_registry | cut -d/ -f1)" -u "${GITHUB_ACTOR:?GITHUB_ACTOR is required}" --password-stdin
 }
@@ -131,13 +146,20 @@ function merge_image() {
     >> "${GITHUB_STEP_SUMMARY}"
 }
 
-# local_login: registry login for Apple `container` with the developer's gh credentials,
-# (write:packages).
+# local_login: registry login for Apple `container` with the developer's gh credentials
+# (write:packages), only when it holds no credential for the registry yet.
 function local_login() {
+  local -r host="$(dev_registry | cut -d/ -f1)"
+  if container registry list 2> /dev/null | awk 'NR > 1 { print $1 }' | grep -qxF "${host}"; then
+    log "✅ ${host}: container already logged in"
+    return 0
+  fi
+  GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}"
+  export GITHUB_TOKEN
   local token user
-  token="${GITHUB_TOKEN:-$(gh auth token)}"
+  token="${GITHUB_TOKEN}"
   user="$(curl -fsSL -H "Authorization: Bearer ${token}" https://api.github.com/user | jq -r .login)"
-  printf '%s' "${token}" | container registry login "$(dev_registry | cut -d/ -f1)" -u "${user}" --password-stdin
+  printf '%s' "${token}" | container registry login "${host}" -u "${user}" --password-stdin
 }
 
 # local_image NAME HASH BASE: (macOS) build the multi-arch ctx-HASH index with Apple `container`
@@ -150,6 +172,9 @@ function local_image() {
     log "✅ ${tag} already published"
   else
     local -a args=(build --platform linux/amd64 --platform linux/arm64 -f "$(dev_containerfile "${name}")" -t "${tag}")
+    dev_ensure_builder
+    local opt
+    while IFS= read -r opt; do args+=("${opt}"); done < <(dev_builder_args)
     [ -z "${base}" ] || args+=(--build-arg "BASE_DEV_IMAGE=${base}")
     log "🔨 ${tag} (linux/amd64, linux/arm64)"
     container "${args[@]}" .

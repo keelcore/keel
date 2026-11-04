@@ -94,16 +94,17 @@ function go_bin() {
   printf '%s\n' "${gobin}"
 }
 
-# ensure_staticcheck: the pinned staticcheck from `make setup-staticcheck` (go install) is found
-# in the Go install directory whether or not that directory is on PATH.
+# ensure_staticcheck: the pinned staticcheck (scripts/ci/setup-staticcheck.sh, a release binary on
+# PATH in the tool image), else one in the Go install directory whether or not that is on PATH.
 function ensure_staticcheck() {
+  command -v staticcheck > /dev/null 2>&1 && return 0
   local gobin
   gobin="$(go_bin)"
   if [ -x "${gobin}/staticcheck" ]; then
     PATH="${gobin}:${PATH}"
     return 0
   fi
-  log "❌ staticcheck not found in ${gobin} (install with: make setup-staticcheck)"
+  log "❌ staticcheck not found on PATH or in ${gobin} (it is in the tool image: run through make)"
   exit 1
 }
 

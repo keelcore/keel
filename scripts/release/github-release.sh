@@ -72,10 +72,22 @@ function release_notes() {
   printf 'cosign verify-blob --bundle FILE.bundle FILE \\\n'
   printf '  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\\n'
   printf '  --certificate-identity-regexp '"'"'^https://github.com/%s/'"'"'\n```\n' "${GITHUB_REPOSITORY}"
-  printf '\nEach `*.spdx.json` is the SBOM of the artifact it is named after; the image SBOMs\n'
-  printf '(`standards-dev.spdx.json`, ...) describe the pinned tool images the release was built in.\n'
-  printf 'Provenance as each registry published it: `*.npm-attestations.json`, `*.pypi-provenance.json`,\n'
-  printf '`*.github-attestations.json` (GitHub build attestations) and `*.zip.sumdb.txt` (Go checksum database).\n'
+  printf '\nEach `*.spdx.json` is the SBOM of the artifact it is named after; `<repository>-<image>.spdx.json`\n'
+  printf '(e.g. `standards-dev.spdx.json`) describes a pinned tool image the release was built in.\n'
+  provenance_note "${dir}"
+}
+
+# provenance_note DIR: the provenance files this release carries, by kind (none: nothing printed).
+function provenance_note() {
+  local -r dir="${1}"
+  local -a kinds=()
+  compgen -G "${dir}/*.npm-attestations.json" > /dev/null && kinds+=('`*.npm-attestations.json` (npm)')
+  compgen -G "${dir}/*.pypi-provenance.json" > /dev/null && kinds+=('`*.pypi-provenance.json` (PyPI)')
+  compgen -G "${dir}/*.github-attestations.json" > /dev/null && kinds+=('`*.github-attestations.json` (GitHub build attestations)')
+  compgen -G "${dir}/*.zip.sumdb.txt" > /dev/null && kinds+=('`*.zip.sumdb.txt` (Go checksum database)')
+  [ "${#kinds[@]}" -gt 0 ] || return 0
+  local IFS=','
+  printf 'Provenance as each registry published it: %s.\n' "${kinds[*]}" | sed 's/,/, /g'
 }
 
 # changelog_section TAG VERSION: TAG's CHANGELOG.md section for VERSION, else its [Unreleased].
@@ -86,9 +98,25 @@ function changelog_section() {
   [ -n "${changelog}" ] || { printf 'No CHANGELOG.md.\n'; return 0; }
   section="$(awk -v h="## [${version}]" 'index($0, h) == 1 { on = 1; next } on && /^## \[/ { exit } on' <<< "${changelog}")"
   if [ -z "${section}" ]; then
-    section="$(awk 'index($0, "## [Unreleased]") == 1 { on = 1; next } on && /^## \[/ { exit } on' <<< "${changelog}")"
+    section="$(awk 'index($0, "## [Unreleased]") == 1 { on = 1; next } on && /^## \[/ { exit } on' <<< "${changelog}" \
+      | new_since "$(git describe --tags --abbrev=0 "${tag}^" 2> /dev/null || true)")"
   fi
   printf '%s\n' "${section}"
+}
+
+# new_since PREV_TAG: the [Unreleased] section on stdin, keeping only the entries PREV_TAG's
+# CHANGELOG.md does not have (an entry is its "- " line and the indented lines after it), under
+# their "### " headings: what this release adds. Without PREV_TAG, every entry.
+function new_since() {
+  local -r prev="$(mktemp)"
+  [ -z "${1}" ] || git show "${1}:CHANGELOG.md" > "${prev}" 2> /dev/null || true
+  awk '
+    FILENAME == ARGV[1] { seen[$0] = 1; next }
+    /^### / { head = $0; next }
+    /^- / { keep = !($0 in seen); if (keep && !(head in shown)) { print ""; print head; print ""; shown[head] = 1 } }
+    /^- / || /^  / { if (keep) print }
+  ' "${prev}" -
+  rm -f "${prev}"
 }
 
 # upsert_release REPO TAG NOTES: the release id, created or with its notes updated.

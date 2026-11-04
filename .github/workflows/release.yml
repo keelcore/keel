@@ -176,3 +176,9 @@ jobs:
           MIN_DIGEST: ${{ steps.images.outputs.min_digest }}
           FIPS_DIGEST: ${{ steps.images.outputs.fips_digest }}
         run: make release-verify
+      # Immutable releases: every asset is attached to the draft first; publishing locks it.
+      - name: Attach image SBOMs and publish the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: make release-upload ARGS="--publish"

@@ -38,6 +38,7 @@ function main() {
     return 0
   fi
   require_linux
+  require_image_build
   log "⚓ Installing syft v${SYFT_VERSION}"
   download_and_verify
   install_syft
@@ -101,6 +102,15 @@ function extract_binary() {
 function install_syft() {
   as_root mv /tmp/syft-staged "${SYFT_INSTALL_PATH}"
   as_root chmod +x "${SYFT_INSTALL_PATH}"
+}
+
+# require_image_build: tools are installed only while the tool image is built
+# (containers/*/Containerfile sets KEELCORE_IMAGE_BUILD); anywhere else the tool is already in the
+# image, and a missing or different version is an error, never an install.
+function require_image_build() {
+  [ -n "${KEELCORE_IMAGE_BUILD:-}" ] && return 0
+  log "❌ syft v${SYFT_VERSION} is not in this tool image; tools install only when the image is built"
+  exit 1
 }
 
 main "${@:-}"

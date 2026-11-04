@@ -151,14 +151,12 @@ setup_file() {
 }
 
 # ---------------------------------------------------------------------------
-# 7. .git/hooks/pre-commit is a symlink to scripts/git_precommit.sh (as make install-hooks installs it)
+# 7. core.hooksPath is scripts/hooks and scripts/hooks/pre-commit is executable (as make install-hooks installs it)
 # ---------------------------------------------------------------------------
-@test ".git/hooks/pre-commit is a symlink to scripts/git_precommit.sh" {
-  [ -n "${CI:-}" ] && skip "hook symlink not installed in CI checkout"
-  [ -L "${REPO_ROOT}/.git/hooks/pre-commit" ]
-  local target
-  target="$(readlink "${REPO_ROOT}/.git/hooks/pre-commit")"
-  [[ "${target}" == *"scripts/git_precommit.sh" ]]
+@test "core.hooksPath is scripts/hooks and scripts/hooks/pre-commit is executable" {
+  [ -n "${CI:-}" ] && skip "hooks not installed in CI checkout"
+  [ "$(git config --file "${REPO_ROOT}/.git/config" --get core.hooksPath)" = "scripts/hooks" ]
+  [ -x "${REPO_ROOT}/scripts/hooks/pre-commit" ]
 }
 
 # ---------------------------------------------------------------------------

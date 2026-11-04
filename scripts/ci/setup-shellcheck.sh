@@ -56,6 +56,7 @@ function install_shellcheck() {
     log '❌ shellcheck installs in the dev image (Linux); run: make lint-bash'
     exit 1
   fi
+  require_image_build
   local arch sha tarball tmp
   arch="$(uname -m)"
   case "${arch}" in
@@ -72,6 +73,15 @@ function install_shellcheck() {
   as_root install -m 0755 "${tmp}/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "${SHELLCHECK_INSTALL_PATH}"
   rm -rf "${tmp}"
   log "✅ shellcheck ${SHELLCHECK_VERSION} installed at ${SHELLCHECK_INSTALL_PATH}"
+}
+
+# require_image_build: tools are installed only while the tool image is built
+# (containers/*/Containerfile sets KEELCORE_IMAGE_BUILD); anywhere else the tool is already in the
+# image, and a missing or different version is an error, never an install.
+function require_image_build() {
+  [ -n "${KEELCORE_IMAGE_BUILD:-}" ] && return 0
+  log "❌ shellcheck ${SHELLCHECK_VERSION} is not in this tool image; tools install only when the image is built"
+  exit 1
 }
 
 main "${@:-}"

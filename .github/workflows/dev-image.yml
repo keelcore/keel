@@ -47,11 +47,15 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
         with:
           persist-credentials: false
+          # A consumer's Makefile includes .standards/templates/Makefile.canonical from the submodule.
+          submodules: recursive
 
       - run: make dev-image-push
         env:
           ARCH: ${{ matrix.arch }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # One registry login per job, in the job's temp directory (discarded with the runner).
+          DOCKER_CONFIG: ${{ runner.temp }}/docker-config
 
   merge:
     name: dev-image / merge + sign
@@ -66,7 +70,11 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
         with:
           persist-credentials: false
+          # A consumer's Makefile includes .standards/templates/Makefile.canonical from the submodule.
+          submodules: recursive
 
       - run: make dev-image-merge
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # One registry login per job (publish.sh), reused read-only by the signing tool image.
+          DOCKER_CONFIG: ${{ runner.temp }}/docker-config

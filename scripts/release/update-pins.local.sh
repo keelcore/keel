@@ -83,20 +83,6 @@ function holds() {
     '^example\.invalid/' 'placeholder image in a Helm policy test fixture' \
     '^REQUIRED_GO$' 'a version-prefix check on the installed Go, not a pin (go.mod pins the toolchain)' \
     '^KUBE_MIN$' 'oldest Kubernetes API the chart supports; raised deliberately, not on release'
-  canonical_holds
-}
-
-# canonical_holds: every pin defined in a canonical file (byte-identical to its .standards copy)
-# is .standards' to refresh, never keel's: held here, so it neither blocks keel's release gate nor
-# gets applied in keel.
-function canonical_holds() {
-  local f name
-  while IFS= read -r f; do
-    if [ ! -f ".standards/${f}" ] || ! cmp -s "${f}" ".standards/${f}"; then continue; fi
-    while IFS= read -r name; do
-      [ -n "${name}" ] && printf '^%s$\t%s\n' "${name}" "held by .standards (canonical ${f})"
-    done < <(sed -nE "/^readonly TOOL_VERSION=/d; s/^readonly ([A-Z0-9_]+)_VERSION=.*/\\1/p; s/^readonly TOOL_MODULE='([^']+)'.*/\\1/p" "${f}" | sed 's/[.]/\\./g')
-  done < <(git ls-files 'scripts/*.sh')
 }
 
 # verify KIND NAME FILE PLATFORM: each tool's install plus the target that runs it.

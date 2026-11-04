@@ -5,7 +5,8 @@
 #
 # Usage: sign-image.sh REPOSITORY@sha256:DIGEST   (no-op when this repository's workflow
 # already signed it)
-# Env: GITHUB_TOKEN, GITHUB_ACTOR (registry login); ACTIONS_ID_TOKEN_REQUEST_URL and
+# Env: DOCKER_CONFIG (the job's registry login, read-only), else GITHUB_TOKEN and GITHUB_ACTOR
+# (a login of its own); ACTIONS_ID_TOKEN_REQUEST_URL and
 # ACTIONS_ID_TOKEN_REQUEST_TOKEN (the job's OIDC token for the signing certificate).
 
 # bash configuration:
@@ -28,8 +29,12 @@ function main() {
     log "✅ ${ref} is already signed"
     return 0
   fi
-  printf '%s' "${GITHUB_TOKEN:?GITHUB_TOKEN is required}" \
-    | cosign login "${ref%%/*}" -u "${GITHUB_ACTOR:?GITHUB_ACTOR is required}" --password-stdin
+  # The job's one registry login (DOCKER_CONFIG, mounted read-only by run.sh) when there is one;
+  # a login of its own only without it.
+  if [ ! -f "${DOCKER_CONFIG:-/nonexistent}/config.json" ]; then
+    printf '%s' "${GITHUB_TOKEN:?GITHUB_TOKEN is required}" \
+      | cosign login "${ref%%/*}" -u "${GITHUB_ACTOR:?GITHUB_ACTOR is required}" --password-stdin
+  fi
   cosign sign --yes "${ref}"
   log "✅ signed ${ref}"
 }

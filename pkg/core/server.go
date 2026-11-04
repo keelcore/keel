@@ -18,6 +18,7 @@ import (
 	"github.com/keelcore/keel/pkg/core/metrics"
 	"github.com/keelcore/keel/pkg/core/mw"
 	"github.com/keelcore/keel/pkg/core/probes"
+	"github.com/keelcore/keel/pkg/core/protonotice"
 	"github.com/keelcore/keel/pkg/core/router"
 	"github.com/keelcore/keel/pkg/core/sidecar"
 	"github.com/keelcore/keel/pkg/core/statsd"
@@ -122,6 +123,12 @@ func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
 	s.runner = realRunner{onBound: s.listenerBound, h3Cert: s.h3Certificate}
 	for _, opt := range opts {
 		opt(s)
+	}
+	// After the options: WithLogger may have replaced the logger.
+	if rr, ok := s.runner.(realRunner); ok {
+		rr.onReject = handshakeRejectionLog(s.logger, s.met, rejectionLogsPerSecond)
+		rr.onRejected = func(c protonotice.Code) { s.met.IncProtocolRejection(string(c)) }
+		s.runner = rr
 	}
 	return s
 }
@@ -285,6 +292,7 @@ func (s *Server) startSidecar(ctx context.Context, rt *router.Router) {
 		Log:        s.logger,
 		DialRetry:  s.met.IncUpstreamDialRetry,
 		DialFailed: s.met.IncUpstreamDialFailure,
+		RetryAfter: s.met.IncUpstreamRetryAfter,
 	}, signFn)
 	if err == nil {
 		sidecar.StartHealthProbe(ctx, s.cfg.Sidecar, nil, s.readiness, s.logger)
@@ -330,6 +338,11 @@ func (s *Server) wrapMain(h http.Handler) http.Handler {
 	if s.cfg.Backpressure.SheddingEnabled {
 		h = mw.Shedding(s.readiness, h)
 	}
+	// Protocol rejections and the notice page run before shedding and authentication.
+	h = s.protocolPolicy(h)
+	if s.cfg.Listeners.H3.Enabled {
+		h = mw.AltSvc(s.cfg.Listeners.H3.Port, s.cfg.Security.AltSvcMaxAge, h)
+	}
 	// Body caps and the read timeout always apply; OWASP adds the headers on top.
 	if s.cfg.Security.OWASPHeaders {
 		h = mw.OWASP(s.cfg, h)
@@ -344,6 +357,8 @@ func (s *Server) wrapMain(h http.Handler) http.Handler {
 	// at request time, giving it access to the trace/span IDs in r.Context().
 	h = mw.OTelSpan(func() *tracing.Exporter { return s.expPtr.Load() }, h)
 	h = mw.TraceContext(h)
+	// Hop headers first: TraceContext and RequestID then keep only what this policy allows.
+	h = mw.HopHeaders(s.cfg.Sidecar.XFFTrustedHops > 0, h)
 	if s.cfg.Limits.MaxConcurrent > 0 {
 		h = mw.ConcurrencyLimit(s.cfg, h)
 	}

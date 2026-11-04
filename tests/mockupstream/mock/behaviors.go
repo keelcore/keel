@@ -27,6 +27,8 @@ var behaviors = map[string]behavior{
 	"drip":          serveDrip,
 	"malformed":     serveMalformed,
 	"huge-headers":  serveHugeHeaders,
+	"retry-after":   serveRetryAfter,
+	"unhealthy":     serveUnhealthy,
 }
 
 const (
@@ -35,6 +37,8 @@ const (
 	legacyBody = "legacy body, no length, ends at close\n"
 	// hugeHeader exceeds net/http's default response-header limit (10 MB).
 	hugeHeader = 11 << 20
+	// healthPath is the path keel's sidecar health probe polls (sidecar.upstream_health_path).
+	healthPath = "/health"
 )
 
 func serve(u *upstream, c net.Conn, mode string) {
@@ -137,4 +141,44 @@ func serveHugeHeaders(u *upstream, c net.Conn, br *bufio.Reader) {
 	_, _ = w.WriteString(strings.Repeat("a", hugeHeader))
 	_, _ = w.WriteString("\r\nContent-Length: 0\r\n\r\n")
 	_ = w.Flush()
+}
+
+// retry-after: the first request for each path gets 503 with Retry-After (the
+// request's `after` query value, default 1 second); every later one gets 200.
+// The health path always gets 200, so keel's probe never consumes the 503.
+func serveRetryAfter(u *upstream, c net.Conn, br *bufio.Reader) {
+	for {
+		req, ok := readRequest(u, br)
+		if !ok {
+			return
+		}
+		resp := okResponse
+		if req.URL.Path != healthPath && u.firstRequest(req.URL.Path) {
+			after := req.URL.Query().Get("after")
+			if after == "" {
+				after = "1"
+			}
+			resp = "HTTP/1.1 503 Service Unavailable\r\nRetry-After: " + after + "\r\nContent-Length: 0\r\n\r\n"
+		}
+		if _, err := io.WriteString(c, resp); err != nil || req.Close {
+			return
+		}
+	}
+}
+
+// unhealthy: the health path gets 503 while every other request gets 200.
+func serveUnhealthy(u *upstream, c net.Conn, br *bufio.Reader) {
+	for {
+		req, ok := readRequest(u, br)
+		if !ok {
+			return
+		}
+		resp := okResponse
+		if req.URL.Path == healthPath {
+			resp = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n"
+		}
+		if _, err := io.WriteString(c, resp); err != nil || req.Close {
+			return
+		}
+	}
 }

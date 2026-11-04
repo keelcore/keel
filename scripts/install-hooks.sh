@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # scripts/install-hooks.sh
-# Project-specific wrapper for `make install-hooks`: symlink the pre-commit
-# entry into .git/hooks/. Idempotent — re-running refreshes the symlink target.
+# `make install-hooks`: point git at the versioned hooks (core.hooksPath scripts/hooks). The path
+# resolves from the root of whichever working tree commits, so the same setting serves a clone,
+# every worktree and a submodule checkout. Idempotent.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -25,8 +26,8 @@ function install_precommit() {
     log 'ℹ️  scripts/git_precommit.sh not present; nothing to install'
     return 0
   fi
-  ln -sf ../../scripts/git_precommit.sh .git/hooks/pre-commit
-  log '✅ pre-commit hook installed (.git/hooks/pre-commit → ../../scripts/git_precommit.sh)'
+  git config core.hooksPath scripts/hooks
+  log '✅ hooks installed: core.hooksPath = scripts/hooks (scripts/hooks/pre-commit runs scripts/git_precommit.sh)'
 }
 
 function log() {

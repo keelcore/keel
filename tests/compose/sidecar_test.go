@@ -295,3 +295,143 @@ func TestCompose_SidecarHugeHeadersIs502(t *testing.T) {
 		t.Fatal("upstream header bytes leaked to the client")
 	}
 }
+
+// 503 with Retry-After inside timeouts.write: keel waits the stated delay and
+// retries the GET once (honor_retry_after: true in keel-sidecar.yaml).
+func TestCompose_SidecarRetryAfterHonored(t *testing.T) {
+	sidecarReady(t)
+	mockMode(t, "retry-after")
+	before := sidecarMetric(t, "keel_upstream_retry_after_total")
+	got := viaSidecar(t, http.MethodGet, "/later?after=1", "", nil)
+	if got.status != http.StatusOK {
+		t.Fatalf("status %d body %q, want 200 after the retry", got.status, got.body)
+	}
+	if got.elapsed < time.Second {
+		t.Fatalf("answered after %s, want at least the 1s Retry-After", got.elapsed)
+	}
+	if n := requests(mockCaptures(t), "GET /later?after=1 "); n != 2 {
+		t.Fatalf("upstream received GET /later %d times, want 2", n)
+	}
+	if after := sidecarMetric(t, "keel_upstream_retry_after_total"); after != before+1 {
+		t.Fatalf("retry-after counter %d → %d, want +1", before, after)
+	}
+}
+
+// Retry-After past timeouts.write: the 503 passes through and nothing is retried.
+func TestCompose_SidecarRetryAfterPastDeadline(t *testing.T) {
+	sidecarReady(t)
+	mockMode(t, "retry-after")
+	got := viaSidecar(t, http.MethodGet, "/much-later?after=30", "", nil)
+	if got.status != http.StatusServiceUnavailable {
+		t.Fatalf("status %d, want the upstream's 503", got.status)
+	}
+	if n := requests(mockCaptures(t), "GET /much-later?after=30 "); n != 1 {
+		t.Fatalf("upstream received GET /much-later %d times, want 1", n)
+	}
+}
+
+// A POST is never replayed for Retry-After: the 503 passes through.
+func TestCompose_SidecarRetryAfterPostNotReplayed(t *testing.T) {
+	sidecarReady(t)
+	mockMode(t, "retry-after")
+	got := viaSidecar(t, http.MethodPost, "/submit?after=1", "payload", nil)
+	if got.status != http.StatusServiceUnavailable {
+		t.Fatalf("status %d, want the upstream's 503", got.status)
+	}
+	if n := requests(mockCaptures(t), "POST /submit?after=1 "); n != 1 {
+		t.Fatalf("upstream received POST /submit %d times, want 1", n)
+	}
+}
+
+// Health probe failing while requests succeed: /readyz reports not ready (the
+// upstream check), and proxying keeps serving.
+func TestCompose_SidecarUnhealthyProbe(t *testing.T) {
+	sidecarReady(t)
+	mockMode(t, "unhealthy")
+	waitHTTP(t, keelURL(SidecarReady, "/readyz"), http.StatusServiceUnavailable, 30*time.Second)
+	if got := viaSidecar(t, http.MethodGet, "/work", "", nil); got.status != http.StatusOK {
+		t.Fatalf("status %d, want 200 while only the health probe fails", got.status)
+	}
+}
+
+// capturedHeader is every value of header name in the mock's captures.
+func capturedHeader(captures, name string) []string {
+	var out []string
+	for _, line := range strings.Split(captures, "\n") {
+		k, v, ok := strings.Cut(strings.TrimRight(line, "\r"), ":")
+		if ok && strings.EqualFold(k, name) {
+			out = append(out, strings.TrimSpace(v))
+		}
+	}
+	return out
+}
+
+// Hop headers (docs/security.md): the client sends forged copies of every header
+// only a hop may create; the upstream receives keel's own value or none.
+// keel-sidecar signs outbound requests and has no trusted hop in front of it.
+func TestCompose_SidecarHopHeadersForged(t *testing.T) {
+	sidecarReady(t)
+	mockMode(t, "ok")
+	got := viaSidecar(t, http.MethodGet, "/hop", "", map[string]string{
+		"Authorization":     "Bearer forged",
+		"X-Real-IP":         "6.6.6.6",
+		"X-Forwarded-For":   "6.6.6.6, x;y",
+		"Forwarded":         "for=6.6.6.6",
+		"X-Forwarded-Host":  "evil.example",
+		"X-Forwarded-Proto": "https",
+		"Via":               "1.1 test-sidecar",
+		"traceparent":       "00-ffffffffffffffffffffffffffffffff-ffffffffffffffff-01",
+		"x-request-id":      "forged",
+	})
+	if got.status != http.StatusOK {
+		t.Fatalf("status %d, want 200", got.status)
+	}
+	c := mockCaptures(t)
+	if v := capturedHeader(c, "Authorization"); len(v) != 1 || !strings.HasPrefix(v[0], "Bearer ") || v[0] == "Bearer forged" {
+		t.Errorf("Authorization %q, want keel's signed token only", v)
+	}
+	realIP := capturedHeader(c, "X-Real-Ip")
+	if len(realIP) != 1 || realIP[0] == "6.6.6.6" {
+		t.Errorf("X-Real-IP %q, want the socket peer", realIP)
+	}
+	if v := capturedHeader(c, "X-Forwarded-For"); len(v) != 1 || len(realIP) != 1 || v[0] != "6.6.6.6, unknown, "+realIP[0] {
+		t.Errorf("X-Forwarded-For %q, want the client chain normalized plus the peer", v)
+	}
+	for _, h := range []string{"Forwarded", "X-Forwarded-Host", "X-Forwarded-Proto"} {
+		if v := capturedHeader(c, h); len(v) != 0 {
+			t.Errorf("%s %q, want absent", h, v)
+		}
+	}
+	if v := capturedHeader(c, "Via"); len(v) != 2 || v[1] != "1.1 test-sidecar" {
+		t.Errorf("Via %q, want the client's entry then keel's own last", v)
+	}
+	if v := capturedHeader(c, "X-Request-Id"); len(v) != 1 || v[0] == "forged" {
+		t.Errorf("x-request-id %q, want keel's own", v)
+	}
+	if v := capturedHeader(c, "Traceparent"); len(v) != 1 || strings.Contains(v[0], "ffffffffffffffffffffffffffffffff") {
+		t.Errorf("traceparent %q, want a new trace (no trusted hop)", v)
+	}
+}
+
+// Two Authorization lines: refused before keel or the upstream reads either.
+func TestCompose_SidecarRepeatedAuthorizationRefused(t *testing.T) {
+	sidecarReady(t)
+	mockMode(t, "ok")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, keelURL(SidecarHTTP, "/twice"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", "Bearer a")
+	req.Header.Add("Authorization", "Bearer b")
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400", resp.StatusCode)
+	}
+	if n := requests(mockCaptures(t), "GET /twice "); n != 0 {
+		t.Fatalf("upstream received GET /twice %d times, want 0", n)
+	}
+}

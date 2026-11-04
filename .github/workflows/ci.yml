@@ -102,8 +102,6 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-      - name: Install Helm
-        run: make setup-helm
       - name: Run consistency suite
         run: make test-consistency
 

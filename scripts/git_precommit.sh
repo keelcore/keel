@@ -10,6 +10,9 @@
 #      Per user directive 2026-05-24: pre-commit MUST catch consumer-side
 #      recipe changes to a canonical target that aren't reflected in the
 #      templates version.
+#   4. update-pins.sh --check-pins-doc — when the repository has docs/current_pins.md, the pins
+#      it lists match the pins in the tree (local, no network): updated pins are committed with
+#      their table.
 # Install: ln -sf ../../scripts/git_precommit.sh .git/hooks/pre-commit
 
 # bash configuration:
@@ -32,10 +35,13 @@ paths_ensure_standard
 
 function main() {
   exec 5>&1
-  log 'Pre-commit: format + lint + governance-gate'
+  log 'Pre-commit: format + lint + governance-gate + pins table'
   bash scripts/dev/run.sh --writable bash scripts/format.sh
   bash scripts/dev/run.sh bash scripts/lint.sh
   bash scripts/dev/run.sh bash scripts/ci/governance-gate.sh
+  if [ -f docs/current_pins.md ]; then
+    bash scripts/dev/run.sh bash scripts/release/update-pins.sh --check-pins-doc docs/current_pins.md
+  fi
   log '✅ Pre-commit checks passed'
 }
 

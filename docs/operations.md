@@ -208,9 +208,9 @@ The health prober runs independently of request traffic. Even when the circuit i
 forwarded), the prober continues. This is how Keel detects that the upstream has recovered and transitions from
 OPEN to HALF-OPEN.
 
-**Impact on `/readyz`:** When the upstream health prober has accumulated enough failures, Keel flips its
-`/readyz` endpoint to 503. Kubernetes removes the Keel pod from Service endpoints. This is the correct
-behavior — if Keel cannot reach its upstream, it should not receive traffic.
+**Impact on `/readyz`:** each probe sets the `upstream` readiness check. A failed probe flips `/readyz` to 503
+until the next probe passes, and Kubernetes removes the Keel pod from Service endpoints: if Keel cannot reach its
+upstream, it should not receive new traffic. Requests that still arrive are proxied as usual.
 
 ---
 
@@ -295,6 +295,25 @@ keel_upstream_health
 ```
 
 Alert if `keel_circuit_open == 1` for more than 60 seconds — that indicates an upstream that is not recovering quickly.
+
+### 7.4 Retries
+
+Keel retries an upstream request only when doing so cannot repeat work the upstream has done:
+
+- **Failed connects** (`sidecar.retry.dial_attempts`, default 3; `dial_backoff`, default 50ms, doubling): a
+  connect that failed sent no request bytes, so every method is retried, `POST` included. Each retry is logged
+  (`upstream_dial_retry`) and counted (`keel_upstream_dial_retries_total`); exhaustion answers 502
+  (`upstream_dial_failed`, `keel_upstream_dial_failures_total`).
+- **`Retry-After`** (`sidecar.retry.honor_retry_after`, default `false`): a 503 or 429 carrying `Retry-After`
+  (seconds or an HTTP-date) is retried once, after the stated delay, for an idempotent method (`GET`, `HEAD`,
+  `OPTIONS`, `TRACE`, `PUT`, `DELETE`) whose body can be sent again, when the delay and the retry fit inside
+  the upstream response deadline (90% of `timeouts.write`). Otherwise the upstream's response passes through.
+  Each retry is logged (`upstream_retry_after`) and counted (`keel_upstream_retry_after_total`).
+- **Stale keep-alive connections:** an idempotent request that finds its pooled connection closed by the
+  upstream is resent on a fresh connection.
+
+Apart from `Retry-After`, a request that reached the upstream is sent exactly once. The circuit breaker counts
+one outcome per request, after its retries.
 
 ---
 

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # upload.sh
 # Upload release artifacts from dist/ to a GitHub Release.
-# Creates the release if it does not already exist (idempotent).
+# Creates the release as a draft if it does not already exist (idempotent). With --publish (the
+# release workflow's last step), attaches the per-image SBOMs docker.sh wrote and publishes the
+# draft: the repository has immutable releases, so every asset is attached before publishing.
+#
+# Usage: upload.sh [--publish]
 # Requires: gh CLI authenticated; GITHUB_TOKEN set by CI.
 #
 # Configuration via environment variable:
@@ -24,8 +28,12 @@ function main() {
   validate_args "${@:-}"
   local tag
   tag="$(resolve_tag "${RELEASE_TAG}")"
-  log "Uploading release artifacts for ${tag}"
   require_gh
+  if [ "${1:-}" = '--publish' ]; then
+    publish_release "${tag}"
+    return 0
+  fi
+  log "Uploading release artifacts for ${tag}"
   collect_and_upload "${tag}"
   log "✅ Upload complete for ${tag}"
 }
@@ -41,6 +49,13 @@ function validate_args() {
     log "  Example: RELEASE_TAG=v1.2.3 bash scripts/release/upload.sh"
     exit 1
   fi
+  case "${1:-}" in
+    '' | --publish) ;;
+    *)
+      log "ERROR: unexpected argument: ${1}"
+      exit 1
+      ;;
+  esac
 }
 
 # resolve_tag echoes a v* tag, synthesizing one from git describe if the
@@ -111,6 +126,25 @@ function collect_and_upload() {
   gh release upload "${tag}" "${files[@]}" --clobber
 }
 
+# publish_release TAG: attach the six per-image SBOMs (flavor × arch, all required), then publish the
+# draft; publishing locks the release (immutable releases).
+function publish_release() {
+  local -r tag="${1}"
+  local -a files=()
+  local flavor arch
+  for flavor in max min fips; do
+    for arch in amd64 arm64; do
+      [ -f "dist/sbom-${flavor}-${arch}.spdx.json" ] \
+        || { log "ERROR: image SBOM missing: dist/sbom-${flavor}-${arch}.spdx.json"; exit 1; }
+      files+=("dist/sbom-${flavor}-${arch}.spdx.json")
+    done
+  done
+  log "Attaching ${#files[@]} image SBOMs to ${tag}"
+  gh release upload "${tag}" "${files[@]}" --clobber
+  gh release edit "${tag}" --draft=false --latest
+  log "✅ Release ${tag} published"
+}
+
 # extract_changelog prints the body of the CHANGELOG.md section for version
 # (e.g. "0.9.7"), or nothing if the section is absent.
 function extract_changelog() {
@@ -138,12 +172,12 @@ function ensure_release() {
   if [ -n "${notes}" ]; then
     tmp="$(mktemp /tmp/keel-release-XXXXXX.md)"
     printf '%s\n' "${notes}" >"${tmp}"
-    gh release create "${tag}" --title "${tag}" --notes-file "${tmp}"
+    gh release create "${tag}" --title "${tag}" --draft --notes-file "${tmp}"
     rm -f "${tmp}"
   else
-    gh release create "${tag}" --title "${tag}" --generate-notes
+    gh release create "${tag}" --title "${tag}" --draft --generate-notes
   fi
-  log "  Release ${tag} created"
+  log "  Release ${tag} created (draft)"
 }
 
 # pin_overrides TAG: the Pins-Override* and Pins-Stale trailers create-release

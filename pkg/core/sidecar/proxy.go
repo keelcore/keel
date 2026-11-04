@@ -83,18 +83,22 @@ func NewWithHooks(cfg config.Config, hooks Hooks, sign ...func(*http.Request) er
 		cfg.Sidecar.Retry.DialAttempts, cfg.Sidecar.Retry.DialBackoff.Duration, hooks)
 
 	var rt http.RoundTripper = transport
+	if cfg.Sidecar.Retry.HonorRetryAfter {
+		rt = &retryAfterTransport{inner: rt, budget: upstreamHeaderBudget(cfg.Timeouts.Write.Duration), hooks: hooks}
+	}
 	if cfg.Sidecar.CircuitBreaker.Enabled {
 		cb := newBreaker(
 			cfg.Sidecar.CircuitBreaker.FailureThreshold,
 			cfg.Sidecar.CircuitBreaker.ResetTimeout.Duration,
 		)
-		rt = &cbTransport{inner: transport, breaker: cb}
+		rt = &cbTransport{inner: rt, breaker: cb}
 	}
 
 	maxResp := cfg.Security.MaxResponseBodyBytes
 	xffMode := cfg.Sidecar.XFFMode
 	xffHops := cfg.Sidecar.XFFTrustedHops
 	policy := cfg.Sidecar.HeaderPolicy
+	via := viaPseudonym(cfg.Authn.MyID)
 
 	// The sign function runs in a transport wrapper outside the breaker, so a
 	// signing failure aborts the request with 502 (never forwarding unsigned)
@@ -108,9 +112,11 @@ func NewWithHooks(cfg config.Config, hooks Hooks, sign ...func(*http.Request) er
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(u)
 			// Read existing XFF from the inbound request before the proxy may
-			// strip it, then apply the configured mode to the outbound request.
-			incomingXFF := pr.In.Header.Get("x-forwarded-for")
+			// strip it (every field line: repeated lines are one list), then
+			// apply the configured mode to the outbound request.
+			incomingXFF := strings.Join(pr.In.Header.Values("x-forwarded-for"), ", ")
 			applyXFF(pr.Out, incomingXFF, pr.In.RemoteAddr, xffMode, xffHops)
+			applyHopIdentity(pr.Out, pr.In, via)
 			applyHeaderPolicy(pr.Out, policy)
 			// When keel signs outbound requests the client's own credentials are
 			// never forwarded; signTransport attaches keel's token.

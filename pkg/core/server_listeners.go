@@ -17,6 +17,7 @@ import (
 	"github.com/keelcore/keel/pkg/core/httpx"
 	"github.com/keelcore/keel/pkg/core/lifecycle"
 	"github.com/keelcore/keel/pkg/core/logging"
+	"github.com/keelcore/keel/pkg/core/protonotice"
 	keeltls "github.com/keelcore/keel/pkg/core/tls"
 )
 
@@ -36,8 +37,10 @@ type listenerRunner interface {
 // realRunner is the production implementation of listenerRunner. h3Cert is the
 // shared certificate source for HTTP/3 (nil: serveH3 loads the cfg cert files).
 type realRunner struct {
-	onBound func()
-	h3Cert  func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error)
+	onBound    func()
+	h3Cert     func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error)
+	onReject   rejectFunc             // refused TLS handshakes (nil: not observed)
+	onRejected func(protonotice.Code) // in-protocol rejections sent (nil: not counted)
 }
 
 func (r realRunner) serveHTTP(ctx context.Context, sd *lifecycle.Orchestrator, addr string,
@@ -49,12 +52,12 @@ func (r realRunner) serveHTTPS(ctx context.Context, sd *lifecycle.Orchestrator, 
 	h http.Handler, cfg config.Config, loader *keeltls.CertLoader,
 	getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error),
 	log *logging.Logger) error {
-	return serveHTTPSBound(ctx, sd, addr, h, cfg, loader, getCert, log, r.onBound)
+	return serveHTTPSObserved(ctx, sd, addr, h, cfg, loader, getCert, log, r.onBound, r.onReject, r.onRejected)
 }
 
 func (r realRunner) serveH3(ctx context.Context, addr string, h http.Handler,
 	cfg config.Config, log *logging.Logger) error {
-	return serveH3With(ctx, addr, h, cfg, log, r.onBound, r.h3Cert)
+	return serveH3Observed(ctx, addr, h, cfg, log, r.onBound, r.h3Cert, r.onReject)
 }
 
 // registerListenerReadinessCheck makes /readyz report NOT ready until every probe listener has bound
@@ -374,6 +377,7 @@ func serveHTTP(ctx context.Context, shutdown *lifecycle.Orchestrator, addr strin
 // are actually accepting connections, not merely spawned.
 func serveHTTPBound(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, log *logging.Logger, onBound func()) error {
 	srv := newHTTPServer(addr, h, cfg)
+	srv.ErrorLog = serverErrorLog(log)
 	log.Debug("listener_binding", map[string]any{"addr": addr, "proto": "http/1.1"})
 	ln, err := netListen("tcp", addr)
 	if err != nil {
@@ -406,10 +410,16 @@ func serveHTTPS(ctx context.Context, shutdown *lifecycle.Orchestrator, addr stri
 }
 
 func serveHTTPSBound(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, loader *keeltls.CertLoader, getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error), log *logging.Logger, onBound func()) error {
+	return serveHTTPSObserved(ctx, shutdown, addr, h, cfg, loader, getCert, log, onBound, nil, nil)
+}
+
+// serveHTTPSObserved is serveHTTPSBound reporting refused handshakes to onReject (nil: not observed).
+func serveHTTPSObserved(ctx context.Context, shutdown *lifecycle.Orchestrator, addr string, h http.Handler, cfg config.Config, loader *keeltls.CertLoader, getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error), log *logging.Logger, onBound func(), onReject rejectFunc, onRejected func(protonotice.Code)) error {
 	tlsCfg := keeltls.BuildTLSConfig(cfg)
 	if err := applyClientCA(tlsCfg, cfg.TLS.ClientCAFile); err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
+	applyClientCertNotice(tlsCfg, cfg.TLS.ClientCertNotice)
 	applyTLSCertSource(tlsCfg, loader, getCert)
 	srv := newHTTPServer(addr, h, cfg)
 	srv.TLSConfig = tlsCfg
@@ -417,6 +427,10 @@ func serveHTTPSBound(ctx context.Context, shutdown *lifecycle.Orchestrator, addr
 	// ALPN must offer h2 or no client can negotiate it over our own TLS listener;
 	// NextProtos follows the build policy (h2 + http/1.1, or http/1.1 under no_h2).
 	tlsCfg.NextProtos = httpx.NextProtos()
+	srv.ErrorLog = serverErrorLog(log)
+	if onReject != nil {
+		keeltls.ObserveRejections(tlsCfg, onReject)
+	}
 
 	log.Debug("listener_binding", map[string]any{"addr": addr, "proto": "https"})
 	ln, err := netListen("tcp", addr)
@@ -438,7 +452,7 @@ func serveHTTPSBound(ctx context.Context, shutdown *lifecycle.Orchestrator, addr
 		_ = shutdown.GracefulStop(drain, func(c context.Context) error { return srv.Shutdown(c) })
 	}()
 
-	err = srv.Serve(cryptotls.NewListener(ln, tlsCfg))
+	err = srv.Serve(cryptotls.NewListener(plaintextListener{Listener: ln, cfg: cfg, rejected: onRejected}, tlsCfg))
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
@@ -474,6 +488,12 @@ var h3ListenPacket = net.ListenPacket
 // cfg.Timeouts.ShutdownDrain like the TCP listeners.
 func serveH3With(ctx context.Context, addr string, h http.Handler, cfg config.Config, log *logging.Logger, onBound func(),
 	getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error)) error {
+	return serveH3Observed(ctx, addr, h, cfg, log, onBound, getCert, nil)
+}
+
+// serveH3Observed is serveH3With reporting refused handshakes to onReject (nil: not observed).
+func serveH3Observed(ctx context.Context, addr string, h http.Handler, cfg config.Config, log *logging.Logger, onBound func(),
+	getCert func(*cryptotls.ClientHelloInfo) (*cryptotls.Certificate, error), onReject rejectFunc) error {
 	log.Debug("listener_binding", map[string]any{"addr": addr, "proto": "h3"})
 	conn, err := h3ListenPacket("udp", addr)
 	if err != nil {
@@ -498,7 +518,11 @@ func serveH3With(ctx context.Context, addr string, h http.Handler, cfg config.Co
 	if err := applyClientCA(tlsCfg, cfg.TLS.ClientCAFile); err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
+	applyClientCertNotice(tlsCfg, cfg.TLS.ClientCertNotice)
 	tlsCfg.GetCertificate = getCert
+	if onReject != nil {
+		keeltls.ObserveRejections(tlsCfg, onReject)
+	}
 	srv := http3.NewServer(h, tlsCfg, http3.Limits{
 		MaxHeaderBytes: cfg.Security.MaxHeaderBytes,
 		IdleTimeout:    cfg.Timeouts.Idle.Duration,

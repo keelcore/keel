@@ -6,6 +6,8 @@
 #   - the npm tarball (package.json), checked against the registry's integrity hash
 #   - the wheel and sdist (pyproject.toml), each checked against PyPI's sha256
 #   - the Go module zip (go.mod), checked against the Go checksum database (go mod download)
+#   - the project's own artifacts (binaries, charts, ...): the project hook
+#     scripts/release/release-assets.local.sh TAG DIR places them in DIR and prints their paths
 #   - each artifact's provenance, as published: npm's attestations (*.npm-attestations.json),
 #     PyPI's provenance (*.pypi-provenance.json), GitHub's build attestations by digest
 #     (*.github-attestations.json) and the checksum database record (*.zip.sumdb.txt)
@@ -13,12 +15,14 @@
 #   - one build-environment SBOM per tool image the release was built in (TAG's
 #     containers/*/image.ref, by digest), completed with the pinned tools syft cannot identify
 #   - current_pins.md: every pinned input of TAG (its docs/current_pins.md)
+#   - LICENSE: the repository's license file at TAG
 #   - SHA256SUMS over all of the above, and a keyless cosign bundle per file
 #     (scripts/release/sign.sh)
 #
 # Usage: release-assets.sh TAG DIR   (in the dev image: make release-assets TAG=vX.Y.Z)
 # Env: ACTIONS_ID_TOKEN_REQUEST_URL / _TOKEN (keyless signing in GitHub Actions); GITHUB_REPOSITORY
 # (owner/repo: its build attestations); GITHUB_TOKEN (optional: the attestation API's rate limit).
+# RELEASE_LICENSE: the SPDX license id for the SBOMs when package.json / pyproject.toml do not name one.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -33,6 +37,7 @@ set -o pipefail
 # A newly published version can take minutes to appear in a registry.
 readonly FETCH_TRIES=30
 readonly FETCH_DELAY=30
+readonly LOCAL_HOOK='scripts/release/release-assets.local.sh'
 
 function main() {
   validate_args "${@:-}"
@@ -40,13 +45,13 @@ function main() {
   local -r version="${tag#v}"
   local name license
   name="$(project_name "${tag}")"
-  license="$(project_license "${tag}")"
+  license="${RELEASE_LICENSE:-$(project_license "${tag}")}"
   mkdir -p "${dir}"
   local -a artifacts=()
   local f
   while IFS= read -r f; do
     [ -n "${f}" ] && artifacts+=("${f}")
-  done < <(fetch_npm "${tag}" "${dir}"; fetch_pypi "${tag}" "${dir}"; fetch_go_module "${tag}" "${dir}")
+  done < <(fetch_npm "${tag}" "${dir}"; fetch_pypi "${tag}" "${dir}"; fetch_go_module "${tag}" "${dir}"; local_artifacts "${tag}" "${dir}")
   [ "${#artifacts[@]}" -gt 0 ] || { log "❌ no published artifacts found for ${tag}"; exit 1; }
   bash scripts/release/sbom.sh --out-dir "${dir}" --name "${name}" --version "${version}" \
     --license "${license}" "${artifacts[@]}"
@@ -66,6 +71,9 @@ function main() {
   if git cat-file -e "${tag}:docs/current_pins.md" 2> /dev/null; then
     git show "${tag}:docs/current_pins.md" > "${dir}/current_pins.md"
   fi
+  if git cat-file -e "${tag}:LICENSE" 2> /dev/null; then
+    git show "${tag}:LICENSE" > "${dir}/LICENSE"
+  fi
   local -a files=()
   for f in "${dir}"/*; do
     [ -f "${f}" ] || continue
@@ -76,6 +84,12 @@ function main() {
   done
   (cd "${dir}" && bash "${root}/scripts/release/sign.sh" --sums-dir . "${files[@]}")
   log "✅ release assets for ${tag}: $(find "${dir}" -maxdepth 1 -type f | wc -l | tr -d ' ') files in ${dir}"
+}
+
+# local_artifacts TAG DIR: the project's own artifacts, from its hook (none without one).
+function local_artifacts() {
+  [ -f "${LOCAL_HOOK}" ] || return 0
+  bash "${LOCAL_HOOK}" "${1}" "${2}"
 }
 
 # log MSG: to stderr (stdout carries the fetched artifact paths).
@@ -233,7 +247,8 @@ function image_tools() {
     [ -n "${version}" ] && [ -n "${repo}" ] || continue
     tool="$(basename "${script}" .sh)"
     tool="${tool#setup-}"
-    v="v${version#v}"
+    # The release tag as the download URL spells it (v-prefixed for most tools; staticcheck: 2026.2.2).
+    if grep -qE 'v\$\{[A-Z0-9_]+_VERSION\}' <<< "${content}"; then v="v${version#v}"; else v="${version}"; fi
     printf '%s\t%s\t%s\t%s\n' "${tool}" "${version#v}" "pkg:github/${repo}@${v}" "https://github.com/${repo}/releases/tag/${v}"
   done < <(tag_file "${tag}" "containers/${image}/Containerfile" \
     | grep -oE 'scripts/ci/setup-[a-z0-9-]+\.sh' | sort -u)

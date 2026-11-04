@@ -14,9 +14,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly COSIGN_VERSION='3.1.3'
-readonly COSIGN_SHA256_AMD64='4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71'
-readonly COSIGN_SHA256_ARM64='c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a'
+readonly COSIGN_VERSION='3.1.4'
+readonly COSIGN_SHA256_AMD64='424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa'
+readonly COSIGN_SHA256_ARM64='ade83b7aac62e131cacfe96d958948b2150cc9efec46a570a2649b8e27dedad2'
 readonly COSIGN_RELEASES='https://github.com/sigstore/cosign/releases/download'
 readonly COSIGN_INSTALL_PATH='/usr/local/bin/cosign'
 
@@ -51,6 +51,7 @@ function install_cosign() {
     log '❌ cosign installs in the dev image (Linux); run the signing targets through make'
     exit 1
   fi
+  require_image_build
   local arch sha binary tmp
   case "$(uname -m)" in
     x86_64) arch='amd64'; sha="${COSIGN_SHA256_AMD64}" ;;
@@ -65,6 +66,15 @@ function install_cosign() {
   as_root install -m 0755 "${tmp}/${binary}" "${COSIGN_INSTALL_PATH}"
   rm -rf "${tmp}"
   log "✅ cosign ${COSIGN_VERSION} installed at ${COSIGN_INSTALL_PATH}"
+}
+
+# require_image_build: tools are installed only while the tool image is built
+# (containers/*/Containerfile sets KEELCORE_IMAGE_BUILD); anywhere else the tool is already in the
+# image, and a missing or different version is an error, never an install.
+function require_image_build() {
+  [ -n "${KEELCORE_IMAGE_BUILD:-}" ] && return 0
+  log "❌ cosign ${COSIGN_VERSION} is not in this tool image; tools install only when the image is built"
+  exit 1
 }
 
 main "${@:-}"

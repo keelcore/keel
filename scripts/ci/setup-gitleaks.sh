@@ -51,6 +51,7 @@ function install_gitleaks() {
     log '❌ gitleaks installs in the dev image (Linux); run: make ci-secret-scan'
     exit 1
   fi
+  require_image_build
   local arch sha tarball tmp
   case "$(uname -m)" in
     x86_64) arch='x64'; sha="${GITLEAKS_SHA256_X64}" ;;
@@ -66,6 +67,15 @@ function install_gitleaks() {
   as_root install -m 0755 "${tmp}/gitleaks" "${GITLEAKS_INSTALL_PATH}"
   rm -rf "${tmp}"
   log "✅ gitleaks ${GITLEAKS_VERSION} installed at ${GITLEAKS_INSTALL_PATH}"
+}
+
+# require_image_build: tools are installed only while the tool image is built
+# (containers/*/Containerfile sets KEELCORE_IMAGE_BUILD); anywhere else the tool is already in the
+# image, and a missing or different version is an error, never an install.
+function require_image_build() {
+  [ -n "${KEELCORE_IMAGE_BUILD:-}" ] && return 0
+  log "❌ gitleaks ${GITLEAKS_VERSION} is not in this tool image; tools install only when the image is built"
+  exit 1
 }
 
 main "${@:-}"

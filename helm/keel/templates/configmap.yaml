@@ -44,6 +44,11 @@ data:
       {{- if $v.tls.clientCASecretName }}
       client_ca_file: /etc/keel/client-ca/ca.crt
       {{- end }}
+      client_cert_notice: {{ $v.tls.clientCertNotice }}
+      notice:
+        base_url: {{ $v.tls.notice.baseUrl | quote }}
+        help_url: {{ $v.tls.notice.helpUrl | quote }}
+        contact: {{ $v.tls.notice.contact | quote }}
       acme:
         enabled: {{ $v.tls.acme.enabled }}
         domains: {{ toJson $v.tls.acme.domains }}
@@ -76,6 +81,7 @@ data:
       retry:
         dial_attempts: {{ $v.upstream.retry.dialAttempts }}
         dial_backoff: {{ $v.upstream.retry.dialBackoff | quote }}
+        honor_retry_after: {{ $v.upstream.retry.honorRetryAfter }}
       header_policy:
         forward: {{ toJson $v.upstream.headerPolicy.forward }}
         strip: {{ toJson $v.upstream.headerPolicy.strip }}
@@ -88,6 +94,8 @@ data:
       max_request_body_bytes: {{ $v.security.maxRequestBodyBytes }}
       max_response_body_bytes: {{ $v.security.maxResponseBodyBytes }}
       hsts_max_age: {{ $v.security.hstsMaxAge }}
+      alt_svc_max_age: {{ $v.security.altSvcMaxAge }}
+      min_http_version: {{ $v.security.minHttpVersion | quote }}
 
     timeouts:
       read_header: {{ $v.timeouts.readHeader | quote }}

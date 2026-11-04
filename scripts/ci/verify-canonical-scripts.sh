@@ -29,10 +29,11 @@ readonly LOG_FILE='/tmp/verify_canonical.log'
 # from the check is one that exists in the downstream repo but NOT here (a
 # project-local script) — it is never in the derived list. *.local.sh hooks are
 # owned by the repo that holds them (the standards repo has its own), so they
-# are never canonical and are excluded here.
+# are never canonical and are excluded here. The versioned git hooks under
+# scripts/hooks/ (core.hooksPath) are canonical too.
 function canonical_scripts() {
   local -r standards_root="${1}"
-  find "${standards_root}/scripts" -name '*.sh' ! -name '*.local.sh' -type f \
+  find "${standards_root}/scripts" -type f \( -path "${standards_root}/scripts/hooks/*" -o -name '*.sh' ! -name '*.local.sh' \) \
     | sed "s|^${standards_root}/||" \
     | sort
 }

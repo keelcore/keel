@@ -805,3 +805,118 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   [[ "${output}" == *":${http_port}"* ]]
   [[ "${output}" == *":${health_port}"* ]]
 }
+
+# ---------------------------------------------------------------------------
+# Protocol rejections (docs/security.md §8, docs/errors.md): each class gets its
+# KEEL-PROTO code; a protocol the configuration allows is served normally.
+# ---------------------------------------------------------------------------
+
+# start_protocol_keel BIN EXTRA_YAML: keel with HTTP (8080) and HTTPS (8443), authn off,
+# EXTRA_YAML appended; waits for both listeners. Sets PROTO_PID and PROTO_LOG.
+start_protocol_keel() {
+  local -r bin="${1}" extra="${2}" certs="$(cert_dir)"
+  [ -f "${certs}/server.crt" ] || skip "TLS certs not found; run 'make gen-certs' first"
+  PROTO_CFG="$(mktemp)"
+  PROTO_LOG="${BATS_TEST_TMPDIR}/keel-proto.log"
+  printf 'listeners:\n  http:\n    enabled: true\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\nlogging:\n  json: true\ntls:\n  cert_file: %s\n  key_file: %s\n%s' \
+    "${certs}/server.crt" "${certs}/server.key" "${extra}" > "${PROTO_CFG}"
+  KEEL_CONFIG="${PROTO_CFG}" KEEL_H3_ENABLED="${KEEL_H3_ENABLED:-false}" "${bin}" > "${PROTO_LOG}" 2>&1 &
+  PROTO_PID="${!}"
+  wait_for_keel_listener "${PROTO_LOG}" 8080
+  wait_for_keel_listener "${PROTO_LOG}" 8443
+}
+
+stop_protocol_keel() {
+  kill -TERM "${PROTO_PID}"
+  wait "${PROTO_PID}" || true
+  rm -f "${PROTO_CFG}"
+}
+
+@test "protocol: a TLS 1.2 client is refused and logged as KEEL-PROTO-001" {
+  start_protocol_keel keel-min ''
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --tls-max 1.2 --max-time 2 --cacert "$(cert_dir)/ca.crt" https://127.0.0.1:8443/)" || true
+  stop_protocol_keel
+  [ "${code}" = '000' ]
+  grep -q '"msg":"tls_handshake_rejected"' "${PROTO_LOG}"
+  grep -q '"code":"KEEL-PROTO-001"' "${PROTO_LOG}"
+  grep -q '"client_max_version":"TLS 1.2"' "${PROTO_LOG}"
+}
+
+@test "protocol: a client offering no shared ALPN is refused and logged as KEEL-PROTO-002" {
+  start_protocol_keel keel-min ''
+  openssl s_client -connect 127.0.0.1:8443 -alpn foo -tls1_3 < /dev/null > /dev/null 2>&1 || true
+  stop_protocol_keel
+  grep -q '"code":"KEEL-PROTO-002"' "${PROTO_LOG}"
+}
+
+@test "protocol: plain HTTP on the HTTPS port gets the KEEL-PROTO-006 rejection; -L reaches the notice" {
+  start_protocol_keel keel-min ''
+  local headers notice
+  headers="$(curl -s -D - -o /dev/null --max-time 2 http://127.0.0.1:8443/x)"
+  notice="$(curl -s -L --max-time 2 http://127.0.0.1:8443/x)"
+  stop_protocol_keel
+  [[ "${headers}" == *'HTTP/1.1 301'* ]] || false
+  [[ "${headers}" == *'Keel-Error-Code: KEEL-PROTO-006'* ]] || false
+  [[ "${headers}" == *'Location: http://127.0.0.1:8080/.well-known/keel/upgrade?code=KEEL-PROTO-006'* ]] || false
+  [[ "${notice}" == *'HTTPS required'* ]] || false
+  [[ "${notice}" == *'Code: KEEL-PROTO-006'* ]] || false
+}
+
+@test "protocol: the notice endpoint serves the problem JSON to automation" {
+  start_protocol_keel keel-min ''
+  local type body
+  type="$(curl -s -o /dev/null -w '%{content_type}' --max-time 2 -H 'Accept: application/json' 'http://127.0.0.1:8080/.well-known/keel/upgrade?code=KEEL-PROTO-001')"
+  body="$(curl -s --max-time 2 'http://127.0.0.1:8080/.well-known/keel/upgrade?code=KEEL-PROTO-001&format=json')"
+  stop_protocol_keel
+  [ "${type}" = 'application/problem+json' ]
+  [ "$(printf '%s' "${body}" | jq -r '.code + " " + .reason')" = 'KEEL-PROTO-001 tls_version_below_1_3' ]
+}
+
+@test "protocol: min_http_version 2 rejects HTTP/1.1 with KEEL-PROTO-007 and serves HTTP/2" {
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  start_protocol_keel keel-max $'security:\n  min_http_version: "2"\n'
+  local h1 h2
+  h1="$(curl -s -D - -o /dev/null --http1.1 --max-time 2 --cacert "$(cert_dir)/ca.crt" https://127.0.0.1:8443/)"
+  h2="$(curl -s -o /dev/null -w '%{http_code} %{http_version}' --http2 --max-time 2 --cacert "$(cert_dir)/ca.crt" https://127.0.0.1:8443/)"
+  stop_protocol_keel
+  [[ "${h1}" == *'HTTP/1.1 301'* ]] || false
+  [[ "${h1}" == *'Keel-Error-Code: KEEL-PROTO-007'* ]] || false
+  [ "${h2}" = '200 2' ]
+}
+
+@test "protocol: default config serves HTTP/1.1 with no Keel-Error-Code" {
+  start_protocol_keel keel-min ''
+  local headers
+  headers="$(curl -s -D - -o /dev/null --http1.1 --max-time 2 --cacert "$(cert_dir)/ca.crt" https://127.0.0.1:8443/)"
+  stop_protocol_keel
+  [[ "${headers}" == *'HTTP/1.1 200'* ]] || false
+  [[ "${headers}" != *'Keel-Error-Code'* ]] || false
+}
+
+@test "protocol: client_cert_notice answers a missing client certificate with KEEL-PROTO-005" {
+  local certs
+  certs="$(cert_dir)"
+  [ -f "${certs}/client.crt" ] || skip "TLS certs not found; run 'make gen-certs' first"
+  start_protocol_keel keel-min "$(printf '  client_ca_file: %s\n  client_cert_notice: true\n' "${certs}/ca.crt")"
+  local anon authed
+  anon="$(curl -s -D - -o /dev/null --max-time 2 --cacert "${certs}/ca.crt" https://127.0.0.1:8443/)"
+  authed="$(curl -s --max-time 2 --cacert "${certs}/ca.crt" --cert "${certs}/client.crt" --key "${certs}/client.key" https://127.0.0.1:8443/)"
+  stop_protocol_keel
+  [[ "${anon}" == *' 301'* ]] || false
+  [[ "${anon}" == *'Keel-Error-Code: KEEL-PROTO-005'* ]] || false
+  [[ "${authed}" =~ "keel: ok" ]]
+}
+
+@test "protocol: Alt-Svc advertises HTTP/3 only when listeners.h3 is enabled" {
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  local with without
+  KEEL_H3_ENABLED=true start_protocol_keel keel-max ''
+  with="$(curl -s -D - -o /dev/null --max-time 2 --cacert "$(cert_dir)/ca.crt" https://127.0.0.1:8443/)"
+  stop_protocol_keel
+  start_protocol_keel keel-max ''
+  without="$(curl -s -D - -o /dev/null --max-time 2 --cacert "$(cert_dir)/ca.crt" https://127.0.0.1:8443/)"
+  stop_protocol_keel
+  [[ "${with}" == *'alt-svc: h3=":8443"; ma=86400'* ]] || false
+  [[ "${without}" != *'alt-svc'* ]] || false
+}

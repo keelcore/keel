@@ -77,6 +77,21 @@ type upstream struct {
 	ln       net.Listener
 	conns    map[net.Conn]struct{}
 	captures bytes.Buffer
+	seen     map[string]bool // paths already answered in this mode (retry-after)
+}
+
+// firstRequest reports whether path is seen for the first time in this mode.
+func (u *upstream) firstRequest(path string) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.seen[path] {
+		return false
+	}
+	if u.seen == nil {
+		u.seen = map[string]bool{}
+	}
+	u.seen[path] = true
+	return true
 }
 
 func (u *upstream) capture(b []byte) {
@@ -144,6 +159,7 @@ func (u *upstream) handleMode(w http.ResponseWriter, r *http.Request) {
 	u.mu.Lock()
 	u.mode = mode
 	u.captures.Reset()
+	u.seen = nil
 	u.dropConnsLocked()
 	u.mu.Unlock()
 	u.log.Info("mock_mode", map[string]any{"mode": mode})

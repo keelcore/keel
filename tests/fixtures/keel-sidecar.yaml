@@ -49,3 +49,5 @@ sidecar:
   retry:
     dial_attempts: 3
     dial_backoff: 500ms
+    # The Retry-After tests use delays inside timeouts.write (honored) and past it (passed through).
+    honor_retry_after: true

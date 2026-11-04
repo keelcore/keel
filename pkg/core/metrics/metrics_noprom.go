@@ -17,4 +17,8 @@ func (m *Metrics) SetLogDrops(_ int64)                       {}
 func (m *Metrics) IncFIPSMonitorFailure()                    {}
 func (m *Metrics) IncUpstreamDialRetry()                     {}
 func (m *Metrics) IncUpstreamDialFailure()                   {}
+func (m *Metrics) IncUpstreamRetryAfter()                    {}
+func (m *Metrics) IncTLSHandshakeRejection(string)           {}
+func (m *Metrics) IncProtocolRejection(string)               {}
+func (m *Metrics) IncProtocolNotice(string, string)          {}
 func (m *Metrics) Register(_ Collector)                      {}

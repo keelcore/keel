@@ -49,6 +49,8 @@ var fieldConstraints = map[string]map[string]interface{}{
 	"security.max_request_body_bytes":  {"minimum": 0},
 	"security.max_response_body_bytes": {"minimum": 0},
 	"security.hsts_max_age":            {"minimum": 0},
+	"security.alt_svc_max_age":         {"minimum": 0},
+	"security.min_http_version":        {"enum": []string{"1.1", "2", "3"}},
 	// Limits
 	"limits.max_concurrent": {"minimum": 0},
 	"limits.queue_depth":    {"minimum": 0},
@@ -64,8 +66,10 @@ var fieldConstraints = map[string]map[string]interface{}{
 	"logging.level":                {"enum": []string{"debug", "info", "warn", "error"}},
 	"logging.remote_sink.protocol": {"enum": []string{"http", "syslog"}},
 	// TLS/ACME
-	"tls.acme.email":  {"format": "email"},
-	"tls.acme.ca_url": {"format": "uri"},
+	"tls.acme.email":      {"format": "email"},
+	"tls.acme.ca_url":     {"format": "uri"},
+	"tls.notice.base_url": {"format": "uri"},
+	"tls.notice.help_url": {"format": "uri"},
 	// Tracing
 	"tracing.otlp.endpoint": {"format": "uri"},
 }

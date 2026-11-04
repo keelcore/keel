@@ -62,8 +62,6 @@ PINS_TSV="$(mktemp "${TMPDIR:-/tmp}/create_release_pins.XXXXXX")"
 # Set by check_pins: the discovery summary, the stale pins, the override reason.
 PINS_SUMMARY=''
 PINS_STALE=''
-# The release commit cut_changelog made (empty: the tag points at the approved HEAD).
-CUT_COMMIT=''
 PINS_OVERRIDE=''
 
 function main() {
@@ -227,7 +225,8 @@ function check_clean_tree() {
 }
 
 # check_pins DRY_RUN: discover every pin; stale pins block the release unless
-# --allow-stale-pins gave a reason (a dry run only warns).
+# --allow-stale-pins gave a reason (a dry run only warns). A tool-image pin (devimage) never
+# blocks: run.sh builds an unpinned build context locally.
 function check_pins() {
   local -r dry_run="${1}"
   local -r driver="$(dirname "${BASH_SOURCE[0]}")/update-pins.sh"
@@ -240,7 +239,7 @@ function check_pins() {
     exit 1
   fi
   PINS_SUMMARY="$(printf '%s\n' "${report}" | sed -n 's/^update-pins (discovery) — //p' | head -1)"
-  PINS_STALE="$(awk -F'\t' -v OFS='\t' '$6 == "stale" { print $1, $2, $4, $7, $NF }' "${PINS_TSV}")"
+  PINS_STALE="$(awk -F'\t' -v OFS='\t' '$6 == "stale" && $1 != "devimage" { print $1, $2, $4, $7, $NF }' "${PINS_TSV}")"
   if [ -z "${PINS_STALE}" ]; then
     log "✅ Pins: ${PINS_SUMMARY}"
     return 0
@@ -583,7 +582,6 @@ function tag_or_preview() {
     return 0
   fi
   prompt_approval "${version}"
-  cut_changelog "${version}"
   create_tag "${version}" "${msg}"
   audit_override "${version}"
   push_tag "${version}"
@@ -600,23 +598,6 @@ function prompt_approval() {
   fi
 }
 
-# cut_changelog VERSION: when CHANGELOG.md has [Unreleased] entries, move them under
-# "## [VERSION] - <date>" (UTC), leave [Unreleased] empty, and commit that as the release
-# commit (signed, signed-off) that the tag points at; CUT_COMMIT records it for push_tag.
-function cut_changelog() {
-  local -r version="${1}"
-  [ -f CHANGELOG.md ] || return 0
-  local entries
-  entries="$(awk '/^## \[Unreleased\]/ { p = 1; next } /^## / { if (p) exit } p' CHANGELOG.md | grep -cE '^- ' || true)"
-  [ "${entries}" -gt 0 ] || return 0
-  VERSION="${version}" DATE="$(date -u +%Y-%m-%d)" perl -0pi -e \
-    's/^## \[Unreleased\]\n/## [Unreleased]\n\n## [$ENV{VERSION}] - $ENV{DATE}\n/m' CHANGELOG.md
-  git add CHANGELOG.md
-  git commit -S -s -m "chore(release): v${version}" > /dev/null
-  CUT_COMMIT="$(git rev-parse HEAD)"
-  log "📝 CHANGELOG [Unreleased] → [${version}] (commit ${CUT_COMMIT:0:7})"
-}
-
 function create_tag() {
   local -r version="${1}" msg="${2}"
   log "🔏 Creating signed annotated tag v${version}"
@@ -629,12 +610,7 @@ function push_tag() {
   local remote
   remote="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' | cut -d/ -f1)"
   log "🚀 Pushing v${version} to ${remote}"
-  if [ -n "${CUT_COMMIT}" ]; then
-    # The release commit and its tag land together or not at all.
-    git push --atomic "${remote}" "HEAD:$(git rev-parse --abbrev-ref HEAD)" "v${version}"
-  else
-    git push "${remote}" "v${version}"
-  fi
+  git push "${remote}" "v${version}"
   log "✅ Pushed v${version} to ${remote}"
 }
 

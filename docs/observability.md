@@ -232,7 +232,11 @@ format that Prometheus parses and stores.
 | `keel_upstream_health` | Gauge | — | Upstream health status in sidecar mode: 1 = healthy, 0 = unhealthy |
 | `keel_circuit_open` | Gauge | — | Circuit breaker state in sidecar mode: 1 = open (failing), 0 = closed (normal) |
 | `keel_upstream_dial_retries_total` | Counter | — | Sidecar upstream connects that failed and were retried (`sidecar.retry`) |
+| `keel_upstream_retry_after_total` | Counter | — | Sidecar requests retried after an upstream `Retry-After` (`sidecar.retry.honor_retry_after`) |
 | `keel_upstream_dial_failures_total` | Counter | — | Sidecar requests whose every upstream connect failed (answered 502) |
+| `keel_tls_handshake_rejections_total` | Counter | `code` | TLS handshakes refused, by `KEEL-PROTO` code (docs/errors.md) |
+| `keel_protocol_rejections_total` | Counter | `code` | Protocol rejections answered with a 301 to the notice page |
+| `keel_protocol_notices_served_total` | Counter | `code`, `format` | Notice pages served (`html`, `json`, `text`) |
 | `keel_tls_cert_expiry_seconds` | Gauge | — | Seconds until the current TLS certificate expires. Alert when this falls below 30 days (2592000 seconds) |
 | `keel_fips_active` | Gauge | — | 1 if the binary is running with FIPS-validated cryptography; 0 otherwise |
 

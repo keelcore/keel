@@ -10,11 +10,12 @@ import (
 	"github.com/keelcore/keel/pkg/core/logging"
 )
 
-// Hooks observe upstream dial retries; every field is optional.
+// Hooks observe upstream retries; every field is optional.
 type Hooks struct {
-	Log        *logging.Logger // upstream_dial_retry / upstream_dial_failed events
+	Log        *logging.Logger // upstream_dial_retry / upstream_dial_failed / upstream_retry_after events
 	DialRetry  func()          // a failed connect will be retried
 	DialFailed func()          // every connect attempt for a request failed
+	RetryAfter func()          // a 503/429 is retried after its Retry-After
 }
 
 // dialFunc has the shape of http.Transport.DialContext.

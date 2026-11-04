@@ -10,6 +10,34 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ## [Unreleased]
 
+### Added
+
+- `sidecar.retry.honor_retry_after` (default `false`): a 503 or 429 from the upstream carrying `Retry-After` is
+  retried once after the stated delay, for an idempotent request whose body can be sent again, within the upstream
+  response deadline; counted in `keel_upstream_retry_after_total`.
+- Keel appends its own entry to `Via` on every proxied request.
+- Protocol rejections (docs/security.md §8, docs/errors.md): every refused TLS handshake is logged
+  (`tls_handshake_rejected`) and counted (`keel_tls_handshake_rejections_total{code}`) with a stable `KEEL-PROTO`
+  code; plain HTTP on the HTTPS port, and requests below `security.min_http_version`, get a 301 to the notice page
+  `/.well-known/keel/upgrade` with an RFC 9457 problem body.
+- `security.min_http_version` (`1.1` default, `2`, `3`), `security.alt_svc_max_age`, `tls.notice.base_url`,
+  `tls.notice.help_url`, `tls.notice.contact`, `tls.client_cert_notice`.
+- HTTPS responses advertise HTTP/3 (`Alt-Svc`) when `listeners.h3` is enabled.
+- net/http server errors are logged as `http_server_error` (debug) instead of written to stderr.
+
+### Changed
+
+- External authorization input: `headers` maps each header name to an array with one element per field line (was
+  one comma-joined string). Policies read a single-valued header as `input.headers["name"][0]`.
+- Without a trusted hop (`sidecar.xff_trusted_hops: 0`), Keel generates its own `traceparent` and `x-request-id`
+  instead of continuing the client's; the upstream receives Keel's values.
+
+### Security
+
+- Hop headers (docs/security.md §5.6): a request with two `Authorization` lines is refused with 400; repeated
+  `X-Forwarded-For` lines are read as one chain and every entry is normalized to an IP address or `unknown`, so a
+  client entry cannot shift `X-Real-IP`; a `traceparent` with non-hex IDs starts a new trace.
+
 ## [0.9.16] - 2026-11-04
 
 ### Changed

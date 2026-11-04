@@ -270,10 +270,11 @@ function maybe_stage_submodule() {
 # that exists in the consumer but NOT here (a project-local script). The refresh
 # script itself IS shipped so it can self-update on subsequent runs. *.local.sh
 # hooks are owned by the repo that holds them (the standards repo has its own),
-# so they are never synced: a consumer's hook is never overwritten. Scripts the
+# so they are never synced: a consumer's hook is never overwritten. The versioned
+# git hooks under scripts/hooks/ (core.hooksPath) are synced. Scripts the
 # consumer lists in .canonical-exclude are never synced either.
 function canonical_scripts() {
-  find "${STANDARDS_ROOT}/scripts" -name '*.sh' ! -name '*.local.sh' -type f \
+  find "${STANDARDS_ROOT}/scripts" -type f \( -path "${STANDARDS_ROOT}/scripts/hooks/*" -o -name '*.sh' ! -name '*.local.sh' \) \
     | sed "s|^${STANDARDS_ROOT}/||" \
     | sort \
     | grep -vxF -f <(excluded_scripts "${REPO_ROOT}")

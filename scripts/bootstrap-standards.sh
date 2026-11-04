@@ -176,7 +176,7 @@ function copy_templates() {
 
 function chmod_scripts() {
   log '🔒 Setting script permissions...'
-  find scripts -name '*.sh' -exec chmod +x '{}' ';'
+  find scripts -type f \( -name '*.sh' -o -path 'scripts/hooks/*' \) -exec chmod +x '{}' ';'
 }
 
 function install_precommit_hook() {

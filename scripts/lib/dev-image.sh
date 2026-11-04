@@ -10,6 +10,41 @@
 # containers/NAME/image.ref pins one by digest:
 #   ghcr.io/keelcore/<repo>-<name>:ctx-<hash>@sha256:<digest>
 
+# Inside a git hook, git exports the hook's repository layout (GIT_INDEX_FILE=.git/index, and
+# GIT_DIR / GIT_WORK_TREE in some cases) as paths relative to that repository. These scripts run
+# git in other repositories too (the .standards submodule, snapshots under /tmp), where those
+# paths are wrong: drop them, so every git call reads the repository it is pointed at. The
+# context hash reads tracked and untracked files from the working tree, so it is the same either
+# way. KEELCORE_DEV_IN_HOOK records that this runs inside a hook (run.sh never builds there).
+if [ -n "${GIT_INDEX_FILE:-}" ]; then
+  export KEELCORE_DEV_IN_HOOK=1
+fi
+unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_PREFIX GIT_OBJECT_DIRECTORY \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES
+
+# dev_builder_args: Apple `container build` sizing for the builder it starts (2 CPUs / 2 GB by default,
+# too small for the tool images): KEELCORE_BUILD_CPUS (4) and KEELCORE_BUILD_MEMORY (8g).
+function dev_builder_args() {
+  printf '%s\n' --cpus "${KEELCORE_BUILD_CPUS:-4}" --memory "${KEELCORE_BUILD_MEMORY:-8g}"
+}
+
+# dev_ensure_builder: an Apple `container` builder already running at another size keeps that size
+# (the flags only size a builder `container build` starts): restart it at dev_builder_args' size.
+function dev_ensure_builder() {
+  local -r cpus="${KEELCORE_BUILD_CPUS:-4}" mem="${KEELCORE_BUILD_MEMORY:-8g}"
+  local want_mb have
+  case "${mem}" in
+    *[gG]) want_mb=$(( ${mem%[gG]} * 1024 )) ;;
+    *[mM]) want_mb="${mem%[mM]}" ;;
+    *) want_mb="${mem}" ;;
+  esac
+  have="$(container builder status 2> /dev/null | awk 'NR == 2 && $3 == "running" { print $5 " " $6 }')"
+  [ -n "${have}" ] || return 0
+  [ "${have}" = "${cpus} ${want_mb}" ] && return 0
+  container builder stop > /dev/null 2>&1 || true
+  container builder start --cpus "${cpus}" --memory "${mem}" > /dev/null
+}
+
 # dev_registry: where images are published (KEELCORE_DEV_REGISTRY overrides).
 function dev_registry() {
   printf '%s' "${KEELCORE_DEV_REGISTRY:-ghcr.io/keelcore}"

@@ -49,12 +49,16 @@ func (g *inflightGauge) get() float64 {
 // Metrics holds all instrumentation state.
 type Metrics struct {
 	requests            *labelCounter
+	tlsRejections       *labelCounter // by code: rejected TLS handshakes
+	protoRejections     *labelCounter // by code: in-protocol rejections sent (301)
+	protoNotices        *labelCounter // by code and format: notice pages served
 	inflight            inflightGauge
 	certExpirySecs      int64 // atomic; seconds until TLS cert expiry
 	logDrops            int64 // atomic; cumulative remote-log drop count
 	fipsMonitorFailures int64 // atomic; cumulative FIPS monitor check failures
 	dialRetries         int64 // atomic; cumulative sidecar upstream dial retries
 	dialFailures        int64 // atomic; sidecar requests whose every upstream dial failed
+	retryAfters         int64 // atomic; sidecar requests retried after an upstream Retry-After
 	mu                  sync.Mutex
 	collectors          []Collector // embedder series, appended to the exposition
 }
@@ -69,7 +73,12 @@ func (m *Metrics) Register(c Collector) {
 
 // New creates a zeroed Metrics instance.
 func New() *Metrics {
-	return &Metrics{requests: newLabelCounter()}
+	return &Metrics{
+		requests:        newLabelCounter(),
+		tlsRejections:   newLabelCounter(),
+		protoRejections: newLabelCounter(),
+		protoNotices:    newLabelCounter(),
+	}
 }
 
 // Handler returns an http.Handler that serves Prometheus text format on /metrics.
@@ -124,8 +133,31 @@ func (m *Metrics) IncUpstreamDialFailure() {
 	atomic.AddInt64(&m.dialFailures, 1)
 }
 
+// IncTLSHandshakeRejection counts a TLS handshake refused for code (KEEL-PROTO-*).
+func (m *Metrics) IncTLSHandshakeRejection(code string) {
+	m.tlsRejections.inc(fmt.Sprintf(`code="%s"`, code))
+}
+
+// IncProtocolRejection counts an in-protocol rejection (301 to the notice) for code.
+func (m *Metrics) IncProtocolRejection(code string) {
+	m.protoRejections.inc(fmt.Sprintf(`code="%s"`, code))
+}
+
+// IncProtocolNotice counts a notice page served for code in format (html, json, text).
+func (m *Metrics) IncProtocolNotice(code, format string) {
+	m.protoNotices.inc(fmt.Sprintf(`code="%s",format="%s"`, code, format))
+}
+
+// IncUpstreamRetryAfter counts a sidecar request retried after an upstream Retry-After.
+func (m *Metrics) IncUpstreamRetryAfter() {
+	atomic.AddInt64(&m.retryAfters, 1)
+}
+
 func (m *Metrics) writeTo(w io.Writer) {
 	m.requests.writeTo(w, "keel_requests_total", "Total HTTP requests processed.")
+	m.tlsRejections.writeTo(w, "keel_tls_handshake_rejections_total", "TLS handshakes refused, by KEEL-PROTO code.")
+	m.protoRejections.writeTo(w, "keel_protocol_rejections_total", "Protocol rejections sent as 301 to the notice page, by KEEL-PROTO code.")
+	m.protoNotices.writeTo(w, "keel_protocol_notices_served_total", "Protocol notice pages served, by KEEL-PROTO code and format.")
 	fmt.Fprintf(w, "# HELP keel_http_inflight_requests Current in-flight HTTP requests.\n")
 	fmt.Fprintf(w, "# TYPE keel_http_inflight_requests gauge\n")
 	fmt.Fprintf(w, "keel_http_inflight_requests %g\n", m.inflight.get())
@@ -144,6 +176,9 @@ func (m *Metrics) writeTo(w io.Writer) {
 	fmt.Fprintf(w, "# HELP keel_upstream_dial_failures_total Sidecar requests whose every upstream connect failed.\n")
 	fmt.Fprintf(w, "# TYPE keel_upstream_dial_failures_total counter\n")
 	fmt.Fprintf(w, "keel_upstream_dial_failures_total %d\n", atomic.LoadInt64(&m.dialFailures))
+	fmt.Fprintf(w, "# HELP keel_upstream_retry_after_total Sidecar requests retried after an upstream Retry-After.\n")
+	fmt.Fprintf(w, "# TYPE keel_upstream_retry_after_total counter\n")
+	fmt.Fprintf(w, "keel_upstream_retry_after_total %d\n", atomic.LoadInt64(&m.retryAfters))
 	if v := atomic.LoadInt64(&m.fipsMonitorFailures); v > 0 {
 		fmt.Fprintf(w, "# HELP keel_fips_monitor_failures_total Cumulative FIPS monitor check failures detected by the background loop.\n")
 		fmt.Fprintf(w, "# TYPE keel_fips_monitor_failures_total counter\n")

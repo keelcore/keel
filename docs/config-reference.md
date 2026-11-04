@@ -94,6 +94,15 @@ tls:
                       # client that does not present a certificate chaining to one of them.
                       # The certificate is not mapped to an identity (use JWT authn for that).
                       # Plain HTTP is unaffected. Restart-required.
+  client_cert_notice: false  # With client_ca_file: complete the handshake without a client
+                      # certificate and answer each request with the KEEL-PROTO-005 notice
+                      # (301). A presented certificate is still verified. Restart-required.
+  notice:             # Protocol rejections (docs/security.md §8, docs/errors.md).
+    base_url: ""      # scheme://host[:port] serving /.well-known/keel/upgrade. Empty: the
+                      # HTTP listener on the host the client asked for; with no HTTP listener,
+                      # rejections answer 426 with the problem body in place.
+    help_url: ""      # Linked from the notice page ("How to upgrade").
+    contact: ""       # Shown on the notice page.
 
   acme:
     enabled: false    # When true, Keel manages its own certificate via Let's Encrypt.
@@ -187,6 +196,10 @@ sidecar:
                       # circuit breaker sees one outcome per request. 1 disables retries.
     dial_backoff: 50ms        # Wait before the second try; doubles after each failed try.
                       # Retries stop when the client goes away or timeouts.read passes.
+    honor_retry_after: false  # Retry a 503 or 429 carrying Retry-After once, after the stated
+                      # delay (seconds or HTTP-date), for an idempotent request whose
+                      # body can be sent again, when the delay and the retry fit inside
+                      # timeouts.write. Otherwise the response passes through.
 
   header_policy:
     forward: []       # Headers to explicitly forward to the upstream. Hop-by-hop headers
@@ -202,6 +215,8 @@ sidecar:
   xff_trusted_hops: 0 # Number of right-most XFF hops to trust as legitimate client IPs.
                       # Use 1 if you have a single trusted load balancer in front of Keel.
                       # 0 means trust nothing — always use the socket peer address.
+                      # Above 0, Keel also keeps traceparent, tracestate and x-request-id
+                      # from that hop; at 0 it generates its own (docs/security.md §5.6).
 
 # -----------------------------------------------------------------------
 # Security: OWASP headers and body/header size limits
@@ -227,6 +242,14 @@ security:
   hsts_max_age: 63072000      # Strict-Transport-Security max-age in seconds.
                       # 63072000 = 2 years. Applied only on HTTPS responses.
                       # 2 years is the value recommended by the OWASP TLS Cheat Sheet.
+
+  alt_svc_max_age: 86400      # Lifetime in seconds of the Alt-Svc header advertising HTTP/3
+                      # on HTTPS responses; sent only when listeners.h3 is enabled.
+
+  min_http_version: "1.1"     # Lowest HTTP version served on HTTPS and H3: "1.1", "2" or "3".
+                      # Below it, requests get the KEEL-PROTO-007 notice (301). "3" needs
+                      # listeners.h3. The HTTP, health, ready and admin listeners are not
+                      # subject to it.
 
 # -----------------------------------------------------------------------
 # Timeouts: how long Keel waits at each phase of a request
@@ -447,6 +470,12 @@ modifying the config file — and they work naturally with Kubernetes ConfigMaps
 | `KEEL_TLS_CERT` | `tls.cert_file` | `""` | |
 | `KEEL_TLS_KEY` | `tls.key_file` | `""` | |
 | `KEEL_TLS_CLIENT_CA` | `tls.client_ca_file` | `""` | Inbound mTLS CA bundle |
+| `KEEL_TLS_CLIENT_CERT_NOTICE` | `tls.client_cert_notice` | `false` | |
+| `KEEL_TLS_NOTICE_BASE_URL` | `tls.notice.base_url` | `""` | |
+| `KEEL_TLS_NOTICE_HELP_URL` | `tls.notice.help_url` | `""` | |
+| `KEEL_TLS_NOTICE_CONTACT` | `tls.notice.contact` | `""` | |
+| `KEEL_MIN_HTTP_VERSION` | `security.min_http_version` | `"1.1"` | |
+| `KEEL_ALT_SVC_MAX_AGE` | `security.alt_svc_max_age` | `86400` | |
 | `KEEL_SIDECAR` | `sidecar.enabled` | `false` | |
 | `KEEL_UPSTREAM_URL` | `sidecar.upstream_url` | `""` | |
 | `KEEL_UPSTREAM_H2C` | `sidecar.upstream_h2c` | `false` | Plaintext HTTP/2 to the upstream |
@@ -457,6 +486,7 @@ modifying the config file — and they work naturally with Kubernetes ConfigMaps
 | `KEEL_UPSTREAM_CLIENT_KEY` | `sidecar.upstream_tls.client_key_file` | `""` | |
 | `KEEL_UPSTREAM_DIAL_ATTEMPTS` | `sidecar.retry.dial_attempts` | `3` | |
 | `KEEL_UPSTREAM_DIAL_BACKOFF` | `sidecar.retry.dial_backoff` | `50ms` | |
+| `KEEL_UPSTREAM_HONOR_RETRY_AFTER` | `sidecar.retry.honor_retry_after` | `false` | |
 | `KEEL_OWASP` | `security.owasp_headers` | `true` | |
 | `KEEL_AUTHN` | `authn.enabled` | `true` | |
 | `KEEL_TRUSTED_IDS` | `authn.trusted_ids` | `""` | Comma-separated list |

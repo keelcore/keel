@@ -60,6 +60,7 @@ function install_bats_pinned() {
     log "✅ bats ${BATS_VERSION} already installed"
     return 0
   fi
+  require_image_build
   local tmp head
   tmp="$(mktemp -d)"
   log "⚓ Installing bats ${BATS_VERSION} (${BATS_COMMIT})..."
@@ -72,6 +73,15 @@ function install_bats_pinned() {
   fi
   as_root "${tmp}/bats-core/install.sh" /usr/local
   rm -rf "${tmp}"
+}
+
+# require_image_build: tools are installed only while the tool image is built
+# (containers/*/Containerfile sets KEELCORE_IMAGE_BUILD); anywhere else the tool is already in the
+# image, and a missing or different version is an error, never an install.
+function require_image_build() {
+  [ -n "${KEELCORE_IMAGE_BUILD:-}" ] && return 0
+  log "❌ bats ${BATS_VERSION} is not in this tool image; tools install only when the image is built"
+  exit 1
 }
 
 main "${@:-}"

@@ -37,8 +37,6 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-      - name: Install kind and create cluster
-        run: make setup-kind
       - name: Lint chart
         run: make lint-helm
 

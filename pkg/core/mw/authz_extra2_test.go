@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -72,7 +73,7 @@ func TestExtAuthz_Deny_403(t *testing.T) {
 	}
 }
 
-// authzHeaders lowercases keys and joins multi-value headers with commas.
+// authzHeaders lowercases keys and keeps each field line as its own element.
 func TestAuthzHeaders_MultiValue(t *testing.T) {
 	h := http.Header{}
 	h.Add("X-Test", "a")
@@ -80,11 +81,11 @@ func TestAuthzHeaders_MultiValue(t *testing.T) {
 	h.Set("Single", "one")
 
 	out := authzHeaders(h)
-	if out["x-test"] != "a,b" {
-		t.Errorf("expected x-test=a,b, got %q", out["x-test"])
+	if !slices.Equal(out["x-test"], []string{"a", "b"}) {
+		t.Errorf("expected x-test=[a b], got %q", out["x-test"])
 	}
-	if out["single"] != "one" {
-		t.Errorf("expected single=one, got %q", out["single"])
+	if !slices.Equal(out["single"], []string{"one"}) {
+		t.Errorf("expected single=[one], got %q", out["single"])
 	}
 }
 

@@ -28,3 +28,20 @@ func TestUpstreamDialCounters(t *testing.T) {
 		}
 	}
 }
+
+func TestUpstreamRetryAfterCounter(t *testing.T) {
+	m := New()
+	m.IncUpstreamRetryAfter()
+
+	var buf bytes.Buffer
+	m.writeTo(&buf)
+	out := buf.String()
+	for _, want := range []string{
+		"# TYPE keel_upstream_retry_after_total counter",
+		"keel_upstream_retry_after_total 1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("exposition missing %q in:\n%s", want, out)
+		}
+	}
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # audit-make-targets.sh
-# CI/standards compliance auditor — a GATE. Enforces five invariants:
+# CI/standards compliance auditor — a GATE. Enforces six invariants:
 #   1. Every workflow run: step is `make <target>` — no direct tool calls.
 #   2. Every scripts/**/*.sh (except scripts/lib/) has a Makefile target.
 #   3. Universal canonical targets (build, lint, test, unit-test,
@@ -11,6 +11,8 @@
 #   5. Every Makefile target's recipe-invoked scripts/**/*.sh file exists
 #      on disk (no broken references; catches templates copied with stale
 #      script paths).
+#   6. No runtime tool installs in workflows (`actions/setup-*`, `make setup-*`):
+#      tools come from the tool image; host jobs are listed in .runtime-install-exceptions.
 #
 # Exit semantics:
 #   - Exit 0 only when every invariant holds; exit 1 when any finding is
@@ -345,6 +347,44 @@ function _eval_recipe_shape() {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+# Rule 6: No runtime installs in workflows. Tools come from the tool image, built
+# once and pinned by digest: a job neither runs `actions/setup-<tool>` nor a
+# `make setup-<tool>` step. A job that genuinely runs on the host (a native
+# macOS/Windows runner, a step that drives docker or a cluster on the runner) is
+# listed in <root>/.runtime-install-exceptions as `<workflow file>:<job id>`,
+# followed by its reason (blank lines and # comments ignored).
+# ---------------------------------------------------------------------------
+function check_runtime_installs() {
+  [ -d "${WORKFLOWS_DIR}" ] || return 0
+  local -r exceptions="${REPO_ROOT}/.runtime-install-exceptions"
+  local failed=0 wf job line
+  while IFS=$'\t' read -r wf job line; do
+    [ -n "${wf}" ] || continue
+    if [ -f "${exceptions}" ] && sed -e 's/#.*//' "${exceptions}" | awk '{ print $1 }' | grep -qxF "${wf}:${job}"; then
+      continue
+    fi
+    [ "${failed}" -eq 1 ] || log '❌ Rule 6: runtime tool installs in workflows (tools come from the tool image; list a host job in .runtime-install-exceptions):'
+    log "  ${wf}:${job}: ${line}"
+    failed=1
+  done < <(runtime_install_steps)
+  return "${failed}"
+}
+
+# runtime_install_steps: "<workflow file>\t<job id>\t<step line>" for every setup step.
+function runtime_install_steps() {
+  local f
+  for f in "${WORKFLOWS_DIR}"/*.yml "${WORKFLOWS_DIR}"/*.yaml; do
+    [ -f "${f}" ] || continue
+    awk -v wf=".github/workflows/$(basename "${f}")" '
+      /^jobs:/ { in_jobs = 1; next }
+      in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job = $1; sub(/:$/, "", job); next }
+      in_jobs && job != "" && (/uses:[[:space:]]*actions\/setup-/ || /run:[[:space:]]*make[[:space:]]+setup-/) {
+        line = $0; sub(/^[[:space:]]*-?[[:space:]]*/, "", line); print wf "\t" job "\t" line
+      }' "${f}"
+  done
+}
+
+# ---------------------------------------------------------------------------
 function main() {
   validate_args "${@:-}"
   build_expanded_makefile
@@ -356,6 +396,7 @@ function main() {
   check_script_targets     || overall=1
   check_universal_targets  || overall=1
   check_recipe_shape       || overall=1
+  check_runtime_installs   || overall=1
 
   if [ "${overall}" -eq 0 ]; then
     log '✅ CI audit clean: all Makefile target invariants satisfied.'

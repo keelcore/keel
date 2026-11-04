@@ -53,7 +53,7 @@ func OTelSpan(getExp func() *tracing.Exporter, next http.Handler) http.Handler {
 func incomingSpanID(tp string) string {
 	// Format: version(2)-traceID(32)-parentID(16)-flags(2)
 	parts := strings.Split(tp, "-")
-	if len(parts) == 4 && len(parts[2]) == 16 {
+	if len(parts) == 4 && traceHex(parts[2], 16) {
 		return parts[2]
 	}
 	return ""

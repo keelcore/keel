@@ -77,6 +77,19 @@ type TLSConfig struct {
 	// that chains to a CA in this PEM bundle (inbound mTLS). Restart-required.
 	ClientCAFile string     `yaml:"client_ca_file"`
 	ACME         ACMEConfig `yaml:"acme"`
+	// Notice is where clients rejected for their protocol are sent to read why (docs/security.md).
+	Notice NoticeConfig `yaml:"notice"`
+	// ClientCertNotice, with client_ca_file set, completes the handshake without a
+	// client certificate and answers every request on it with the KEEL-PROTO-005
+	// rejection; a presented but invalid certificate still fails the handshake.
+	ClientCertNotice bool `yaml:"client_cert_notice"`
+}
+
+// NoticeConfig holds the operator's optional strings for protocol rejections.
+type NoticeConfig struct {
+	BaseURL string `yaml:"base_url"` // scheme://host[:port] serving the notice; empty: the HTTP listener
+	HelpURL string `yaml:"help_url"` // linked from the notice page
+	Contact string `yaml:"contact"`  // shown on the notice page
 }
 
 type UpstreamTLSConfig struct {
@@ -98,6 +111,9 @@ type CircuitBreakerConfig struct {
 type SidecarRetryConfig struct {
 	DialAttempts int      `yaml:"dial_attempts"`
 	DialBackoff  Duration `yaml:"dial_backoff"`
+	// HonorRetryAfter retries a 503 or 429 that carries Retry-After once, after the
+	// stated delay, when the request can be replayed and the delay fits the deadline.
+	HonorRetryAfter bool `yaml:"honor_retry_after"`
 }
 
 type HeaderPolicyConfig struct {
@@ -128,6 +144,10 @@ type SecurityConfig struct {
 	MaxRequestBodyBytes  int64 `yaml:"max_request_body_bytes"`
 	MaxResponseBodyBytes int64 `yaml:"max_response_body_bytes"`
 	HSTSMaxAge           int   `yaml:"hsts_max_age"`
+	// AltSvcMaxAge is the lifetime (seconds) of the Alt-Svc advertisement of HTTP/3.
+	AltSvcMaxAge int `yaml:"alt_svc_max_age"`
+	// MinHTTPVersion is the lowest HTTP version served on HTTPS and H3: "1.1", "2" or "3".
+	MinHTTPVersion string `yaml:"min_http_version"`
 }
 
 type TimeoutsConfig struct {
@@ -291,6 +311,8 @@ func defaults() Config {
 			MaxRequestBodyBytes:  10 << 20, // 10 MB
 			MaxResponseBodyBytes: 50 << 20, // 50 MB
 			HSTSMaxAge:           63072000,
+			AltSvcMaxAge:         86400,
+			MinHTTPVersion:       "1.1",
 		},
 		Timeouts: TimeoutsConfig{
 			ReadHeader:    DurationOf(5 * time.Second),
@@ -410,6 +432,9 @@ func load(configPath, secretsPath string) (Config, error) {
 // Validate returns an error if the config contains an invalid combination
 // or violates the constraints declared in pkg/config/schema.yaml.
 func Validate(cfg Config) error {
+	if err := validateProtocolNotice(cfg); err != nil {
+		return err
+	}
 	httpsWantsCert := cfg.Listeners.HTTPS.Enabled || cfg.Listeners.H3.Enabled
 	acme := cfg.TLS.ACME.Enabled
 	hasCert := cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != ""
@@ -574,6 +599,12 @@ func applyEnv(cfg *Config) {
 	applyString("KEEL_TLS_CERT", &cfg.TLS.CertFile)
 	applyString("KEEL_TLS_KEY", &cfg.TLS.KeyFile)
 	applyString("KEEL_TLS_CLIENT_CA", &cfg.TLS.ClientCAFile)
+	applyString("KEEL_TLS_NOTICE_BASE_URL", &cfg.TLS.Notice.BaseURL)
+	applyString("KEEL_TLS_NOTICE_HELP_URL", &cfg.TLS.Notice.HelpURL)
+	applyString("KEEL_TLS_NOTICE_CONTACT", &cfg.TLS.Notice.Contact)
+	applyBool("KEEL_TLS_CLIENT_CERT_NOTICE", &cfg.TLS.ClientCertNotice)
+	applyString("KEEL_MIN_HTTP_VERSION", &cfg.Security.MinHTTPVersion)
+	applyInt("KEEL_ALT_SVC_MAX_AGE", &cfg.Security.AltSvcMaxAge)
 
 	// Sidecar
 	applyBool("KEEL_SIDECAR", &cfg.Sidecar.Enabled)
@@ -586,6 +617,7 @@ func applyEnv(cfg *Config) {
 	applyString("KEEL_UPSTREAM_CLIENT_KEY", &cfg.Sidecar.UpstreamTLS.ClientKeyFile)
 	applyInt("KEEL_UPSTREAM_DIAL_ATTEMPTS", &cfg.Sidecar.Retry.DialAttempts)
 	applyDuration("KEEL_UPSTREAM_DIAL_BACKOFF", &cfg.Sidecar.Retry.DialBackoff)
+	applyBool("KEEL_UPSTREAM_HONOR_RETRY_AFTER", &cfg.Sidecar.Retry.HonorRetryAfter)
 
 	// Security
 	applyBool("KEEL_OWASP", &cfg.Security.OWASPHeaders)

@@ -79,10 +79,14 @@ func authzPayload(r *http.Request, transport string) any {
 	return input
 }
 
-func authzHeaders(h http.Header) map[string]string {
-	out := make(map[string]string, len(h))
+// authzHeaders is the headers as the policy sees them: lowercase names, each with
+// every field line as its own array element. Joining lines with "," would make
+// `X: a,b` and `X: a` + `X: b` indistinguishable to the policy.
+func authzHeaders(h http.Header) map[string][]string {
+	out := make(map[string][]string, len(h))
 	for k, vv := range h {
-		out[strings.ToLower(k)] = strings.Join(vv, ",")
+		key := strings.ToLower(k)
+		out[key] = append(out[key], vv...)
 	}
 	return out
 }

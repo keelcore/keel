@@ -45,11 +45,21 @@ function install_markdownlint() {
     log "✅ markdownlint ${version} already installed (${install_dir})"
     return 0
   fi
+  require_image_build
   log "⚓ Installing markdownlint-cli@${version} from ${lock_dir}/package-lock.json..."
   mkdir -p "${install_dir}"
   cp "${lock_dir}/package.json" "${lock_dir}/package-lock.json" "${install_dir}/"
   npm ci --prefix "${install_dir}" --ignore-scripts --no-audit --no-fund
   log "✅ markdownlint ${version} installed (${install_dir})"
+}
+
+# require_image_build: tools are installed only while the tool image is built
+# (containers/*/Containerfile sets KEELCORE_IMAGE_BUILD); anywhere else the tool is already in the
+# image, and a missing or different version is an error, never an install.
+function require_image_build() {
+  [ -n "${KEELCORE_IMAGE_BUILD:-}" ] && return 0
+  log "❌ markdownlint-cli ${version} is not in this tool image; tools install only when the image is built"
+  exit 1
 }
 
 main "${@:-}"

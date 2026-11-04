@@ -191,7 +191,7 @@ release-checksums:
 
 release-upload:
 	@echo "🚀 Uploading release artifacts..."
-	RELEASE_TAG=$(TAG) ./scripts/release/upload.sh
+	RELEASE_TAG=$(TAG) ./scripts/release/upload.sh $(ARGS)
 
 test-unit:
 	@echo "🧪 Running unit tests..."
@@ -285,7 +285,7 @@ build: min
 
 unit-test: test-unit
 
-integration-test: test-integrity
+integration-test: test-integrity test-consistency
 
 ## Setup Targets
 setup-helm:

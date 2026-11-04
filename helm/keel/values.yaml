@@ -76,6 +76,14 @@ keel:
     certSecretName: ""
     # Secret holding ca.crt: inbound mTLS — HTTPS/H3 require client certs signed by it.
     clientCASecretName: ""
+    # With clientCASecretName: a request without a client certificate gets the KEEL-PROTO-005
+    # notice instead of a handshake failure (a presented certificate is still verified).
+    clientCertNotice: false
+    # Protocol rejection notice: where clients are sent to read why (empty: the HTTP listener).
+    notice:
+      baseUrl: ""
+      helpUrl: ""
+      contact: ""
     acme:
       enabled: false
       domains: []
@@ -109,6 +117,8 @@ keel:
     retry:
       dialAttempts: 3
       dialBackoff: "50ms"
+      # Retry a 503/429 once after its Retry-After (replayable requests, within timeouts.write).
+      honorRetryAfter: false
     headerPolicy:
       forward: []
       strip: []
@@ -121,6 +131,10 @@ keel:
     maxRequestBodyBytes: 10485760
     maxResponseBodyBytes: 52428800
     hstsMaxAge: 63072000
+    # Lifetime (seconds) of the Alt-Svc advertisement of HTTP/3 (sent when H3 is enabled).
+    altSvcMaxAge: 86400
+    # Lowest HTTP version served on HTTPS and H3: "1.1", "2" or "3".
+    minHttpVersion: "1.1"
 
   timeouts:
     readHeader: "5s"

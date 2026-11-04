@@ -93,7 +93,18 @@ function dev_image() {
     return 0
   fi
   if [ -s "${dir}/$(dev_ref_file "${name}")" ]; then
+    # A hook never builds: a commit that changes a build context is checked with the pinned
+    # image (the new one is published only after the commit).
+    if [ -n "${KEELCORE_DEV_IN_HOOK:-}" ]; then
+      ref="$(head -1 "${dir}/$(dev_ref_file "${name}")")"
+      log "ℹ️  ${dir}/$(dev_ref_file "${name}") pins another build context (ctx-${hash} is new); hook uses the pinned ${ref%@*}"
+      printf '%s' "${ref}"
+      return 0
+    fi
     log "ℹ️  ${dir}/$(dev_ref_file "${name}") pins another build context; building ctx-${hash} locally"
+  elif [ -n "${KEELCORE_DEV_IN_HOOK:-}" ]; then
+    log "❌ ${dir}/$(dev_ref_file "${name}") pins no image; a git hook never builds one (make dev-image-publish)"
+    exit 1
   fi
   tag="keelcore-${name}-$(dev_repo_name "${dir}"):ctx-${hash}"
   if ! "$(runtime)" image inspect "${tag}" > /dev/null 2>&1; then
@@ -106,6 +117,11 @@ function build_image() {
   local -r dir="${1}" cf="${2}" tag="${3}" base="${4}"
   local -a args=(build -f "${dir}/${cf}" -t "${tag}")
   [ -z "${base}" ] || args+=(--build-arg "BASE_DEV_IMAGE=${base}")
+  if [ "$(runtime)" = 'container' ]; then
+    local opt
+    dev_ensure_builder
+    while IFS= read -r opt; do args+=("${opt}"); done < <(dev_builder_args)
+  fi
   log "🔨 Building image ${tag}..."
   "$(runtime)" "${args[@]}" "${dir}" >&2
 }
@@ -123,10 +139,19 @@ function output_dirs() {
 
 # snapshot DIR: a standalone copy of DIR (a submodule or worktree) under /tmp — a clone (its
 # own .git, so git works without the outer repository) holding DIR's current files, tracked
-# and untracked.
+# and untracked; each submodule of DIR is a standalone copy of its own (snapshot_into).
 function snapshot() {
   local -r dir="${1}"
   local -r dest="/tmp/keelcore-dev-snapshot/$(dev_repo_name "${dir}")-$(printf '%s' "${dir}" | git hash-object --stdin | cut -c1-12)"
+  snapshot_into "${dir}" "${dest}"
+  printf '%s' "${dest}"
+}
+
+# snapshot_into DIR DEST: make DEST a clone of DIR holding DIR's current files. A submodule's
+# own .git is a pointer into its superproject's .git, which the container never sees, so
+# submodules are not copied as files: each becomes a snapshot of its own, recursively.
+function snapshot_into() {
+  local -r dir="${1}" dest="${2}"
   if [ -d "${dest}/.git" ]; then
     git -C "${dest}" fetch --quiet --tags --force "${dir}" HEAD
     git -C "${dest}" reset --quiet --hard FETCH_HEAD
@@ -136,11 +161,22 @@ function snapshot() {
     mkdir -p "$(dirname "${dest}")"
     git clone --quiet --no-hardlinks "${dir}" "${dest}"
   fi
-  (cd "${dir}" && git ls-files -d -z) | (cd "${dest}" && xargs -0 rm -f --)
+  local -r subs="$(git -C "${dir}" ls-files -s | awk '$1 == "160000" { print $4 }')"
+  # Every file of the clone's commit that DIR no longer has (deleted, staged or not) goes.
+  git -C "${dest}" ls-files -z | while IFS= read -r -d '' f; do
+    [ -e "${dir}/${f}" ] || printf '%s\0' "${f}"
+  done | (cd "${dest}" && xargs -0 rm -f --)
   (cd "${dir}" && git ls-files -co --exclude-standard -z | while IFS= read -r -d '' f; do
-      [ -e "${f}" ] && printf '%s\0' "${f}"
+      [ -e "${f}" ] && ! grep -qxF -- "${f}" <<< "${subs}" && printf '%s\0' "${f}"
     done | tar --null -T - -cf -) | tar -xf - -C "${dest}"
-  printf '%s' "${dest}"
+  local sub
+  while IFS= read -r sub; do
+    [ -n "${sub}" ] && [ -e "${dir}/${sub}/.git" ] || continue
+    rm -rf "${dest:?}/${sub}"
+    snapshot_into "${dir}/${sub}" "${dest}/${sub}"
+  done <<< "${subs}"
+  # The index lists DEST's files (tools that read `git ls-files` see what is there).
+  git -C "${dest}" add -A
 }
 
 # sync_back SNAPSHOT DIR: copy every file a writable run changed in SNAPSHOT back to DIR.
@@ -175,6 +211,11 @@ function run_in() {
   rel="${rel#"${here}"}"
   local -a args=(run --rm -i -v "${src}:/work:${mode}" -w "/work${rel}")
   args+=(-e "KEELCORE_DEV_REPO=$(dev_repo_name "${here}")")
+  # The job's registry login (DOCKER_CONFIG, one login per job), read-only: tools in the image reuse
+  # it instead of logging in themselves.
+  if [ -n "${DOCKER_CONFIG:-}" ] && [ -d "${DOCKER_CONFIG}" ]; then
+    args+=(-v "${DOCKER_CONFIG}:/run/keelcore-docker-config:ro" -e 'DOCKER_CONFIG=/run/keelcore-docker-config')
+  fi
   # Apple container caps a container at 1 GB unless told otherwise (docker does not cap).
   [ "$(runtime)" = 'container' ] && args+=(-m "${KEELCORE_DEV_MEMORY:-4g}")
   local out
@@ -184,9 +225,16 @@ function run_in() {
       args+=(-v "${here}/${out}:/work/${out}")
     done < <(output_dirs "${here}")
   fi
-  [ -t 1 ] && args+=(-t)
+  # A TTY only when both ends are terminals: git runs hooks with stdin from /dev/null, and a TTY
+  # on a non-terminal stdin fails (Apple container: "Operation not supported by device").
+  [ -t 0 ] && [ -t 1 ] && args+=(-t)
+  # By name (-e NAME): the runtime copies the value from this process's environment, so no value
+  # (tokens included) appears in the runtime's argument list.
   for name in ${PASS_ENV} $(compgen -e | grep -E '^(GITHUB|RUNNER|ACTIONS)_' || true); do
-    [ -n "${!name:-}" ] && args+=(-e "${name}=${!name}")
+    if [ -n "${!name:-}" ]; then
+      export "${name?}"
+      args+=(-e "${name}")
+    fi
   done
   # GitHub Actions file commands: the event payload (read) and the output / summary files (append).
   local file fmode mounted=" "
