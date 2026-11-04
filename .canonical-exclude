@@ -6,3 +6,8 @@
 scripts/release/go-publish.sh
 scripts/release/npm-publish.sh
 scripts/release/pypi-publish.sh
+
+# Ahead of .standards until it adopts the fix (.standards/docs/plans/keel-best-practices.md,
+# BP17): sync_back passes over submodule entries, so a writable run from a worktree of a repo
+# with submodules no longer fails after its edits are copied back.
+scripts/dev/run.sh

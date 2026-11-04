@@ -184,6 +184,8 @@ function sync_back() {
   local -r snap="${1}" dir="${2}"
   local f
   (cd "${snap}" && git ls-files -co --exclude-standard -z) | while IFS= read -r -d '' f; do
+    # A submodule entry is a directory, not a file: its own snapshot holds its files.
+    [ -d "${snap}/${f}" ] && continue
     cmp -s "${snap}/${f}" "${dir}/${f}" && continue
     mkdir -p "$(dirname "${dir}/${f}")"
     cp -p "${snap}/${f}" "${dir}/${f}"

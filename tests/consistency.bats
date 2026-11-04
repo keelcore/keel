@@ -151,12 +151,14 @@ setup_file() {
 }
 
 # ---------------------------------------------------------------------------
-# 7. core.hooksPath is scripts/hooks and scripts/hooks/pre-commit is executable (as make install-hooks installs it)
+# 7. scripts/hooks/pre-commit (the hook make install-hooks points core.hooksPath at) is
+#    executable and runs scripts/git_precommit.sh. Checked in the file tree, which every mount
+#    carries; core.hooksPath itself is host-local git config, outside it.
 # ---------------------------------------------------------------------------
-@test "core.hooksPath is scripts/hooks and scripts/hooks/pre-commit is executable" {
-  [ -n "${CI:-}" ] && skip "hooks not installed in CI checkout"
-  [ "$(git config --file "${REPO_ROOT}/.git/config" --get core.hooksPath)" = "scripts/hooks" ]
+@test "scripts/hooks/pre-commit is executable and runs scripts/git_precommit.sh" {
   [ -x "${REPO_ROOT}/scripts/hooks/pre-commit" ]
+  grep -q 'scripts/git_precommit\.sh' "${REPO_ROOT}/scripts/hooks/pre-commit"
+  [ -f "${REPO_ROOT}/scripts/git_precommit.sh" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -261,4 +263,24 @@ k8s_services() {
   done < <(awk '/^[[:space:]]+[A-Za-z0-9]+[[:space:]]*=[[:space:]]*[0-9]+/ { print $1, $3 }' \
     "${REPO_ROOT}/tests/compose/ports.go")
   [ -z "${missing}" ] || { echo "ports used by tests/compose but not hostPorts: ${missing}"; false; }
+}
+
+# sync_back: a writable run in a snapshot (a worktree or submodule mount) copies changed
+# files back; a submodule entry in the snapshot is a directory, not a file, and is left to
+# its own snapshot. scripts/dev/run.sh.
+@test "run.sh sync_back copies changed files back and passes over submodule entries" {
+  local -r work="${BATS_TEST_TMPDIR}" fn="${BATS_TEST_TMPDIR}/sync_back.sh"
+  sed -n '/^function sync_back()/,/^}/p' "${REPO_ROOT}/scripts/dev/run.sh" > "${fn}"
+  mkdir -p "${work}/snap/sub" "${work}/dir/sub"
+  (
+    cd "${work}/snap"
+    git init --quiet
+    printf 'new\n' > changed.txt
+    git add changed.txt
+    git update-index --add --cacheinfo "160000,$(printf '%040d' 1),sub"
+  )
+  printf 'old\n' > "${work}/dir/changed.txt"
+  run bash -c "set -o errexit -o pipefail; log() { :; }; source '${fn}'; sync_back '${work}/snap' '${work}/dir'"
+  [ "${status}" -eq 0 ]
+  [ "$(cat "${work}/dir/changed.txt")" = 'new' ]
 }
