@@ -171,6 +171,7 @@ jobs:
       - name: Verify published release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAX_DIGEST: ${{ steps.images.outputs.max_digest }}
           MIN_DIGEST: ${{ steps.images.outputs.min_digest }}
           FIPS_DIGEST: ${{ steps.images.outputs.fips_digest }}

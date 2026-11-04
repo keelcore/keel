@@ -12,8 +12,10 @@
 # Required environment variables:
 #   MAX_DIGEST, MIN_DIGEST, FIPS_DIGEST — index digests (sha256:...) from docker.sh
 #   GH_TOKEN                           — for gh attestation verify
+#   GITHUB_TOKEN, GITHUB_ACTOR         — GHCR login for cosign (scripts/release/cosign.sh)
 #
-# Requires: cosign, docker (buildx imagetools), gh, jq.
+# Runs on the host (docker buildx imagetools, gh, jq); cosign runs in the dev image
+# (scripts/dev/run.sh) on the published refs and the files in dist/.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -34,6 +36,11 @@ readonly -a VERIFY_IDENTITY=(
   --certificate-identity-regexp '^https://github\.com/keelcore/keel/\.github/workflows/release\.yml@refs/tags/v'
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 )
+
+# cosign: the dev image's, logged in to GHCR (scripts/release/cosign.sh; the packages may be private).
+function cosign() {
+  bash scripts/dev/run.sh bash scripts/release/cosign.sh "$@"
+}
 
 function main() {
   exec 5>&1

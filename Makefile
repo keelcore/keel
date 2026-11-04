@@ -395,7 +395,7 @@ release-vex:
 
 release-verify:
 	@echo "🔍 Verifying published release..."
-	bash scripts/dev/run.sh bash scripts/release/verify-release.sh
+	bash scripts/release/verify-release.sh
 
 ## Kubernetes Helper Targets (internal; called by test-k8s)
 k8s-cluster-test:
