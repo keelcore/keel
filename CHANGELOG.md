@@ -10,6 +10,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ## [Unreleased]
 
+## [0.9.16] - 2026-11-04
+
 ### Changed
 
 - `make create-release` now runs the canonical `.standards` release tagger. Keel's schema-field diff moved to
