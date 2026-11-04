@@ -20,7 +20,8 @@ function main() {
   exec 5>&1
   validate_args "${@:-}"
   local -r dir="$(cd "${1}" && pwd)"
-  chmod +x "${dir}/bats/bin/bats" "${dir}/bin/"* dist/keel-*
+  # Artifacts lose their executable bits in transit: bats runs its bin/ and libexec/ scripts.
+  chmod +x "${dir}/bats/bin/"* "${dir}/bats/libexec/bats-core/"* "${dir}/bin/"* dist/keel-*
   PATH="${dir}/bats/bin:${dir}/bin:${PATH}" bash scripts/test/bats-integrity.sh
 }
 

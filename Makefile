@@ -195,7 +195,7 @@ test-unit:
 
 test-consistency:
 	@echo "🧪 Running consistency suite..."
-	bash scripts/dev/run.sh bash scripts/test/consistency.sh
+	bash scripts/dev/run.sh --writable bash scripts/test/consistency.sh
 
 test-integrity:
 	@echo "🧪 Running BATS integrity suite..."
