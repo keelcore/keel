@@ -18,6 +18,7 @@ readonly LOG_FILE='/tmp/keel_cluster_test.log'
 # Probe client: an ephemeral container in keel's pod shares its network
 # namespace, so busybox wget reaches 127.0.0.1:<probe port> with no proxy in
 # the path. Same pinned image as scripts/deploy/docker/Dockerfile.certs.
+readonly PROBE_CONTAINER="keel-probe-$$"  # ephemeral containers stay in the pod: one name per run
 readonly PROBE_IMAGE='alpine:3.22@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f'
 
 function main() {
@@ -68,18 +69,37 @@ function test_probe_endpoints() {
   pod="$(kubectl_cmd --context "${context}" -n keel get pod \
     --selector 'app.kubernetes.io/name=keel' -o jsonpath='{.items[0].metadata.name}')"
   log "🔍 Testing probe endpoints from inside pod ${pod}..."
+  start_probe_container "${context}" "${pod}"
   expect_probe "${context}" "${pod}" 'http://127.0.0.1:9091/healthz' 'ok'
   expect_probe "${context}" "${pod}" 'http://127.0.0.1:9092/readyz' 'ready'
   log '✅ Probe endpoints responded correctly'
 }
 
-# expect_probe: GET url from an ephemeral container in pod; the body must
-# contain want (wget exits non-zero on any non-2xx status).
+# start_probe_container: an ephemeral container (PROBE_CONTAINER) in pod that stays up, ready for
+# exec. Not `kubectl debug --stdin -- wget`: debug attaches after the container starts, and a wget
+# that finishes first loses its output (empty body, exit 0).
+function start_probe_container() {
+  local -r context="${1}" pod="${2}"
+  local i state
+  kubectl_cmd --context "${context}" -n keel debug "pod/${pod}" \
+    --image "${PROBE_IMAGE}" --profile general --container "${PROBE_CONTAINER}" --quiet \
+    -- sleep 600 > /dev/null
+  for i in $(seq 1 60); do
+    state="$(kubectl_cmd --context "${context}" -n keel get pod "${pod}" -o \
+      jsonpath="{.status.ephemeralContainerStatuses[?(@.name==\"${PROBE_CONTAINER}\")].state.running.startedAt}")"
+    [ -n "${state}" ] && return 0
+    sleep 1
+  done
+  log "❌ probe container ${PROBE_CONTAINER} not running in ${pod} after ${i}s"
+  exit 1
+}
+
+# expect_probe: GET url from the probe container in pod; the body must contain want (wget exits
+# non-zero on any non-2xx status).
 function expect_probe() {
   local -r context="${1}" pod="${2}" url="${3}" want="${4}"
   local body
-  body="$(kubectl_cmd --context "${context}" -n keel debug "pod/${pod}" \
-    --image "${PROBE_IMAGE}" --profile general --quiet --stdin \
+  body="$(kubectl_cmd --context "${context}" -n keel exec "${pod}" -c "${PROBE_CONTAINER}" \
     -- wget -q -T 5 -O - "${url}" < /dev/null)" \
     || { log "❌ ${url} failed"; exit 1; }
   [[ "${body}" == *"${want}"* ]] || { log "❌ ${url} body '${body}', want '${want}'"; exit 1; }
