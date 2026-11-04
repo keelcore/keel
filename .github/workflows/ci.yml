@@ -30,12 +30,12 @@ jobs:
   pr-policy:
     name: PR Policy
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
@@ -55,12 +55,12 @@ jobs:
   # ---------------------------------------------------------------------------
   ci-audit:
     name: CI Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
@@ -74,12 +74,12 @@ jobs:
   # ---------------------------------------------------------------------------
   secret-scan:
     name: Secret Scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
@@ -93,23 +93,17 @@ jobs:
   # ---------------------------------------------------------------------------
   consistency:
     name: Consistency
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Install Helm
         run: make setup-helm
-      - name: Install bats-core
-        run: make setup-bats
       - name: Run consistency suite
         run: make test-consistency
 
@@ -118,23 +112,15 @@ jobs:
   # ---------------------------------------------------------------------------
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Install staticcheck
-        run: make setup-staticcheck
-      - name: Install markdownlint
-        run: make setup-markdownlint
       - name: Lint
         run: make lint
 
@@ -145,81 +131,57 @@ jobs:
   # ---------------------------------------------------------------------------
   vuln:
     name: Vulnerability Scan
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Install govulncheck
-        run: make setup-govulncheck
       - name: govulncheck
         run: make lint-vuln
 
   gosec:
     name: SAST (gosec)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Install gosec
-        run: make setup-gosec
       - name: gosec
         run: make lint-gosec
 
   fuzz:
     name: Fuzz
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Fuzz (10s per target)
         run: make test-fuzz
 
   workflow-lint:
     name: Workflow Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Install actionlint
-        run: make setup-actionlint
-      - name: Install zizmor
-        run: make setup-zizmor
       - name: actionlint + zizmor
         env:
           # zizmor online audits (impostor commits, pin/version drift, known-vulnerable actions).
@@ -228,21 +190,15 @@ jobs:
 
   licenses:
     name: Licenses
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Install go-licenses
-        run: make setup-go-licenses
       - name: License allowlist
         run: make lint-licenses
 
@@ -252,37 +208,101 @@ jobs:
   # platforms here because go test compiles a test binary for each target.
   # ---------------------------------------------------------------------------
   unit:
-    name: Unit (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Unit (linux)
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Unit tests
+        run: make test-unit
+      - name: Upload coverage to Codecov
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        # v7.0.0 — v5.x fetched Codecov's old (bricked) Keybase signing key and
+        # failed GPG verification of the uploader ("No public key"). v6.0.2/v7.0.0
+        # use the current key, so the upload verifies and succeeds.
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
+        with:
+          files: target/coverage.txt
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Native platforms — the dev image cross-builds everything a macOS or Windows
+  # host runs (test binaries, keel, pebble, bats, TLS fixtures); the native jobs
+  # only execute it. No toolchain is installed on the native runners.
+  # ---------------------------------------------------------------------------
+  native-build:
+    name: Native build (${{ matrix.platform }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - platform: macos
+            os: darwin
+            arch: arm64
+          - platform: windows
+            os: windows
+            arch: amd64
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
+      - name: Cross-build native test binaries and keel
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+        run: make native-build
+      - name: Generate TLS certs
+        run: make gen-certs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          go-version-file: go.mod
-          cache: true
-      - name: Unit tests
+          name: native-${{ matrix.platform }}
+          path: |
+            target/native/
+            dist/
+            tests/fixtures/certs/
+          retention-days: 1
+
+  unit-native:
+    name: Unit (${{ matrix.platform }})
+    needs: native-build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-26
+            dir: target/native/darwin-arm64
+          - platform: windows
+            runner: windows-2025-vs2026
+            dir: target/native/windows-amd64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: native-${{ matrix.platform }}
+      - name: Run native unit tests
         shell: bash
-        run: make test-unit
-      - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        # v7.0.0 — v5.x fetched Codecov's old (bricked) Keybase signing key and
-        # failed GPG verification of the uploader ("No public key"). v6.0.2/v7.0.0
-        # use the current key, so the upload verifies and succeeds.
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
-        with:
-          files: coverage.txt
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+        env:
+          DIR: ${{ matrix.dir }}
+        run: make native-run
 
   # ---------------------------------------------------------------------------
   # Coverage Delta — PR-only gate. Measures coverage at the merge-target commit
@@ -292,20 +312,16 @@ jobs:
   coverage-delta:
     name: Coverage Delta
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
           fetch-depth: 0
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Check coverage delta
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -320,19 +336,15 @@ jobs:
   # ---------------------------------------------------------------------------
   coverage-no-regression:
     name: Coverage No-Regression
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Generate coverage LCOV
         shell: bash
         run: make coverage
@@ -346,7 +358,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -354,21 +366,17 @@ jobs:
       GOOS: linux
       GOARCH: amd64
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build min
         run: make min
       - name: Build max (no FIPS)
         run: make max-no-fips
       - name: Generate checksums
         run: make release-checksums
-      - uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.5.0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: dist-linux
           path: dist/
@@ -380,7 +388,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build-fips:
     name: Build (FIPS)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -388,17 +396,13 @@ jobs:
       GOOS: linux
       GOARCH: amd64
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Build FIPS + verify symbols
         run: make max
-      - uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.5.0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: dist-fips
           path: dist/keel-fips
@@ -411,20 +415,16 @@ jobs:
   integrity:
     name: Integrity (BATS)
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: dist-linux
           path: dist/
@@ -434,10 +434,6 @@ jobs:
         run: make dist-chmod
       - name: Generate TLS certs
         run: make gen-certs
-      - name: Install bats-core
-        run: make setup-bats
-      - name: Install pebble
-        run: make setup-pebble
       - name: Run integrity suite
         run: make bats-integrity
 
@@ -447,32 +443,23 @@ jobs:
   # ---------------------------------------------------------------------------
   integrity-macos:
     name: Integrity (BATS, macOS)
-    runs-on: macos-latest
+    needs: native-build
+    runs-on: macos-26
     timeout-minutes: 10
     permissions:
       contents: read
-    env:
-      GOOS: darwin
-      GOARCH: arm64
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          go-version-file: go.mod
-          cache: true
-      - name: Build min
-        run: make min
-      - name: Generate TLS certs
-        run: make gen-certs
-      - name: Install bats-core
-        run: make setup-bats
-      - name: Install pebble
-        run: make setup-pebble
-      - name: Run integrity suite
-        run: make bats-integrity
+          name: native-macos
+      - name: Run integrity suite (darwin binaries from the dev image)
+        env:
+          DIR: target/native/darwin-arm64
+        run: make native-integrity
 
   # ---------------------------------------------------------------------------
   # Example (BATS) — builds examples/myapp, generates TLS certs, runs myapp.bats.
@@ -480,25 +467,19 @@ jobs:
   # ---------------------------------------------------------------------------
   example:
     name: Example (BATS)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Generate TLS certs
         run: make gen-certs
       - name: Build myapp
         run: make ci-build-example
-      - name: Install bats-core
-        run: make setup-bats
       - name: Run example BATS suite
         run: make bats-example
 
@@ -510,24 +491,20 @@ jobs:
   # Compose Integration — spins up the tests/compose/docker-compose.test.yaml topology
   # (keel max-flavor + upstream + observability stack), runs all compose tests
   # including the HTTP/3 QUIC probe, then tears down.
-  # Runs on ubuntu-latest only (Docker Compose not available on macOS/Windows
+  # Runs on ubuntu-24.04 only (Docker Compose not available on macOS/Windows
   # GHA runners without additional setup).
   # ---------------------------------------------------------------------------
   compose:
     name: Compose Integration
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          cache: true
       - name: Run compose integration tests
         env:
           KEEL_COMPOSE_TESTS: "1"
@@ -536,23 +513,23 @@ jobs:
   # ---------------------------------------------------------------------------
   # Kubernetes (kind) — builds keel:test image, loads it into a single-node
   # kind cluster, deploys via Helm, then runs pod readiness + probe + restart
-  # tests. Runs on ubuntu-latest only; downloads dist-linux artifact.
+  # tests. Runs on ubuntu-24.04 only; downloads dist-linux artifact.
   # ---------------------------------------------------------------------------
   k8s:
     name: Kubernetes (kind)
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
       - name: Install Helm
         run: make setup-helm
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: dist-linux
           path: dist/
@@ -563,22 +540,19 @@ jobs:
 
   build-windows-smoke:
     name: Windows Smoke
-    runs-on: windows-latest
+    needs: native-build
+    runs-on: windows-2025-vs2026
     timeout-minutes: 15
     permissions:
       contents: read
-    env:
-      GOOS: windows
-      GOARCH: amd64
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
-          go-version-file: go.mod
-          cache: true
-      - name: Build and smoke test
+          name: native-windows
+      - name: Smoke test (windows binary from the dev image)
         shell: bash
         run: make ci-smoke-windows

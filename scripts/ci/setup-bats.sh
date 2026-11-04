@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # scripts/test/setup-bats.sh
-# Install bats-core on a developer machine or CI runner.
-# No-op if bats is already present. Then runs scripts/ci/setup-bats.local.sh
-# if present, allowing each consumer to install extra tools its BATS suites
-# need without modifying the canonical script.
+# Install the pinned bats-core (Linux; runs when the dev image is built): the
+# release tag, cloned and verified against its committed commit SHA (the release
+# publishes no assets to checksum). No-op if the pinned version is present.
+# Then runs scripts/ci/setup-bats.local.sh if present, allowing each consumer to
+# install extra tools its BATS suites need without modifying the canonical script.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -14,6 +15,10 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+readonly BATS_VERSION='1.14.0'
+readonly BATS_COMMIT='eb7f42f8d608ac693d7a4b67474f6714ea68cfc5'
+readonly BATS_REPO='https://github.com/bats-core/bats-core.git'
 
 function main() {
   exec 5>&1
@@ -37,26 +42,36 @@ function validate_args() {
   fi
 }
 
+function as_root() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+}
+
 function install_bats() {
-  if command -v bats > /dev/null 2>&1; then
-    log "✅ bats already installed ($(bats --version))"
+  if [[ "$(uname -s)" != 'Linux' ]]; then
+    log '❌ bats installs in the dev image (Linux); run: make test'
+    exit 1
+  fi
+  install_bats_pinned
+  log '✅ bats installed'
+}
+
+function install_bats_pinned() {
+  if command -v bats > /dev/null 2>&1 && [ "$(bats --version)" = "Bats ${BATS_VERSION}" ]; then
+    log "✅ bats ${BATS_VERSION} already installed"
     return 0
   fi
-  case "$(uname -s)" in
-    Darwin)
-      log '⚓ Installing bats via brew...'
-      brew install bats-core
-      ;;
-    Linux)
-      log '⚓ Installing bats via apt-get...'
-      sudo apt-get install -y bats
-      ;;
-    *)
-      log "❌ Unsupported OS: $(uname -s). Install bats manually: https://bats-core.readthedocs.io/"
-      exit 1
-      ;;
-  esac
-  log '✅ bats installed'
+  local tmp head
+  tmp="$(mktemp -d)"
+  log "⚓ Installing bats ${BATS_VERSION} (${BATS_COMMIT})..."
+  git clone --quiet --depth 1 --branch "v${BATS_VERSION}" "${BATS_REPO}" "${tmp}/bats-core"
+  head="$(git -C "${tmp}/bats-core" rev-parse HEAD)"
+  if [ "${head}" != "${BATS_COMMIT}" ]; then
+    log "❌ bats v${BATS_VERSION} resolved to ${head}, expected ${BATS_COMMIT}"
+    rm -rf "${tmp}"
+    exit 1
+  fi
+  as_root "${tmp}/bats-core/install.sh" /usr/local
+  rm -rf "${tmp}"
 }
 
 main "${@:-}"

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # setup-markdownlint.sh
-# Install markdownlint-cli on a CI runner.
-# No-op if markdownlint is already present at the expected version.
+# Install the pinned markdownlint (markdownlint-cli) with `npm ci` from the
+# committed lockfile (scripts/lib/markdownlint.sh says where): every package in
+# the tree is the locked version, checked against its locked integrity hash.
+# No-op if that lockfile's install is already present.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -13,7 +15,8 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly MARKDOWNLINT_VERSION="0.44.0"
+# shellcheck source=../lib/markdownlint.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/markdownlint.sh"
 
 function main() {
   exec 5>&1
@@ -33,21 +36,20 @@ function validate_args() {
   fi
 }
 
-function already_installed() {
-  command -v markdownlint > /dev/null 2>&1 || return 1
-  local installed
-  installed="$(markdownlint --version 2>/dev/null | tr -d '[:space:]')"
-  [ "${installed}" = "${MARKDOWNLINT_VERSION}" ]
-}
-
 function install_markdownlint() {
-  if already_installed; then
-    log "✅ markdownlint ${MARKDOWNLINT_VERSION} already installed"
+  local lock_dir install_dir version
+  lock_dir="$(markdownlint_lock_dir)"
+  install_dir="$(markdownlint_install_dir)"
+  version="$(jq -r '.dependencies["markdownlint-cli"]' "${lock_dir}/package.json")"
+  if [ -x "$(markdownlint_bin)" ] && [ "$("$(markdownlint_bin)" --version | tr -d '[:space:]')" = "${version}" ]; then
+    log "✅ markdownlint ${version} already installed (${install_dir})"
     return 0
   fi
-  log "⚓ Installing markdownlint-cli@${MARKDOWNLINT_VERSION}..."
-  npm install --global "markdownlint-cli@${MARKDOWNLINT_VERSION}"
-  log "✅ markdownlint ${MARKDOWNLINT_VERSION} installed"
+  log "⚓ Installing markdownlint-cli@${version} from ${lock_dir}/package-lock.json..."
+  mkdir -p "${install_dir}"
+  cp "${lock_dir}/package.json" "${lock_dir}/package-lock.json" "${install_dir}/"
+  npm ci --prefix "${install_dir}" --ignore-scripts --no-audit --no-fund
+  log "✅ markdownlint ${version} installed (${install_dir})"
 }
 
 main "${@:-}"

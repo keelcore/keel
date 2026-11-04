@@ -8,7 +8,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/quic-go/quic-go v0.64.1
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.58.0
 )
 

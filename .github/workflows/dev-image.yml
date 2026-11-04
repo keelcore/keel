@@ -1,0 +1,72 @@
+name: dev-image
+
+# Publishes the tool images (containers/*/Containerfile) to GHCR, tagged by build
+# context (ctx-<hash>), built natively per architecture, joined into a multi-arch
+# index and signed keyless. Pin the result with `make dev-image-ref` (writes
+# containers/NAME/image.ref) and commit it.
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "containers/**"
+      - "scripts/ci/**"
+      - "scripts/lib/**"
+      - "scripts/release/pypi/**"
+      - ".github/workflows/dev-image.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# Repositories are UTC internally (governance/devsecops.md): every step runs in UTC.
+env:
+  TZ: UTC
+
+jobs:
+  push:
+    name: dev-image / push (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+        with:
+          persist-credentials: false
+
+      - run: make dev-image-push
+        env:
+          ARCH: ${{ matrix.arch }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  merge:
+    name: dev-image / merge + sign
+    needs: push
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+        with:
+          persist-credentials: false
+
+      - run: make dev-image-merge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

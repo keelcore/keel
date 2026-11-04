@@ -15,8 +15,6 @@ set -o pipefail
 # shellcheck source=../lib/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 
-readonly GOTESTSUM_VERSION='v1.13.0'
-
 function main() {
   exec 5>&1
   validate_args "${@:-}"
@@ -42,25 +40,25 @@ function validate_args() {
 }
 
 function ensure_gotestsum() {
-  if ! command -v gotestsum >/dev/null 2>&1; then
-    log "gotestsum not found; installing ${GOTESTSUM_VERSION}"
-    go install "gotest.tools/gotestsum@${GOTESTSUM_VERSION}"
-  fi
+  command -v gotestsum >/dev/null 2>&1 && return 0
+  log '❌ gotestsum not found (the dev image carries it; native runners: make setup-gotestsum)'
+  exit 1
 }
 
 function run_unit_tests() {
   log "Running Go tests with race detection"
+  mkdir -p target
   local pkgs
   pkgs="$(go_pkgs)"
   printf '%s\n' "${pkgs}" | xargs gotestsum \
-    --junitfile test-results.xml \
+    --junitfile target/test-results.xml \
     --format standard-verbose \
     -- -race
 }
 
 function generate_coverage() {
   log "Generating coverage report"
-  "$(dirname "${BASH_SOURCE[0]}")/coverage.sh" 'coverage.txt'
+  "$(dirname "${BASH_SOURCE[0]}")/coverage.sh" 'target/coverage.txt'
 }
 
 function write_step_summary() {
@@ -72,9 +70,9 @@ function write_step_summary() {
 
 function summarise_junit() {
   local total failed skipped passed
-  total="$(grep -c '<testcase ' test-results.xml 2>/dev/null || true)"
-  failed="$(grep -c '<failure' test-results.xml 2>/dev/null || true)"
-  skipped="$(grep -c '<skipped' test-results.xml 2>/dev/null || true)"
+  total="$(grep -c '<testcase ' target/test-results.xml 2>/dev/null || true)"
+  failed="$(grep -c '<failure' target/test-results.xml 2>/dev/null || true)"
+  skipped="$(grep -c '<skipped' target/test-results.xml 2>/dev/null || true)"
   passed="$(( ${total:-0} - ${failed:-0} - ${skipped:-0} ))"
   printf '| Passed | %s |\n| Failed | %s |\n| Skipped | %s |\n' \
     "${passed}" "${failed}" "${skipped}"

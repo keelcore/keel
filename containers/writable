@@ -1,0 +1,5 @@
+# Output directories the dev image writes (scripts/dev/run.sh mounts them writable over the
+# read-only repository): build artifacts and every test, coverage and report output.
+dist
+target
+tests/fixtures/certs

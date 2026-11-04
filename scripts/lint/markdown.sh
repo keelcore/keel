@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # scripts/lint/markdown.sh
-# Lints all GIT-TRACKED Markdown files using markdownlint-cli2.
+# Lints all GIT-TRACKED Markdown files with the pinned markdownlint (markdownlint-cli,
+# installed by scripts/ci/setup-markdownlint.sh; config: .markdownlint.json).
 # Tracked-files scope means gitignored content (.scratch/, build outputs,
 # vendored caches) is automatically excluded — it isn't part of the repo.
-# Requires node and markdownlint-cli2 on PATH (npm install or npx).
+# Requires node and the pinned markdownlint (make setup-markdownlint).
 # `bash scripts/X.sh` does not source interactive shell init files, so
 # Homebrew/nvm/fnm/volta PATH additions are absent — the node-path helper
 # probes the common install locations and prepends the right dir.
@@ -22,6 +23,8 @@ set -o pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/node-path.sh"
 # shellcheck source=lib/paths.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+# shellcheck source=../lib/markdownlint.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/markdownlint.sh"
 
 function main() {
   exec 5>&1
@@ -33,22 +36,17 @@ function validate_env() {
   log 'Checking for node...'
   if ! node_path_ensure; then
     log '❌ node not found on PATH and not discoverable at standard install locations.'
-    log '   markdownlint-cli2 is a node-based tool; install node (e.g. `brew install node`)'
-    log '   or extend scripts/lib/node-path.sh with your install path, then retry.'
+    log '   node and markdownlint come with the dev image; run: make lint-markdown'
     exit 1
   fi
   log "✅ node available ($(command -v node))"
 
-  log 'Checking for markdownlint-cli2...'
-  if ! command -v markdownlint-cli2 > /dev/null 2>&1; then
-    if command -v npx > /dev/null 2>&1; then
-      log 'markdownlint-cli2 not on PATH; will use npx'
-    else
-      log '❌ Neither markdownlint-cli2 nor npx found; run: npm install'
-      exit 1
-    fi
+  log 'Checking for markdownlint...'
+  if [ ! -x "$(markdownlint_bin)" ]; then
+    log "❌ pinned markdownlint not found at $(markdownlint_bin); run: make setup-markdownlint"
+    exit 1
   fi
-  log '✅ Tool available'
+  log "✅ markdownlint $("$(markdownlint_bin)" --version) available"
 }
 
 function lint() {
@@ -73,11 +71,7 @@ function run_linter() {
     log 'ℹ️  No tracked .md files to lint'
     return 0
   fi
-  if command -v markdownlint-cli2 > /dev/null 2>&1; then
-    markdownlint-cli2 "${files[@]}"
-  else
-    npx --yes markdownlint-cli2 "${files[@]}"
-  fi
+  "$(markdownlint_bin)" --config .markdownlint.json "${files[@]}"
 }
 
 function log() {

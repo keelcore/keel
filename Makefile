@@ -58,6 +58,7 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: release-rename
 .PHONY: release-docker
 .PHONY: release-helm-push
+.PHONY: release-cosign
 .PHONY: release-verify
 .PHONY: release-ci
 .PHONY: container-setup
@@ -81,7 +82,7 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: setup-pebble
 .PHONY: setup-kind
 .PHONY: setup-syft
-.PHONY: setup-cosign
+.PHONY: setup-gotestsum
 .PHONY: setup-grype
 .PHONY: setup-govulncheck
 .PHONY: setup-gosec
@@ -97,6 +98,9 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: ci-dco
 .PHONY: ci-coverage-delta
 .PHONY: ci-smoke-windows
+.PHONY: native-build
+.PHONY: native-run
+.PHONY: native-integrity
 .PHONY: bats-integrity
 .PHONY: bats-example
 .PHONY: ci-build-example
@@ -105,6 +109,7 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 .PHONY: setup-bats-local
 .PHONY: create-release-local
 .PHONY: update-pins-local
+.PHONY: dev-image-publish-local
 .PHONY: coverage-profile
 .PHONY: coverage-report
 .PHONY: audit
@@ -125,60 +130,60 @@ all: min
 ## Build Targets
 min:
 	@echo "⚓ Building Shredded (BYOS)..."
-	./scripts/build/ci_min.sh
+	bash scripts/dev/run.sh bash scripts/build/ci_min.sh
 
 max:
 	@echo "⚓ Building Rock-Hard (FIPS/Corporate)..."
-	./scripts/build/ci_max.sh
+	bash scripts/dev/run.sh bash scripts/build/ci_max.sh
 
 max-no-fips:
 	@echo "⚓ Building Ripped (Full Feature/No-FIPS)..."
-	./scripts/build/ci_max_no_fips.sh
+	bash scripts/dev/run.sh bash scripts/build/ci_max_no_fips.sh
 
 lint-fmt:
 	@echo "🔍 Running gofmt check..."
-	./scripts/lint/fmt.sh
+	bash scripts/dev/run.sh bash scripts/lint/fmt.sh
 
 lint-md:
 	@echo "🔍 Running markdown lint..."
-	./scripts/lint/md.sh
+	bash scripts/dev/run.sh bash scripts/lint/md.sh
 
 lint-helm:
 	@echo "🔍 Running Helm lint..."
-	./scripts/lint/helm.sh
+	bash scripts/dev/run.sh bash scripts/lint/helm.sh
 
 lint-helm-validate:
 	@echo "🔍 Validating Helm template against Kubernetes schema..."
-	./scripts/lint/helm-validate.sh
+	bash scripts/dev/run.sh bash scripts/lint/helm-validate.sh
 
 lint-vuln:
 	@echo "🔍 Running govulncheck..."
-	bash scripts/lint/vuln.sh
+	bash scripts/dev/run.sh bash scripts/lint/vuln.sh
 
 lint-gosec:
 	@echo "🔍 Running gosec..."
-	bash scripts/lint/gosec.sh
+	bash scripts/dev/run.sh bash scripts/lint/gosec.sh
 
 test-fuzz:
 	@echo "🧪 Running fuzz targets..."
-	bash scripts/test/fuzz.sh
+	bash scripts/dev/run.sh bash scripts/test/fuzz.sh
 
 lint-workflows:
 	@echo "🔍 Linting workflows (actionlint, zizmor)..."
-	bash scripts/lint/workflows.sh
+	bash scripts/dev/run.sh bash scripts/lint/workflows.sh
 
 lint-helm-policy:
 	@echo "🔍 Scanning chart policy (kubescape)..."
-	bash scripts/lint/helm-policy.sh
+	bash scripts/dev/run.sh bash scripts/lint/helm-policy.sh
 
 lint-licenses:
 	@echo "🔍 Checking dependency licenses..."
-	bash scripts/lint/licenses.sh
+	bash scripts/dev/run.sh bash scripts/lint/licenses.sh
 
 ## Release Targets
 release-checksums:
 	@echo "🔐 Generating SHA256SUMS..."
-	./scripts/release/checksums.sh
+	bash scripts/dev/run.sh bash scripts/release/checksums.sh
 
 release-upload:
 	@echo "🚀 Uploading release artifacts..."
@@ -186,15 +191,15 @@ release-upload:
 
 test-unit:
 	@echo "🧪 Running unit tests..."
-	./scripts/test/ci.sh
+	bash scripts/dev/run.sh bash scripts/test/ci.sh
 
 test-consistency:
 	@echo "🧪 Running consistency suite..."
-	./scripts/test/consistency.sh
+	bash scripts/dev/run.sh bash scripts/test/consistency.sh
 
 test-integrity:
 	@echo "🧪 Running BATS integrity suite..."
-	./scripts/build/ci_test_binary.sh
+	bash scripts/dev/run.sh bash scripts/build/ci_test_binary.sh
 
 ## test-example chains the existing build + bats targets (no inline steps).
 test-example: ci-build-example bats-example
@@ -251,11 +256,11 @@ certs-image:
 ## Certificate Generation
 gen-certs:
 	@echo "🔑 Generating self-signed test certificates..."
-	bash scripts/test/gen-certs.sh
+	bash scripts/dev/run.sh bash scripts/test/gen-certs.sh
 
 gen-schema:
 	@echo "📐 Regenerating config field schema..."
-	./scripts/release/gen-schema.sh
+	bash scripts/dev/run.sh --writable bash scripts/release/gen-schema.sh
 
 ## Repo Setup Targets
 ## Pre-commit composition: keel's schema-regen runs before the canonical
@@ -285,70 +290,84 @@ setup-helm:
 
 setup-pebble:
 	@echo "🔧 Installing pebble..."
-	./scripts/ci/setup-pebble.sh
+	bash scripts/dev/run.sh bash scripts/ci/setup-pebble.sh
 
 setup-kind:
 	@echo "🔧 Installing kind and creating cluster..."
 	./scripts/ci/setup-kind.sh
 
-setup-cosign:
-	@echo "🔧 Installing cosign..."
-	./scripts/release/install-cosign.sh
+setup-gotestsum:
+	@echo "🔧 Installing gotestsum..."
+	bash scripts/dev/run.sh bash scripts/ci/setup-gotestsum.sh
 
 setup-grype:
 	@echo "🔧 Installing grype..."
-	bash scripts/ci/setup-grype.sh
+	bash scripts/dev/run.sh bash scripts/ci/setup-grype.sh
 
 setup-govulncheck:
 	@echo "🔧 Installing govulncheck..."
-	bash scripts/ci/setup-govulncheck.sh
+	bash scripts/dev/run.sh bash scripts/ci/setup-govulncheck.sh
 
 setup-gosec:
 	@echo "🔧 Installing gosec..."
-	bash scripts/ci/setup-gosec.sh
+	bash scripts/dev/run.sh bash scripts/ci/setup-gosec.sh
 
 setup-actionlint:
 	@echo "🔧 Installing actionlint..."
-	bash scripts/ci/setup-actionlint.sh
+	bash scripts/dev/run.sh bash scripts/ci/setup-actionlint.sh
 
 setup-go-licenses:
 	@echo "🔧 Installing go-licenses..."
-	bash scripts/ci/setup-go-licenses.sh
+	bash scripts/dev/run.sh bash scripts/ci/setup-go-licenses.sh
 
 setup-zizmor:
 	@echo "🔧 Installing zizmor..."
-	bash scripts/ci/setup-zizmor.sh
+	bash scripts/dev/run.sh bash scripts/ci/setup-zizmor.sh
 
 setup-kubescape:
 	@echo "🔧 Installing kubescape..."
-	bash scripts/ci/setup-kubescape.sh
+	bash scripts/dev/run.sh bash scripts/ci/setup-kubescape.sh
 
 ## CI Gate Targets
 ci-smoke-windows:
 	@echo "🪟 Running Windows smoke test..."
 	./scripts/build/ci_smoke_windows.sh
 
+## Native platforms: the dev image cross-builds the test binaries, keel, pebble and bats for
+## OS/ARCH (target/native/<os>-<arch>, dist/); the native macOS or Windows host only runs them.
+native-build:
+	@echo "🔨 Cross-building native test binaries for $(OS)/$(ARCH)..."
+	bash scripts/dev/run.sh bash scripts/test/native-build.sh $(OS) $(ARCH)
+
+native-run:
+	@echo "🧪 Running native test binaries ($(DIR))..."
+	bash scripts/test/native-run.sh $(DIR)
+
+native-integrity:
+	@echo "🧪 Running the integrity suite natively ($(DIR))..."
+	bash scripts/test/native-integrity.sh $(DIR)
+
 ## BATS Runner Targets (artifact-based; distinct from test-integrity which builds first)
 bats-integrity:
 	@echo "🧪 Running BATS integrity suite against downloaded artifact..."
-	bash scripts/test/bats-integrity.sh
+	bash scripts/dev/run.sh bash scripts/test/bats-integrity.sh
 
 bats-example:
 	@echo "🧪 Running BATS example suite..."
-	bash scripts/test/bats-example.sh
+	bash scripts/dev/run.sh bash scripts/test/bats-example.sh
 
 ci-build-example:
 	@echo "🔨 Building examples/myapp (CI, no BATS)..."
-	./scripts/build/ci_example.sh
+	bash scripts/dev/run.sh bash scripts/build/ci_example.sh
 
 ## Additional Release Targets
 release-checksums-verify:
 	@echo "🔐 Verifying SHA256SUMS..."
-	./scripts/release/checksums.sh --verify
+	bash scripts/dev/run.sh bash scripts/release/checksums.sh --verify
 
 release-rename:
 	@echo "📦 Renaming release artifacts with platform suffix..."
-	./scripts/release/rename-assets.sh
+	bash scripts/dev/run.sh bash scripts/release/rename-assets.sh
 
 release-docker:
 	@echo "🐳 Building and pushing container images..."
@@ -356,19 +375,23 @@ release-docker:
 
 release-helm-push:
 	@echo "⎈ Packaging and pushing Helm chart..."
-	./scripts/release/helm-push.sh
+	bash scripts/dev/run.sh bash scripts/release/helm-push.sh
+
+release-cosign:
+	@echo "🔏 cosign (GHCR, dev image) $(ARGS)..."
+	bash scripts/dev/run.sh bash scripts/release/cosign.sh $(ARGS)
 
 lint-vex:
 	@echo "🔍 Validating generated OpenVEX document..."
-	bash scripts/lint/vex.sh
+	bash scripts/dev/run.sh bash scripts/lint/vex.sh
 
 release-vex:
 	@echo "🧾 Generating OpenVEX (govulncheck)..."
-	bash scripts/release/vex.sh $(ARGS)
+	bash scripts/dev/run.sh bash scripts/release/vex.sh $(ARGS)
 
 release-verify:
 	@echo "🔍 Verifying published release..."
-	bash scripts/release/verify-release.sh
+	bash scripts/dev/run.sh bash scripts/release/verify-release.sh
 
 ## Kubernetes Helper Targets (internal; called by test-k8s)
 k8s-cluster-test:
@@ -402,7 +425,7 @@ k8s-kind-teardown:
 ## Additional Setup Targets
 setup-kubeconform:
 	@echo "🔧 Installing kubeconform..."
-	./scripts/ci/setup-kubeconform.sh
+	bash scripts/dev/run.sh bash scripts/ci/setup-kubeconform.sh
 
 setup-ghcr:
 	@echo "🔧 Setting up GHCR credentials..."
@@ -416,7 +439,7 @@ release-ci:
 ## Additional Utility Targets
 size-report:
 	@echo "📏 Generating binary size report..."
-	./scripts/build/size-report.sh
+	bash scripts/dev/run.sh bash scripts/build/size-report.sh
 
 roadmap-issues:
 	@echo "🗺️  Syncing roadmap issues..."
@@ -425,7 +448,7 @@ roadmap-issues:
 ## Utility Targets
 dist-chmod:
 	@echo "🔑 Making dist binaries executable..."
-	bash scripts/build/dist-chmod.sh
+	bash scripts/dev/run.sh bash scripts/build/dist-chmod.sh
 
 ## Local artifact cleanup — also delegated to by canonical clean.sh (`make clean`)
 clean-local:
@@ -447,20 +470,24 @@ update-pins-local:
 	@echo "📌 keel pin hook: $(WHAT)"
 	bash scripts/release/update-pins.local.sh $(WHAT)
 
+dev-image-publish-local:
+	@echo "📦 keel publish hook: $(WHAT)"
+	bash scripts/dev/publish.local.sh $(WHAT)
+
 ## coverage-profile: write the whole-module Go statement-coverage profile to
-## coverage.txt (with a total%/uncovered/lines summary). This is the profile
+## target/coverage.txt (with a total%/uncovered/lines summary). This is the profile
 ## ci.sh generates during `make test-unit` and uploads to Codecov — named for
 ## the artifact it produces, and distinct from the canonical per-file LCOV
 ## flow (coverage-go / coverage-aggregate / ci-coverage-no-regression).
 coverage-profile:
-	@echo "📊 Generating Go coverage profile (coverage.txt)..."
-	bash scripts/test/coverage.sh
+	@echo "📊 Generating Go coverage profile (target/coverage.txt)..."
+	bash scripts/dev/run.sh bash scripts/test/coverage.sh
 
 ## coverage-report: pretty-print the merged per-file LCOV (from `make coverage`)
 ## as an ascending, colorized console table with coverage bars. Read-only view;
 ## does not run tests or alter the baseline.
 coverage-report:
-	bash scripts/test/coverage-report.sh
+	bash scripts/dev/run.sh bash scripts/test/coverage-report.sh
 
 ## help composes keel's curated summary (help-local) with the canonical
 ## auto-generated target list. help-local is a pure prerequisite aggregator
@@ -550,7 +577,9 @@ help-local:
 	@echo "  ci-secret-scan    Run secret scan"
 	@echo "  ci-dco            Run DCO sign-off check"
 	@echo "  ci-coverage-delta Check coverage delta vs base branch"
-	@echo "  ci-smoke-windows  Build and smoke test Windows binary"
+	@echo "  ci-smoke-windows  Smoke test the Windows binary (built by native-build)"
+	@echo "  native-build      Cross-build native tests/binaries (OS=darwin|windows ARCH=arm64|amd64)"
+	@echo "  native-run        Run cross-built native tests (DIR=target/native/<os>-<arch>)"
 	@echo "  ci-build-example  Build examples/myapp only (no BATS)"
 	@echo "  bats-integrity    Run BATS integrity suite (artifact must exist)"
 	@echo "  bats-example      Run BATS example suite"

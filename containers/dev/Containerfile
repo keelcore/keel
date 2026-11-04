@@ -1,0 +1,49 @@
+# containers/dev/Containerfile
+# keel dev image: the keelcore-standards dev image (Go, Node, shellcheck, bats,
+# markdownlint, staticcheck, gitleaks, syft, cosign) plus keel's own build, lint,
+# test and release tools, each installed once at build time by its pinned
+# scripts/ci/setup-<tool>.sh. Every keel make target that builds or runs a tool
+# runs in this image (scripts/dev/run.sh) on every host, with the repository
+# mounted read-only and its output directories (containers/writable) writable.
+# Build context: the repository root. BASE_DEV_IMAGE: the .standards dev image,
+# pinned by digest (scripts/dev/run.sh and scripts/dev/publish.sh pass it).
+
+ARG BASE_DEV_IMAGE
+FROM ${BASE_DEV_IMAGE}
+
+WORKDIR /opt/keel
+# One cached layer per tool, each copying only its own setup script, so a changed script
+# rebuilds only its tool (and the ones after it). timeout turns a stalled download (go has
+# no download timeout) into a failed step; a step that fails moves to the end of this list.
+COPY scripts/ci/setup-gotestsum.sh /opt/keel/scripts/ci/
+RUN timeout 300 bash scripts/ci/setup-gotestsum.sh
+COPY scripts/ci/setup-govulncheck.sh /opt/keel/scripts/ci/
+RUN timeout 300 bash scripts/ci/setup-govulncheck.sh && go clean -modcache -cache
+COPY scripts/ci/setup-actionlint.sh /opt/keel/scripts/ci/
+RUN timeout 300 bash scripts/ci/setup-actionlint.sh
+COPY scripts/ci/setup-pebble.sh /opt/keel/scripts/ci/
+RUN timeout 300 bash scripts/ci/setup-pebble.sh && go clean -modcache -cache
+COPY scripts/ci/setup-helm.sh /opt/keel/scripts/ci/
+RUN timeout 300 bash scripts/ci/setup-helm.sh
+COPY scripts/ci/setup-kubeconform.sh /opt/keel/scripts/ci/
+RUN timeout 300 bash scripts/ci/setup-kubeconform.sh
+COPY scripts/ci/setup-grype.sh /opt/keel/scripts/ci/
+RUN timeout 300 bash scripts/ci/setup-grype.sh
+COPY scripts/ci/setup-zizmor.sh /opt/keel/scripts/ci/
+RUN timeout 300 bash scripts/ci/setup-zizmor.sh
+COPY scripts/ci/setup-kubescape.sh /opt/keel/scripts/ci/
+RUN timeout 900 bash scripts/ci/setup-kubescape.sh
+COPY scripts/ci/setup-gosec.sh /opt/keel/scripts/ci/
+RUN timeout 300 bash scripts/ci/setup-gosec.sh
+COPY scripts/ci/setup-go-licenses.sh /opt/keel/scripts/ci/
+RUN timeout 300 bash scripts/ci/setup-go-licenses.sh && go clean -modcache -cache
+
+# Test-suite dependencies: nc (the remote-sink BATS) and pebble's module source in the module
+# cache (its test CA, read by the ACME end-to-end BATS) — the version setup-pebble.sh pins.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends netcat-openbsd \
+ && rm -rf /var/lib/apt/lists/* \
+ && cd /tmp \
+ && go mod download "$(sed -nE "s/^readonly PEBBLE_MODULE='([^@]+)\/cmd\/pebble@([^']+)'\$/\\1@\\2/p" /opt/keel/scripts/ci/setup-pebble.sh)"
+
+WORKDIR /work

@@ -33,9 +33,9 @@ paths_ensure_standard
 function main() {
   exec 5>&1
   log 'Pre-commit: format + lint + governance-gate'
-  bash scripts/format.sh
-  bash scripts/lint.sh
-  bash scripts/ci/governance-gate.sh
+  bash scripts/dev/run.sh --writable bash scripts/format.sh
+  bash scripts/dev/run.sh bash scripts/lint.sh
+  bash scripts/dev/run.sh bash scripts/ci/governance-gate.sh
   log '✅ Pre-commit checks passed'
 }
 

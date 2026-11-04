@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # helm-push.sh
 # Package the Keel Helm chart and push it to GHCR as an OCI artifact.
-# Signs the pushed chart digest with cosign keyless signing.
+# Signs the pushed chart digest with cosign keyless signing. Runs in the dev
+# image (make release-helm-push), which carries helm and cosign.
 #
 # Required environment variables:
 #   GITHUB_TOKEN   — GHCR write token (GITHUB_TOKEN in Actions)
@@ -74,7 +75,7 @@ function require_helm() {
 
 function require_cosign() {
   if ! command -v cosign >/dev/null 2>&1; then
-    log "ERROR: cosign not found in PATH — run scripts/release/install-cosign.sh"
+    log "ERROR: cosign not found in PATH — the dev image carries it (scripts/ci/setup-cosign.sh)"
     exit 1
   fi
 }
@@ -117,7 +118,7 @@ function sign_chart() {
   local -r version="${1}"
   local -r ref="${REGISTRY}/keelcore/charts/keel:${version}"
   log "  Signing ${ref} (cosign keyless)"
-  cosign sign --yes "${ref}"
+  bash scripts/release/cosign.sh sign --yes "${ref}"
 }
 
 main "${@:-}"

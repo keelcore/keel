@@ -327,3 +327,15 @@ func TestParseJWK_EC_P384_OffCurve(t *testing.T) {
 		t.Error("expected an error for an off-curve P-384 point")
 	}
 }
+
+// parseECJWK rejects a coordinate longer than the curve's field size.
+func TestParseJWK_EC_P256_OversizeCoordinate(t *testing.T) {
+	x, y := p256JWKCoords(t)
+	long := base64.RawURLEncoding.EncodeToString(make([]byte, 33))
+	for _, c := range []struct{ name, x, y string }{{"x", long, y}, {"y", x, long}} {
+		raw := json.RawMessage(fmt.Sprintf(`{"kty":"EC","crv":"P-256","x":%q,"y":%q}`, c.x, c.y))
+		if _, err := parseJWK(raw); err == nil {
+			t.Errorf("expected an error for a 33-byte P-256 %s coordinate", c.name)
+		}
+	}
+}

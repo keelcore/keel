@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # setup-kubescape.sh
 # Install kubescape for the Helm chart policy scan (scripts/lint/helm-policy.sh).
-# Linux (CI runners): pinned v4.0.16 release asset, SHA256-verified before install.
+# Linux (built into the dev image): pinned v4.0.16 release asset, SHA256-verified before install.
 # macOS: Homebrew.
 # No-op if kubescape is already present.
 #
 # Pinned version: v4.0.16
-# Update KUBESCAPE_VERSION and KUBESCAPE_SHA256 together when bumping.
+# Update KUBESCAPE_VERSION and KUBESCAPE_SHA256_* together when bumping (make update-pins does).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -19,8 +19,14 @@ set -o errexit
 set -o pipefail
 
 readonly KUBESCAPE_VERSION='4.0.16'
-readonly KUBESCAPE_SHA256='fcf172f0d1fb5683379586bcf8875091da4d0d815bd304f8098d58be65ecab0d'
-readonly KUBESCAPE_ASSET="kubescape_${KUBESCAPE_VERSION}_linux_amd64"
+readonly KUBESCAPE_SHA256_AMD64='fcf172f0d1fb5683379586bcf8875091da4d0d815bd304f8098d58be65ecab0d'
+readonly KUBESCAPE_SHA256_ARM64='ea0a5c51d299e88209e2f17877dd76f66d36b772cf313e8fe68ee37325c9b382'
+if [ "$(uname -m)" = 'aarch64' ]; then
+  readonly KUBESCAPE_SHA256="${KUBESCAPE_SHA256_ARM64}" KUBESCAPE_ARCH='arm64'
+else
+  readonly KUBESCAPE_SHA256="${KUBESCAPE_SHA256_AMD64}" KUBESCAPE_ARCH='amd64'
+fi
+readonly KUBESCAPE_ASSET="kubescape_${KUBESCAPE_VERSION}_linux_${KUBESCAPE_ARCH}"
 readonly KUBESCAPE_URL="https://github.com/kubescape/kubescape/releases/download/v${KUBESCAPE_VERSION}/${KUBESCAPE_ASSET}"
 readonly KUBESCAPE_INSTALL_PATH='/usr/local/bin/kubescape'
 
@@ -60,13 +66,17 @@ function validate_args() {
   fi
 }
 
+function as_root() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+}
+
 function install_linux() {
   local tmp
   tmp="$(mktemp -d)"
   curl -fsSL "${KUBESCAPE_URL}" -o "${tmp}/${KUBESCAPE_ASSET}"
   printf '%s  %s/%s\n' "${KUBESCAPE_SHA256}" "${tmp}" "${KUBESCAPE_ASSET}" | sha256sum --check --quiet
   stage_binary "${tmp}"
-  sudo install -m 0755 "${tmp}/kubescape.staged" "${KUBESCAPE_INSTALL_PATH}"
+  as_root install -m 0755 "${tmp}/kubescape.staged" "${KUBESCAPE_INSTALL_PATH}"
   rm -rf "${tmp}"
 }
 

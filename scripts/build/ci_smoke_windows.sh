@@ -16,9 +16,7 @@ set -o pipefail
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  log "Building keel on Windows"
-  build_binary
-  rename_for_windows
+  require_binary
   log "Running smoke test: dist/keel-max.exe --version"
   smoke_test
   log "Windows smoke test passed"
@@ -29,14 +27,19 @@ function log() {
   printf '%s\n' "${msg}" | tee -a '/tmp/keel_smoke_windows.log' >&5
 }
 
-function validate_args() { :; }
-
-function build_binary() {
-  bash scripts/build/ci_max_no_fips.sh
+function validate_args() {
+  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected argument'
+    exit 1
+  fi
 }
 
-function rename_for_windows() {
-  mv 'dist/keel-max' 'dist/keel-max.exe'
+# require_binary: dist/keel-max.exe, cross-built in the dev image (make native-build
+# OS=windows ARCH=amd64); the Windows host only runs it.
+function require_binary() {
+  [ -f 'dist/keel-max.exe' ] && return 0
+  log '❌ dist/keel-max.exe not found (make native-build OS=windows ARCH=amd64)'
+  exit 1
 }
 
 function smoke_test() {

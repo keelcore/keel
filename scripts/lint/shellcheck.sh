@@ -32,7 +32,7 @@ function validate_env() {
   log 'Checking for shellcheck...'
   if ! command -v shellcheck > /dev/null 2>&1; then
     log '❌ shellcheck not found on PATH and not present at standard install locations.'
-    log '   Install via: brew install shellcheck (macOS) or apt-get install shellcheck (Debian/Ubuntu).'
+    log '   shellcheck comes with the dev image; run: make lint-bash'
     exit 1
   fi
   log "✅ shellcheck available ($(command -v shellcheck))"

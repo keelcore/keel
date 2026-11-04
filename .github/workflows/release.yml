@@ -25,7 +25,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     name: Build Release Artifacts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -33,17 +33,12 @@ jobs:
       GOOS: linux
       GOARCH: amd64
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
           fetch-depth: 0
           fetch-tags: true
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-          # No module cache in the release build: a poisoned cache must not reach a release artifact.
-          cache: false
       - name: Build min
         run: make min
       - name: Build max (no FIPS)
@@ -71,12 +66,12 @@ jobs:
         env:
           GOARCH: arm64
         run: make release-rename
-      - name: Install syft
-        run: make setup-syft
-      - name: Generate SBOM
-        run: make release-sbom ARGS="--out-dir dist"
-      - name: Install govulncheck
-        run: make setup-govulncheck
+      # One SBOM per release binary (keel, its version, the Go modules compiled into it); docker.sh
+      # adds one per image. TAG reaches the run line from the environment, never by expression.
+      - name: Generate SBOMs
+        env:
+          TAG: ${{ github.ref_name }}
+        run: make release-sbom ARGS="--out-dir dist --name keel --version ${TAG} --license Apache-2.0 dist/keel-*"
       # OpenVEX from govulncheck reachability, generated from the code being released;
       # docker.sh attests it to every image index.
       - name: Generate OpenVEX
@@ -85,7 +80,7 @@ jobs:
         run: make lint-vex
       - name: Generate checksums
         run: make release-checksums
-      - uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.5.0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: release-artifacts
           path: dist/
@@ -104,7 +99,7 @@ jobs:
   publish:
     name: Publish Release
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: release
     permissions:
@@ -113,25 +108,23 @@ jobs:
       attestations: write
       packages: write
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
           fetch-depth: 0
           fetch-tags: true
-      - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: release-artifacts
           path: dist/
       - name: Verify artifact checksums
         run: make release-checksums-verify
-      - name: Install cosign
-        run: make setup-cosign
       - name: Sign artifacts
         run: make release-sign ARGS="--sums-dir dist dist/keel-*"
       - name: Generate SLSA provenance attestation
         id: provenance
-        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
         with:
           subject-path: 'dist/keel-*'
       - name: Upload to GitHub Release
@@ -140,10 +133,6 @@ jobs:
           TAG: ${{ github.ref_name }}
           PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
         run: make release-upload
-      - name: Install syft
-        run: make setup-syft
-      - name: Install grype
-        run: make setup-grype
       - name: Build, scan, push and sign container images
         id: images
         env:
@@ -152,19 +141,19 @@ jobs:
         run: make release-docker
       # SLSA provenance per image digest, pushed to GHCR next to each image.
       - name: Image provenance (max)
-        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
         with:
           subject-name: ghcr.io/keelcore/keel
           subject-digest: ${{ steps.images.outputs.max_digest }}
           push-to-registry: true
       - name: Image provenance (min)
-        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
         with:
           subject-name: ghcr.io/keelcore/keel
           subject-digest: ${{ steps.images.outputs.min_digest }}
           push-to-registry: true
       - name: Image provenance (fips)
-        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2  # v2.2.3
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
         with:
           subject-name: ghcr.io/keelcore/keel
           subject-digest: ${{ steps.images.outputs.fips_digest }}

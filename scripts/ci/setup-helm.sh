@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # setup-helm.sh
-# Install Helm via the platform-appropriate package manager.
-# Linux: official GPG-signed apt repository.
+# Install the pinned Helm.
+# Linux: the release tarball from get.helm.sh, verified against the committed
+# SHA-256 for the runner's architecture (same version and sums as the toolbox
+# Containerfile; update-pins.local.sh keeps both in step).
 # macOS: Homebrew.
-# No-op if helm is already present.
+# No-op if the pinned version (Linux) or any helm (macOS) is already present.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -15,20 +17,19 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+readonly HELM_VERSION='v4.3.1'
+readonly HELM_SHA256_AMD64='0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b'
+readonly HELM_SHA256_ARM64='8cf8f66ecbc252ac8f7f06cca68aba88508ddfde3a6a34feb1678ad1694b4f88'
+readonly HELM_INSTALL_PATH='/usr/local/bin/helm'
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  if command -v helm >/dev/null 2>&1; then
-    log "helm already installed: $(helm version --short)"
-    return 0
-  fi
   case "$(uname -s)" in
     Linux)
-      log "Installing Helm via official apt repository"
-      install_helm_apt
+      install_helm_linux
       ;;
     Darwin)
-      log "Installing Helm via Homebrew"
       install_helm_brew
       ;;
     *)
@@ -36,7 +37,6 @@ function main() {
       exit 1
       ;;
   esac
-  log "Helm installed: $(helm version --short)"
 }
 
 function log() {
@@ -44,34 +44,47 @@ function log() {
   printf '%s\n' "${msg}" | tee -a '/tmp/keel_setup_helm.log' >&5
 }
 
-function validate_args() { :; }
+function validate_args() {
+  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected argument'
+    exit 1
+  fi
+}
 
 function install_helm_brew() {
+  if command -v helm >/dev/null 2>&1; then
+    log "helm already installed: $(helm version --short)"
+    return 0
+  fi
+  log "Installing Helm via Homebrew"
   brew install helm
+  log "Helm installed: $(helm version --short)"
 }
 
-function install_helm_apt() {
-  add_helm_gpg_key
-  add_helm_apt_repo
-  apt_install_helm
+function as_root() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
 }
 
-function add_helm_gpg_key() {
-  curl -fsSL 'https://baltocdn.com/helm/signing.asc' \
-    | gpg --dearmor \
-    | sudo tee /usr/share/keyrings/helm.gpg >/dev/null
-  sudo apt-get install -y apt-transport-https --quiet
-}
-
-function add_helm_apt_repo() {
-  printf 'deb [arch=%s signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main\n' \
-    "$(dpkg --print-architecture)" \
-    | sudo tee /etc/apt/sources.list.d/helm-stable-debian.list
-  sudo apt-get update -qq
-}
-
-function apt_install_helm() {
-  sudo apt-get install -y helm
+function install_helm_linux() {
+  if command -v helm >/dev/null 2>&1 && [[ "$(helm version --short)" == "${HELM_VERSION}+"* ]]; then
+    log "✅ helm ${HELM_VERSION} already installed"
+    return 0
+  fi
+  local arch sha tarball tmp
+  case "$(uname -m)" in
+    x86_64) arch='amd64'; sha="${HELM_SHA256_AMD64}" ;;
+    aarch64) arch='arm64'; sha="${HELM_SHA256_ARM64}" ;;
+    *) log "❌ Unsupported architecture: $(uname -m)"; exit 1 ;;
+  esac
+  tarball="helm-${HELM_VERSION}-linux-${arch}.tar.gz"
+  tmp="$(mktemp -d)"
+  log "⚓ Installing helm ${HELM_VERSION} (${arch})..."
+  curl -fsSL "https://get.helm.sh/${tarball}" -o "${tmp}/${tarball}"
+  printf '%s  %s/%s\n' "${sha}" "${tmp}" "${tarball}" | sha256sum --check --quiet
+  tar -xz -C "${tmp}" -f "${tmp}/${tarball}"
+  as_root install -m 0755 "${tmp}/linux-${arch}/helm" "${HELM_INSTALL_PATH}"
+  rm -rf "${tmp}"
+  log "✅ helm ${HELM_VERSION} installed at ${HELM_INSTALL_PATH}"
 }
 
 main "${@:-}"

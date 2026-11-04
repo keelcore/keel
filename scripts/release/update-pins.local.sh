@@ -28,9 +28,12 @@ set -o errexit
 set -o pipefail
 
 readonly TOOLBOX='scripts/container/toolbox/Containerfile'
+readonly SETUP_HELM='scripts/ci/setup-helm.sh'
 # The combined run's toolbox mounts the throwaway worktree, so it never shares a
 # name with the developer's keel-toolbox (which mounts the working tree).
 readonly PINS_TOOLBOX='keel-toolbox-pins'
+# The verification cluster: its own name, so a pin check never touches the developer's keel-k8s.
+readonly PINS_CLUSTER='keel-k8s-pins'
 
 function main() {
   validate_args "${@:-}"
@@ -61,13 +64,17 @@ function toolbox_arg() {
 }
 
 # pins: the toolbox downloads kubectl and helm from their own CDNs (dl.k8s.io,
-# get.helm.sh), which publish the same releases as their GitHub projects.
+# get.helm.sh), which publish the same releases as their GitHub projects;
+# setup-helm.sh installs the same helm on Linux CI runners.
 function pins() {
   local line value
   IFS=$'\t' read -r line value < <(toolbox_arg KUBECTL_VERSION)
   printf 'tool\tKUBECTL\t%s:%s\t%s\tgithub:kubernetes/kubernetes\n' "${TOOLBOX}" "${line}" "${value}"
   IFS=$'\t' read -r line value < <(toolbox_arg HELM_VERSION)
   printf 'tool\tHELM\t%s:%s\t%s\tgithub:helm/helm\n' "${TOOLBOX}" "${line}" "${value}"
+  line="$(grep -nE "^readonly HELM_VERSION=" "${SETUP_HELM}" | cut -d: -f1)"
+  value="$(sed -nE "s/^readonly HELM_VERSION='([^']+)'\$/\1/p" "${SETUP_HELM}")"
+  printf 'tool\tHELM\t%s:%s\t%s\tgithub:helm/helm\n' "${SETUP_HELM}" "${line}" "${value}"
 }
 
 function holds() {
@@ -83,45 +90,47 @@ function verify() {
   local -r kind="${1}" name="${2}" platform="${4}"
   case "${kind}:${name}" in
     gomod:*) printf 'min max test' ;;
-    gotool:*/gosec) printf 'setup-gosec lint-gosec' ;;
+    tool:GOSEC) printf 'setup-gosec lint-gosec' ;;
     gotool:*/govulncheck) printf 'setup-govulncheck lint-vuln' ;;
-    gotool:*/actionlint) printf 'setup-actionlint lint-workflows' ;;
+    tool:ACTIONLINT) printf 'setup-actionlint lint-workflows' ;;
     gotool:*/go-licenses*) printf 'setup-go-licenses lint-licenses' ;;
-    gotool:*/gotestsum) printf 'test-unit' ;;
     gotool:*/staticcheck) printf 'setup-staticcheck' ;;
     gotool:*/pebble) printf 'setup-pebble min max test' ;;
-    npm:markdownlint-cli) printf 'setup-markdownlint lint-markdown' ;;
-    tool:KUBESCAPE) linux_only "${platform}" 'setup-kubescape lint-helm-policy' ;;
-    tool:ZIZMOR) linux_only "${platform}" 'setup-zizmor lint-workflows' ;;
-    tool:KUBECONFORM) linux_only "${platform}" 'setup-kubeconform lint-helm-validate' ;;
-    tool:KUBECTL | tool:HELM)
-      # Rebuilding the toolbox image verifies the new version's checksums.
-      if [ "${platform}" = 'Darwin' ]; then printf 'KEEL_TOOLBOX_NAME=%s container-setup' "${PINS_TOOLBOX}"; fi ;;
+    tool:KUBESCAPE) printf 'setup-kubescape lint-helm-policy' ;;
+    tool:ZIZMOR) printf 'setup-zizmor lint-workflows' ;;
+    tool:KUBECONFORM) printf 'setup-kubeconform lint-helm-validate' ;;
+    tool:GOTESTSUM) printf 'setup-gotestsum test-unit' ;;
+    # Rebuilding the toolbox image verifies the new version's checksums; helm also installs in the dev image.
+    tool:KUBECTL)
+      if [ "${platform}" = 'Darwin' ]; then printf 'KEEL_CLUSTER_NAME=%s KEEL_TOOLBOX_NAME=%s container-setup' "${PINS_CLUSTER}" "${PINS_TOOLBOX}"; fi ;;
+    tool:HELM)
+      printf 'setup-helm lint-helm'
+      if [ "${platform}" = 'Darwin' ]; then printf ' KEEL_CLUSTER_NAME=%s KEEL_TOOLBOX_NAME=%s container-setup' "${PINS_CLUSTER}" "${PINS_TOOLBOX}"; fi ;;
   esac
-}
-
-function linux_only() {
-  if [ "${1}" = 'Linux' ]; then printf '%s' "${2}"; fi
 }
 
 # combined PLATFORM: builds, lint, audit, unit + integrity BATS, then the
 # integration stack — Apple container locally, Docker Compose on Linux.
 function combined() {
   if [ "${1}" = 'Darwin' ]; then
-    printf 'KEEL_TOOLBOX_NAME=%s min max lint audit test container-setup container-stack-test' "${PINS_TOOLBOX}"
+    printf 'KEEL_CLUSTER_NAME=%s KEEL_TOOLBOX_NAME=%s min max lint audit test container-setup container-stack-test' "${PINS_CLUSTER}" "${PINS_TOOLBOX}"
   else
     printf 'min max lint audit test test-compose'
   fi
 }
 
+# cleanup: tear down everything a verification started (cluster, helm release, toolbox) —
+# nothing it starts outlives the run.
 function cleanup() {
   if command -v container > /dev/null 2>&1; then
+    KEEL_CLUSTER_NAME="${PINS_CLUSTER}" KEEL_TOOLBOX_NAME="${PINS_TOOLBOX}" bash scripts/container/teardown.sh > /dev/null 2>&1 || true
     container rm -f "${PINS_TOOLBOX}" > /dev/null 2>&1 || true
   fi
 }
 
 # apply ROOT KIND NAME CURRENT CANDIDATE LOCATIONS: kubectl and helm in the
-# toolbox Containerfile, with the checksums their CDNs publish.
+# toolbox Containerfile (and helm in setup-helm.sh), with the checksums their
+# CDNs publish.
 function apply() {
   local -r root="${1}" kind="${2}" name="${3}" current="${4}" cand="${5}"
   [ "${kind}" = 'tool' ] || return 3
@@ -132,6 +141,10 @@ function apply() {
     *) return 3 ;;
   esac
   replace_arg "${file}" "${name}_VERSION" "${current}" "${cand}"
+  if [ "${name}" = 'HELM' ]; then
+    CUR="${current}" CAND="${cand}" perl -pi -e 's/^(readonly HELM_VERSION=\x27)\Q$ENV{CUR}\E(\x27)$/$1$ENV{CAND}$2/' "${root}/${SETUP_HELM}"
+    grep -q "^readonly HELM_VERSION='${cand}'$" "${root}/${SETUP_HELM}" || { printf 'HELM_VERSION not updated in %s\n' "${SETUP_HELM}"; return 1; }
+  fi
   for arch in amd64 arm64; do
     if [ "${name}" = 'KUBECTL' ]; then
       sum="$(curl -fsSL --retry 3 "https://dl.k8s.io/release/${cand}/bin/linux/${arch}/kubectl.sha256")"
@@ -142,6 +155,11 @@ function apply() {
     ARG="${name}_SHA256_$(tr '[:lower:]' '[:upper:]' <<< "${arch}")" SUM="${sum}" \
       perl -pi -e 's/^(ARG \Q$ENV{ARG}\E=)[0-9a-f]{64}$/$1$ENV{SUM}/' "${file}"
     grep -q "=${sum}$" "${file}" || { printf 'checksum not written for %s %s\n' "${name}" "${arch}"; return 1; }
+    if [ "${name}" = 'HELM' ]; then
+      ARG="HELM_SHA256_$(tr '[:lower:]' '[:upper:]' <<< "${arch}")" SUM="${sum}" \
+        perl -pi -e 's/^(readonly \Q$ENV{ARG}\E=\x27)[0-9a-f]{64}(\x27)$/$1$ENV{SUM}$2/' "${root}/${SETUP_HELM}"
+      grep -q "='${sum}'$" "${root}/${SETUP_HELM}" || { printf 'checksum not written to %s for %s\n' "${SETUP_HELM}" "${arch}"; return 1; }
+    fi
   done
 }
 

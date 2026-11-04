@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # setup-zizmor.sh
 # Install zizmor for GitHub Actions workflow security lint (scripts/lint/workflows.sh).
-# Linux (CI runners): pinned v1.30.1 release asset, SHA256-verified before install.
+# Linux (built into the dev image): pinned v1.30.1 release asset, SHA256-verified before install.
 # macOS: Homebrew.
 # No-op if zizmor is already present.
 #
 # Pinned version: v1.30.1
-# Update ZIZMOR_VERSION and ZIZMOR_SHA256 together when bumping.
+# Update ZIZMOR_VERSION and ZIZMOR_SHA256_* together when bumping (make update-pins does).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -18,9 +18,15 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly ZIZMOR_VERSION='1.30.1'
-readonly ZIZMOR_SHA256='e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a'
-readonly ZIZMOR_ASSET="zizmor-x86_64-unknown-linux-gnu.tar.gz"
+readonly ZIZMOR_VERSION='1.31.1'
+readonly ZIZMOR_SHA256_X86_64='d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99'
+readonly ZIZMOR_SHA256_AARCH64='37eebbd5762a44f262d94875431b14a6d2402991e90a685113ea97b8b41be833'
+if [ "$(uname -m)" = 'aarch64' ]; then
+  readonly ZIZMOR_SHA256="${ZIZMOR_SHA256_AARCH64}" ZIZMOR_ARCH='aarch64'
+else
+  readonly ZIZMOR_SHA256="${ZIZMOR_SHA256_X86_64}" ZIZMOR_ARCH='x86_64'
+fi
+readonly ZIZMOR_ASSET="zizmor-${ZIZMOR_ARCH}-unknown-linux-gnu.tar.gz"
 readonly ZIZMOR_URL="https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/${ZIZMOR_ASSET}"
 readonly ZIZMOR_INSTALL_PATH='/usr/local/bin/zizmor'
 
@@ -60,13 +66,17 @@ function validate_args() {
   fi
 }
 
+function as_root() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+}
+
 function install_linux() {
   local tmp
   tmp="$(mktemp -d)"
   curl -fsSL "${ZIZMOR_URL}" -o "${tmp}/${ZIZMOR_ASSET}"
   printf '%s  %s/%s\n' "${ZIZMOR_SHA256}" "${tmp}" "${ZIZMOR_ASSET}" | sha256sum --check --quiet
   stage_binary "${tmp}"
-  sudo install -m 0755 "${tmp}/zizmor.staged" "${ZIZMOR_INSTALL_PATH}"
+  as_root install -m 0755 "${tmp}/zizmor.staged" "${ZIZMOR_INSTALL_PATH}"
   rm -rf "${tmp}"
 }
 

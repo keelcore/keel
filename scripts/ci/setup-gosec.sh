@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # scripts/ci/setup-gosec.sh
-# Install a pinned gosec into the Go toolchain bin. No-op if that version is present.
+# Install a pinned, checksum-verified gosec release binary on Linux (the dev image).
+# The release binary, not `go install`: building gosec from source pulls every
+# module it imports, including AI SDKs gosec only uses for optional fix suggestions.
+# No-op if the pinned version is already present.
 #
 # Pinned version: v2.29.0
+# Update GOSEC_VERSION and GOSEC_SHA256_* together when bumping.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -14,19 +18,30 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly TOOL_MODULE='github.com/securego/gosec/v2/cmd/gosec'
-readonly TOOL_VERSION='v2.29.0'
+readonly GOSEC_VERSION='2.29.0'
+readonly GOSEC_SHA256_AMD64='6431b119741c1f4a50fdfcf94e782e16b9e642afc8c7fa9b5d39d48bf3003095'
+readonly GOSEC_SHA256_ARM64='c71244ec8d37488fd479d0d26990968fee03ece48b305d8224ac0c1ebd66e87c'
+if [ "$(uname -m)" = 'aarch64' ]; then
+  readonly GOSEC_SHA256="${GOSEC_SHA256_ARM64}" GOSEC_ARCH='arm64'
+else
+  readonly GOSEC_SHA256="${GOSEC_SHA256_AMD64}" GOSEC_ARCH='amd64'
+fi
+readonly GOSEC_TARBALL="gosec_${GOSEC_VERSION}_linux_${GOSEC_ARCH}.tar.gz"
+readonly GOSEC_URL="https://github.com/securego/gosec/releases/download/v${GOSEC_VERSION}/${GOSEC_TARBALL}"
+readonly GOSEC_INSTALL_PATH='/usr/local/bin/gosec'
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
   if is_pinned_version_installed; then
-    log "✅ gosec ${TOOL_VERSION} already installed"
+    log "✅ gosec v${GOSEC_VERSION} already installed"
     return 0
   fi
-  log "🔧 Installing gosec ${TOOL_VERSION}..."
-  go install "${TOOL_MODULE}@${TOOL_VERSION}"
-  log "✅ gosec ${TOOL_VERSION} installed"
+  require_linux
+  log "🔧 Installing gosec v${GOSEC_VERSION}..."
+  download_and_verify
+  install_gosec
+  log "✅ gosec v${GOSEC_VERSION} installed at ${GOSEC_INSTALL_PATH}"
 }
 
 function log() {
@@ -41,9 +56,35 @@ function validate_args() {
   fi
 }
 
+function as_root() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+}
+
 function is_pinned_version_installed() {
   command -v gosec >/dev/null 2>&1 && \
-    go version -m "$(command -v gosec)" 2>/dev/null | grep -qE "^\s+mod\s+\S+\s+${TOOL_VERSION}\b"
+    gosec -version 2>/dev/null | grep -qF "${GOSEC_VERSION}"
+}
+
+function require_linux() {
+  if [[ "$(uname -s)" != 'Linux' ]]; then
+    log "ERROR: setup-gosec.sh installs the Linux release binary (the dev image)"
+    exit 1
+  fi
+}
+
+function download_and_verify() {
+  local tmp
+  tmp="$(mktemp -d)"
+  curl -fsSL "${GOSEC_URL}" -o "${tmp}/${GOSEC_TARBALL}"
+  printf '%s  %s/%s\n' "${GOSEC_SHA256}" "${tmp}" "${GOSEC_TARBALL}" | sha256sum --check --quiet
+  tar -xz -C "${tmp}" -f "${tmp}/${GOSEC_TARBALL}" gosec
+  mv "${tmp}/gosec" /tmp/gosec-staged
+  rm -rf "${tmp}"
+}
+
+function install_gosec() {
+  as_root mv /tmp/gosec-staged "${GOSEC_INSTALL_PATH}"
+  as_root chmod +x "${GOSEC_INSTALL_PATH}"
 }
 
 main "${@:-}"

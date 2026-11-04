@@ -101,9 +101,19 @@ function start_cluster() {
   log "✅ Cluster '${name}' created"
 }
 
+# mounted_repo NAME: the host directory NAME mounts at /work (physical path), empty when it is gone.
+function mounted_repo() {
+  local src
+  src="$(container inspect "${1}" 2> /dev/null \
+    | jq -r '.[0].configuration.mounts[]? | select(.destination == "/work") | .source' 2> /dev/null)"
+  [ -n "${src}" ] && (cd "${src}" 2> /dev/null && pwd -P)
+}
+
 function start_toolbox() {
   local -r toolbox="${1}"
-  if is_running "${toolbox}"; then
+  # Reused only while it mounts this checkout: a toolbox left by another checkout (an
+  # update-pins worktree, since removed) is restarted on this one; the cluster is kept.
+  if is_running "${toolbox}" && [ "$(mounted_repo "${toolbox}")" = "$(cd "${REPO_ROOT}" && pwd -P)" ]; then
     log "✅ ${toolbox} already running"
     return 0
   fi

@@ -305,6 +305,20 @@ function _eval_recipe_shape() {
     stripped="${stripped#"${BASH_REMATCH[0]}"}"
   done
 
+  # A recipe that runs its tool in a tool image (`bash scripts/dev/run.sh [--writable]
+  # [--image NAME] bash scripts/X.sh ...`) is checked for the runner, then for the script
+  # it runs.
+  local -r runner_re='^bash[[:space:]]+scripts/dev/run\.sh([[:space:]]+--writable|[[:space:]]+--image[[:space:]]+[^[:space:]]+)*[[:space:]]+'
+  if [[ "${stripped}" =~ ${runner_re} ]]; then
+    if [ ! -f "${REPO_ROOT}/scripts/dev/run.sh" ] && ! is_excluded 'scripts/dev/run.sh'; then
+      log "❌ Rule 5: target '${tgt}' invokes scripts/dev/run.sh which does not exist on disk."
+      return 1
+    fi
+    stripped="${stripped#"${BASH_REMATCH[0]}"}"
+    # A shell in the image (dev-shell) runs no repository script.
+    [ "${stripped}" = 'bash' ] && return 0
+  fi
+
   if [[ "${stripped}" =~ ^(bash[[:space:]]+|sh[[:space:]]+|\.?/?)((\.standards/)?scripts/[^[:space:]]+\.sh) ]]; then
     # Rule 4 satisfied. Now Rule 5: does the referenced script exist on disk?
     # The canonical Makefile (templates/Makefile.canonical) only references

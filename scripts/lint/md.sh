@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # md.sh
-# Lint all tracked markdown files using markdownlint-cli.
+# Lint all tracked markdown files using the pinned markdownlint-cli (make setup-markdownlint).
 # Config: .markdownlint.json at repo root.
 # Runnable locally and in CI identically.
 
@@ -16,6 +16,8 @@ set -o pipefail
 
 # shellcheck source=../lib/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+# shellcheck source=../lib/markdownlint.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/markdownlint.sh"
 
 function main() {
   exec 5>&1
@@ -50,7 +52,7 @@ function lint_markdown() {
   fi
   log '🔍 Linting markdown files...'
   # xargs passes files as arguments; markdownlint reads config from .markdownlint.json
-  printf '%s\n' "${files}" | xargs markdownlint --config .markdownlint.json
+  printf '%s\n' "${files}" | xargs "$(markdownlint_bin)" --config .markdownlint.json
   log '✅ Markdown lint passed'
 }
 

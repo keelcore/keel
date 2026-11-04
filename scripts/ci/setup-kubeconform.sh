@@ -56,6 +56,10 @@ function validate_args() {
   fi
 }
 
+function as_root() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+}
+
 function install_linux() {
   local arch sum
   arch="$(uname -m)"
@@ -72,8 +76,8 @@ function install_linux() {
   tmp="$(mktemp -d)"
   curl -fsSL "${url}" -o "${tmp}/kubeconform.tar.gz"
   printf '%s  %s\n' "${sum}" "${tmp}/kubeconform.tar.gz" | sha256sum --check --quiet
-  sudo tar -xzf "${tmp}/kubeconform.tar.gz" -C /usr/local/bin kubeconform
-  sudo chmod +x /usr/local/bin/kubeconform
+  as_root tar -xzf "${tmp}/kubeconform.tar.gz" -C /usr/local/bin kubeconform
+  as_root chmod +x /usr/local/bin/kubeconform
   rm -rf "${tmp}"
 }
 

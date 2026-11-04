@@ -22,9 +22,17 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 - Release binaries and images now ship for `linux/amd64` and `linux/arm64`; every image tag is a multi-arch index.
 - Image `org.opencontainers.image.created` comes from the commit time (UTC), so rebuilding a tag reproduces it.
 - Repository runs in UTC: `TZ=UTC` for every make recipe and workflow; `make lint` rejects non-UTC timestamps.
+- CI runners are pinned by image label (`ubuntu-24.04`, `macos-26`, `windows-2025-vs2026`), never `*-latest`; the unit
+  matrix jobs are named by platform (`Unit (linux)`, `Unit (macos)`, `Unit (windows)`), so a runner bump never
+  renames a required check.
+- `make lint-go` runs `go vet` and `staticcheck` after the gofmt check.
 
 ### Security
 
+- JWKS EC keys: a key whose point is not on its curve, or whose coordinate is longer than the curve allows, is
+  rejected (`ecdsa.ParseUncompressedPublicKey`; the deprecated `X`/`Y` fields are no longer set directly).
+- Helm on Linux CI installs the pinned release from get.helm.sh, verified against committed SHA-256 sums (was the
+  unversioned apt package); markdownlint installs from a committed lockfile with integrity hashes.
 - Release images are scanned before push (Grype; fails on fixable HIGH/CRITICAL), each carries an SBOM generated from
   that image, and each digest gets SLSA build provenance in GHCR. Images are signed by digest before `vX.Y`, `vX` and
   `latest` move; a retried sign or attest that hits an existing Rekor entry is confirmed with `cosign verify` instead

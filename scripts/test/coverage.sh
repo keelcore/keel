@@ -19,7 +19,7 @@ function main() {
   exec 5>&1
   validate_args "${@:-}"
   local outfile
-  outfile="${1:-coverage.txt}"
+  outfile="${1:-target/coverage.txt}"
   run_coverage "${outfile}"
   print_stats "${outfile}"
 }

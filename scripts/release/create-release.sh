@@ -62,6 +62,8 @@ PINS_TSV="$(mktemp "${TMPDIR:-/tmp}/create_release_pins.XXXXXX")"
 # Set by check_pins: the discovery summary, the stale pins, the override reason.
 PINS_SUMMARY=''
 PINS_STALE=''
+# The release commit cut_changelog made (empty: the tag points at the approved HEAD).
+CUT_COMMIT=''
 PINS_OVERRIDE=''
 
 function main() {
@@ -581,6 +583,7 @@ function tag_or_preview() {
     return 0
   fi
   prompt_approval "${version}"
+  cut_changelog "${version}"
   create_tag "${version}" "${msg}"
   audit_override "${version}"
   push_tag "${version}"
@@ -597,6 +600,23 @@ function prompt_approval() {
   fi
 }
 
+# cut_changelog VERSION: when CHANGELOG.md has [Unreleased] entries, move them under
+# "## [VERSION] - <date>" (UTC), leave [Unreleased] empty, and commit that as the release
+# commit (signed, signed-off) that the tag points at; CUT_COMMIT records it for push_tag.
+function cut_changelog() {
+  local -r version="${1}"
+  [ -f CHANGELOG.md ] || return 0
+  local entries
+  entries="$(awk '/^## \[Unreleased\]/ { p = 1; next } /^## / { if (p) exit } p' CHANGELOG.md | grep -cE '^- ' || true)"
+  [ "${entries}" -gt 0 ] || return 0
+  VERSION="${version}" DATE="$(date -u +%Y-%m-%d)" perl -0pi -e \
+    's/^## \[Unreleased\]\n/## [Unreleased]\n\n## [$ENV{VERSION}] - $ENV{DATE}\n/m' CHANGELOG.md
+  git add CHANGELOG.md
+  git commit -S -s -m "chore(release): v${version}" > /dev/null
+  CUT_COMMIT="$(git rev-parse HEAD)"
+  log "📝 CHANGELOG [Unreleased] → [${version}] (commit ${CUT_COMMIT:0:7})"
+}
+
 function create_tag() {
   local -r version="${1}" msg="${2}"
   log "🔏 Creating signed annotated tag v${version}"
@@ -609,7 +629,12 @@ function push_tag() {
   local remote
   remote="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' | cut -d/ -f1)"
   log "🚀 Pushing v${version} to ${remote}"
-  git push "${remote}" "v${version}"
+  if [ -n "${CUT_COMMIT}" ]; then
+    # The release commit and its tag land together or not at all.
+    git push --atomic "${remote}" "HEAD:$(git rev-parse --abbrev-ref HEAD)" "v${version}"
+  else
+    git push "${remote}" "v${version}"
+  fi
   log "✅ Pushed v${version} to ${remote}"
 }
 

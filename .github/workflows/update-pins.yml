@@ -22,28 +22,15 @@ env:
 jobs:
   update-pins:
     name: Update Pins (verify)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed  # v5.1.0
-        with:
-          go-version-file: go.mod
-      - name: Install bats-core
-        run: make setup-bats
-      - name: Install pebble
-        run: make setup-pebble
-      - name: Install staticcheck
-        run: make setup-staticcheck
-      - name: Install markdownlint
-        run: make setup-markdownlint
-      - name: Install helm
-        run: make setup-helm
       - name: Verify every stale pin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -51,7 +38,7 @@ jobs:
         run: make update-pins REPORT=target/update-pins/report.txt
       - name: Upload report and logs
         if: always()
-        uses: actions/upload-artifact@6f51ac03b9356f520e9adb1b1b7802705f340c2b  # v4.5.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: update-pins
           path: target/update-pins/
