@@ -456,6 +456,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: native-macos
+      # The suite bounds process runs with timeout(1), which macOS does not ship.
+      - name: Install timeout
+        run: make setup-bats-local
       - name: Run integrity suite (darwin binaries from the dev image)
         env:
           DIR: target/native/darwin-arm64
