@@ -446,9 +446,12 @@ roadmap-issues:
 	./scripts/roadmap-issues.sh
 
 ## Utility Targets
+# Host uid:gid on Linux, where the dev image runs as root (dist-chmod hands dist/ back); empty elsewhere.
+DIST_OWNER := $(shell [ "$$(uname -s)" = Linux ] && printf '%s:%s' "$$(id -u)" "$$(id -g)")
+
 dist-chmod:
 	@echo "🔑 Making dist binaries executable..."
-	bash scripts/dev/run.sh bash scripts/build/dist-chmod.sh
+	DIST_OWNER='$(DIST_OWNER)' KEELCORE_DEV_ENV=DIST_OWNER bash scripts/dev/run.sh bash scripts/build/dist-chmod.sh
 
 ## Local artifact cleanup — also delegated to by canonical clean.sh (`make clean`)
 clean-local:

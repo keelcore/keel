@@ -122,6 +122,9 @@ jobs:
         run: make release-checksums-verify
       - name: Sign artifacts
         run: make release-sign ARGS="--sums-dir dist dist/keel-*"
+      # Signing runs in the dev image (root on a Linux runner); hand dist/ back to the runner user.
+      - name: Hand dist back to the runner
+        run: make dist-chmod
       - name: Generate SLSA provenance attestation
         id: provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
