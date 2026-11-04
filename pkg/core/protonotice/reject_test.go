@@ -161,3 +161,12 @@ func TestNoticePath(t *testing.T) {
 		t.Fatalf("NoticePath = %q", NoticePath)
 	}
 }
+
+// A caller can name the requirement (e.g. HTTP/3 instead of the default HTTP/2).
+func TestWriteRejection_RequiredOverride(t *testing.T) {
+	rec := httptest.NewRecorder()
+	WriteRejection(rec, httptest.NewRequest(http.MethodGet, "/", nil), HTTPVersionBelowMin, "http://h:8080", "HTTP/3")
+	if req, _ := decodeProblem(t, rec.Body.Bytes())["required"].([]any); len(req) != 1 || req[0] != "HTTP/3" {
+		t.Fatalf("required = %v, want [HTTP/3]", req)
+	}
+}

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keelcore/keel/pkg/config"
@@ -29,6 +30,17 @@ func TestNoticeBase(t *testing.T) {
 		c.Listeners.HTTP.Enabled = tc.httpOn
 		if got := noticeBase(c, tc.host); got != tc.want {
 			t.Errorf("%s: noticeBase = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// An empty or over-long Host yields no notice URL rather than a malformed Location.
+func TestNoticeBase_RefusesEmptyAndOverlongHosts(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Listeners.HTTP.Enabled = true
+	for _, host := range []string{"", strings.Repeat("a", 254)} {
+		if got := noticeBase(cfg, host); got != "" {
+			t.Errorf("host of %d bytes: noticeBase = %q, want \"\"", len(host), got)
 		}
 	}
 }

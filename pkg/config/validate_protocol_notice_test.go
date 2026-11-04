@@ -23,6 +23,7 @@ func TestValidate_ProtocolNotice(t *testing.T) {
 		edit func(*Config)
 		want string // "" → valid
 	}{
+		{"min empty means 1.1", func(c *Config) { c.Security.MinHTTPVersion = "" }, ""},
 		{"min 2", func(c *Config) { c.Security.MinHTTPVersion = "2" }, ""},
 		{"min 3 with h3", func(c *Config) {
 			c.Security.MinHTTPVersion = "3"
@@ -62,5 +63,18 @@ func TestApplyEnv_ProtocolNotice(t *testing.T) {
 	if c.Security.MinHTTPVersion != "2" || c.Security.AltSvcMaxAge != 60 || !c.TLS.ClientCertNotice ||
 		c.TLS.Notice != (NoticeConfig{BaseURL: "https://n.example", HelpURL: "https://h.example", Contact: "ops@example.com"}) {
 		t.Fatalf("env not applied: %+v %+v", c.Security, c.TLS)
+	}
+}
+
+// A config built without Defaults() still reaches every other check: the protocol
+// settings' zero values are their defaults.
+func TestValidate_ZeroConfigReachesTheOtherChecks(t *testing.T) {
+	cfg := Config{}
+	cfg.TLS.ACME.Enabled = true
+	cfg.TLS.ACME.Domains = []string{"example.com"}
+	cfg.TLS.ACME.ChallengePort = 8080
+	t.Setenv("BATS_TEST_FILENAME", "")
+	if err := Validate(cfg); err == nil || !strings.Contains(err.Error(), "challenge_port") {
+		t.Fatalf("err = %v, want the challenge_port check", err)
 	}
 }

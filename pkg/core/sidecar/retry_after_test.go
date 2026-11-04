@@ -213,3 +213,42 @@ func TestNewWithHooks_HonorRetryAfter(t *testing.T) {
 		}
 	}
 }
+
+// A body that cannot be produced again: the 503 passes through, sent once.
+func TestRetryAfter_BodyCannotBeRewound(t *testing.T) {
+	rt := &scriptedRT{script: []*http.Response{reply(http.StatusServiceUnavailable, "0")}}
+	tr := &retryAfterTransport{inner: rt, budget: time.Second}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, "http://u/x", strings.NewReader("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.GetBody = func() (io.ReadCloser, error) { return nil, io.ErrUnexpectedEOF }
+	resp, err := tr.RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable || len(rt.sent) != 1 {
+		t.Fatalf("status %d, sent %d; want 503 passed through, 1 sent", resp.StatusCode, len(rt.sent))
+	}
+}
+
+// failingRT answers the first round trip from script and fails every later one.
+type failingRT struct{ first *http.Response }
+
+func (f *failingRT) RoundTrip(*http.Request) (*http.Response, error) {
+	if f.first != nil {
+		r := f.first
+		f.first = nil
+		return r, nil
+	}
+	return nil, errRefused
+}
+
+// The retry itself failing returns that error (the proxy answers 502).
+func TestRetryAfter_RetryFails(t *testing.T) {
+	tr := &retryAfterTransport{inner: &failingRT{first: reply(http.StatusServiceUnavailable, "0")}, budget: time.Second}
+	if _, err := tr.RoundTrip(httptest.NewRequest(http.MethodGet, "http://u/", nil)); err == nil {
+		t.Fatal("want the retry's error")
+	}
+}

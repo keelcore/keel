@@ -4,6 +4,7 @@ import (
 	"bytes"
 	cryptotls "crypto/tls"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -99,5 +100,19 @@ func TestServerErrorLog_IsStructured(t *testing.T) {
 	lines := logLines(t, buf.String())
 	if len(lines) != 1 || lines[0]["msg"] != "http_server_error" || lines[0]["err"] != "http: TLS handshake error from 192.0.2.1:5555: EOF" {
 		t.Fatalf("got %v, want one http_server_error entry", lines)
+	}
+}
+
+// The rejection log names the client's address when the hello carries its connection.
+func TestHandshakeRejectionLog_RemoteAddress(t *testing.T) {
+	var buf bytes.Buffer
+	log := logging.New(logging.Config{JSON: true, Out: &buf})
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+	handshakeRejectionLog(log, metrics.New(), 10)(protonotice.NoSharedALPN, &cryptotls.ClientHelloInfo{Conn: server})
+	lines := logLines(t, buf.String())
+	if len(lines) != 1 || lines[0]["remote"] != server.RemoteAddr().String() {
+		t.Fatalf("got %v, want remote %q", lines, server.RemoteAddr().String())
 	}
 }

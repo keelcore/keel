@@ -80,3 +80,12 @@ func TestClassify_FollowsThePolicyNotConstants(t *testing.T) {
 		t.Errorf("TLS 1.2 client, TLS 1.2 policy: %q, want ok", got)
 	}
 }
+
+// A hello that lists no versions at all is below any floor.
+func TestClassify_NoVersions(t *testing.T) {
+	h := modern()
+	h.SupportedVersions = nil
+	if got := Classify(h, standardPolicy); got != protonotice.TLSVersion {
+		t.Fatalf("Classify = %q, want %q", got, protonotice.TLSVersion)
+	}
+}

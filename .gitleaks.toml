@@ -26,3 +26,9 @@ id          = "bats-admin-token-fixture"
 description = "Literal bearer token 'bats-admin-token' passed to a throwaway keel process via KEEL_ADMIN_TOKEN in tests/integrity.bats; curl-auth-header matches the Authorization header, but it is a test fixture, not a secret"
 paths       = ['''tests/integrity\.bats''']
 regexes     = ['''Bearer bats-admin-token''']
+
+[[allowlists]]
+id          = "hop-header-client-jwt-fixture"
+description = "Fake unsigned client JWT (sub=client, signature 'signature') in hop_test.go, used to show a client token reaches the upstream byte-identical; the jwt rule matches its shape, but it is a test fixture, not a credential"
+paths       = ['''pkg/core/sidecar/hop_test\.go''']
+regexes     = ['''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJjbGllbnQifQ\.c2lnbmF0dXJl''']

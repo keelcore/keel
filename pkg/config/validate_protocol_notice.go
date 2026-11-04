@@ -9,7 +9,7 @@ import (
 // version (HTTP/3 needs the H3 listener), the Alt-Svc lifetime, and the notice URLs.
 func validateProtocolNotice(cfg Config) error {
 	switch cfg.Security.MinHTTPVersion {
-	case "1.1", "2":
+	case "", "1.1", "2": // empty: the default, 1.1
 	case "3":
 		if !cfg.Listeners.H3.Enabled {
 			return fmt.Errorf("security.min_http_version 3 needs listeners.h3.enabled")
