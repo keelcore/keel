@@ -14,6 +14,7 @@ on:
       - "scripts/lib/**"
       - "scripts/release/pypi/**"
       - ".github/workflows/dev-image.yml"
+      - ".standards"
   workflow_dispatch:
 
 concurrency:
