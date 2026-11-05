@@ -21,6 +21,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/parallel.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/parallel.sh"
+
 declare SUMS_DIR='.'
 
 function main() {
@@ -55,8 +58,8 @@ function sign_artifacts() {
       log "❌ Artifact not found: ${artifact}"
       exit 1
     fi
-    sign_artifact "${artifact}"
   done
+  run_parallel sign_artifact "${@}"
 }
 
 function sign_artifact() {

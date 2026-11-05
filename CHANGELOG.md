@@ -37,6 +37,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 ### Changed
 
 - The `keel-min` size gate moves from 8 MB to 10 MB (10,485,760 bytes, linux/amd64).
+- The release runs concurrently: binaries, SBOMs, signatures, uploads, images, attestations and verification, with one
+  approval gate ahead of all publishing, and each concurrent job's log printed whole.
 - Every outbound connection (sidecar upstream, JWKS, external authorization, ACME CA, OTLP exporter, remote log sink)
   uses one TLS policy, the listeners': TLS 1.3 only, with the same key exchange groups. An endpoint limited to TLS 1.2
   now fails to connect.
@@ -47,6 +49,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- A fixable HIGH or CRITICAL Grype finding, or a failed image build or push, now stops the release: `docker.sh` carried
+  on past them, because errexit is off inside a command substitution.
 - SIGHUP and `POST /admin/reload` on the `keel` binary re-read the `KEEL_CONFIG` and `KEEL_SECRETS` files. They previously
   reloaded from defaults and environment only, dropping the file's settings.
 

@@ -60,6 +60,8 @@ export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGES
 .PHONY: release-sign
 .PHONY: release-upload
 .PHONY: release-rename
+.PHONY: release-binaries
+.PHONY: release-metadata
 .PHONY: release-docker
 .PHONY: release-helm-push
 .PHONY: release-cosign
@@ -384,6 +386,16 @@ release-rename:
 	@echo "📦 Renaming release artifacts with platform suffix..."
 	bash scripts/dev/run.sh bash scripts/release/rename-assets.sh
 
+## release-binaries: every flavor for every architecture, concurrently, under its release name.
+release-binaries:
+	@echo "⚓ Building release binaries..."
+	bash scripts/dev/run.sh bash scripts/release/build-binaries.sh
+
+## release-metadata: the binaries' SBOMs and the OpenVEX document, concurrently.
+release-metadata:
+	@echo "🧾 Generating release metadata..."
+	TAG='$(TAG)' KEELCORE_DEV_ENV='$(KEELCORE_DEV_ENV) TAG' bash scripts/dev/run.sh bash scripts/release/metadata.sh
+
 release-docker:
 	@echo "🐳 Building and pushing container images..."
 	./scripts/release/docker.sh
@@ -562,6 +574,8 @@ help-local:
 	@echo "  release-sbom              Generate SBOM (requires syft)"
 	@echo "  release-sign              Sign artifacts (requires cosign)"
 	@echo "  release-rename            Rename artifacts with platform suffix"
+	@echo "  release-binaries          Build every release binary, concurrently"
+	@echo "  release-metadata          Generate binary SBOMs and OpenVEX, concurrently"
 	@echo "  release-docker            Build and push container images"
 	@echo "  release-vex               Generate dist/keel.openvex.json from govulncheck"
 	@echo "  lint-vex                  Validate dist/keel.openvex.json before it is attested"

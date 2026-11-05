@@ -23,6 +23,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/parallel.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/parallel.sh"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
@@ -89,8 +92,8 @@ function require_gh() {
 # stage_scorecard_assets names release assets the way OpenSSF Scorecard
 # (Signed-Releases) detects them: each cosign bundle also as
 # <artifact>.sigstore.json, and the SLSA provenance DSSE envelope from
-# PROVENANCE_BUNDLE (actions/attest-build-provenance bundle-path) as
-# keel.intoto.jsonl.
+# PROVENANCE_BUNDLE (actions/attest-build-provenance bundle-path, or the
+# directory holding it) as keel.intoto.jsonl.
 function stage_scorecard_assets() {
   local bundle
   for bundle in dist/*.bundle; do
@@ -98,7 +101,11 @@ function stage_scorecard_assets() {
     cp -p "${bundle}" "${bundle%.bundle}.sigstore.json"
   done
   if [ -n "${PROVENANCE_BUNDLE:-}" ]; then
-    jq -ce '.dsseEnvelope' "${PROVENANCE_BUNDLE}" > dist/keel.intoto.jsonl
+    local provenance="${PROVENANCE_BUNDLE}"
+    if [ -d "${provenance}" ]; then
+      provenance="$(find "${provenance}" -type f | head -n 1)"
+    fi
+    jq -ce '.dsseEnvelope' "${provenance}" > dist/keel.intoto.jsonl
     log '  Staged dist/keel.intoto.jsonl'
   fi
 }
@@ -122,8 +129,13 @@ function collect_and_upload() {
   fi
 
   ensure_release "${tag}"
-  # --clobber replaces existing assets of the same name (idempotent re-runs).
-  gh release upload "${tag}" "${files[@]}" --clobber
+  run_parallel upload_asset "${files[@]}" -- "${tag}"
+}
+
+# upload_asset FILE TAG: one asset, as a run_parallel job. --clobber replaces an existing asset of
+# the same name (idempotent re-runs).
+function upload_asset() {
+  gh release upload "${2}" "${1}" --clobber
 }
 
 # publish_release TAG: attach the six per-image SBOMs (flavor × arch, all required), then publish the
@@ -140,7 +152,7 @@ function publish_release() {
     done
   done
   log "Attaching ${#files[@]} image SBOMs to ${tag}"
-  gh release upload "${tag}" "${files[@]}" --clobber
+  run_parallel upload_asset "${files[@]}" -- "${tag}"
   gh release edit "${tag}" --draft=false --latest
   log "✅ Release ${tag} published"
 }

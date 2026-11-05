@@ -22,14 +22,22 @@ func failOpens(t *testing.T, suffix string, fn func(name string) (*os.File, erro
 	t.Cleanup(func() { rotateOpenFile = orig })
 }
 
+// failRename makes every rotation rename fail, without touching the file: Windows cannot remove an open one.
+func failRename(t *testing.T) error {
+	t.Helper()
+	boom := errors.New("rename boom")
+	orig := rotateRename
+	rotateRename = func(string, string) error { return boom }
+	t.Cleanup(func() { rotateRename = orig })
+	return boom
+}
+
 // A rotation that fails leaves the write in the current file.
 func TestRotatingFile_WriteSurvivesAFailedRotation(t *testing.T) {
 	r, path := newRotating(t, RotationPolicy{MaxSizeMB: 1})
 	write(t, r, "first\n")
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	write(t, r, strings.Repeat("x", 1024*1024)) // the rename fails: nothing there to rename
+	failRename(t)
+	write(t, r, strings.Repeat("x", 1024*1024))
 	if got := backups(t, path); len(got) != 0 {
 		t.Fatalf("backups = %v, want none", got)
 	}
@@ -243,10 +251,8 @@ func TestRotatingFile_CloseTwice(t *testing.T) {
 func TestRotatingFile_RenameFailureReopens(t *testing.T) {
 	r, path := newRotating(t, RotationPolicy{})
 	write(t, r, "first\n")
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Rotate(); !errors.Is(err, os.ErrNotExist) {
+	boom := failRename(t)
+	if err := r.Rotate(); !errors.Is(err, boom) {
 		t.Fatalf("Rotate = %v", err)
 	}
 	write(t, r, "second\n")
@@ -254,20 +260,18 @@ func TestRotatingFile_RenameFailureReopens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "second\n" {
+	if string(got) != "first\nsecond\n" {
 		t.Fatalf("file = %q", got)
 	}
 }
 
 // When the rename fails and the path cannot be reopened, later writes are dropped.
 func TestRotatingFile_RenameAndReopenFailureStopsWriting(t *testing.T) {
-	r, path := newRotating(t, RotationPolicy{})
+	r, _ := newRotating(t, RotationPolicy{})
 	write(t, r, "first\n")
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
+	boom := failRename(t)
 	failOpens(t, "keel.log", func(string) (*os.File, error) { return nil, errors.New("open boom") })
-	if err := r.Rotate(); !errors.Is(err, os.ErrNotExist) {
+	if err := r.Rotate(); !errors.Is(err, boom) {
 		t.Fatalf("Rotate = %v", err)
 	}
 	if !r.closed {
@@ -277,14 +281,20 @@ func TestRotatingFile_RenameAndReopenFailureStopsWriting(t *testing.T) {
 
 // Rotation closes the file before renaming it: Windows refuses to rename an open file.
 func TestRotatingFile_ClosesBeforeRenaming(t *testing.T) {
-	r, path := newRotating(t, RotationPolicy{})
+	r, _ := newRotating(t, RotationPolicy{})
 	write(t, r, "first\n")
 	old := r.f
-	if err := os.Remove(path); err != nil {
+	var atRename error
+	orig := rotateRename
+	rotateRename = func(from, to string) error {
+		_, atRename = old.Write([]byte("x"))
+		return orig(from, to)
+	}
+	t.Cleanup(func() { rotateRename = orig })
+	if err := r.Rotate(); err != nil {
 		t.Fatal(err)
 	}
-	_ = r.Rotate() // the rename fails; the file must already be closed
-	if _, err := old.Write([]byte("x")); !errors.Is(err, os.ErrClosed) {
-		t.Fatalf("old file: err = %v, want it closed", err)
+	if !errors.Is(atRename, os.ErrClosed) {
+		t.Fatalf("write at rename: err = %v, want the file closed", atRename)
 	}
 }

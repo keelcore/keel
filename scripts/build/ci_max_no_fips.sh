@@ -12,6 +12,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# Output directory; scripts/release/build-binaries.sh gives each architecture its own.
+readonly DIST="${KEEL_DIST_DIR:-dist}"
+
 readonly REQUIRED_GO_VERSION="go1.2"
 
 function main() {
@@ -21,7 +24,7 @@ function main() {
   log "Starting Max No-FIPS build"
   prepare_dist
   execute_standard_build
-  log "Build complete: dist/keel-max"
+  log "Build complete: ${DIST}/keel-max"
 }
 
 function log() {
@@ -42,9 +45,9 @@ function execute_standard_build() {
   CGO_ENABLED=0 \
     go build -v -trimpath -tags 'no_fips' \
     -ldflags='-s -w -buildid=' \
-    -o 'dist/keel-max' ./cmd/keel
+    -o "${DIST}/keel-max" ./cmd/keel
 }
 
-function prepare_dist() { mkdir -p 'dist'; }
+function prepare_dist() { mkdir -p "${DIST}"; }
 
 main "${@:-}"

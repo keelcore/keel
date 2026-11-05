@@ -12,6 +12,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# Output directory; scripts/release/build-binaries.sh gives each architecture its own.
+readonly DIST="${KEEL_DIST_DIR:-dist}"
+
 readonly REQUIRED_GO_VERSION="go1.2"
 # Go Cryptographic Module version: v1.0.0 is the CMVP-certified module (cert #5247).
 # Pin it explicitly (not `latest`, which is uncertified); bump deliberately.
@@ -25,7 +28,7 @@ function main() {
   prepare_dist
   execute_fips_build
   verify_fips_symbols
-  log "Build complete: dist/keel-fips"
+  log "Build complete: ${DIST}/keel-fips"
 }
 
 function log() {
@@ -49,7 +52,7 @@ function execute_fips_build() {
   GOFIPS140="${FIPS_MODULE}" CGO_ENABLED=0 \
     go build -v -trimpath -tags "fips,no_h3" \
     -ldflags='-s -w -buildid=' \
-    -o 'dist/keel-fips' ./cmd/keel
+    -o "${DIST}/keel-fips" ./cmd/keel
 }
 
 function verify_fips_symbols() {
@@ -64,6 +67,6 @@ function verify_fips_symbols() {
     go test -v -count=1 -tags "no_h3" ./...
 }
 
-function prepare_dist() { mkdir -p 'dist'; }
+function prepare_dist() { mkdir -p "${DIST}"; }
 
 main "${@:-}"

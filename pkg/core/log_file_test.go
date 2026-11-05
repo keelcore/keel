@@ -114,18 +114,3 @@ func TestFileSink_Reload(t *testing.T) {
 		t.Fatal("empty path must detach the file sink")
 	}
 }
-
-// A rotation that fails is warned about.
-func TestRotateLogs_FailureWarns(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "keel.log")
-	s, _ := fileSinkServer(t, path)
-	s.applyRemoteSink(s.cfg)
-	s.logger.Info("line", nil)
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	s.rotateLogs()
-	if !logged(t, path, "log_rotation_failed") {
-		t.Fatal("want the failure logged")
-	}
-}

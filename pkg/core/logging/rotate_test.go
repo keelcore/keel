@@ -182,7 +182,7 @@ func TestRotatingFile_Compresses(t *testing.T) {
 	if b, _ := io.ReadAll(zr); string(b) != "compress me\n" {
 		t.Fatalf("decompressed = %q", b)
 	}
-	if info, _ := os.Stat(got[0]); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(got[0]); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows has no POSIX modes
 		t.Fatalf("backup mode = %o, want 600", info.Mode().Perm())
 	}
 }

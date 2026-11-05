@@ -27,6 +27,9 @@ const backupTime = "20060102T150405.000000000Z"
 // rotateOpenFile is a seam over os.OpenFile so tests can inject open failures.
 var rotateOpenFile = os.OpenFile
 
+// rotateRename is a seam over os.Rename so tests can inject rename failures.
+var rotateRename = os.Rename
+
 // RotatingFile is an io.Writer on a log file that rotates by size or on demand. Rotation renames
 // the file to <path>.<UTC time> and opens a new one; compression and pruning of backups run in
 // the background, so a write never waits for them. Safe for concurrent use. Whole lines stay
@@ -97,7 +100,7 @@ func (r *RotatingFile) rotateLocked() error {
 	if err := r.f.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "log file close failed: %v\n", err)
 	}
-	if err := os.Rename(r.path, backup); err != nil {
+	if err := rotateRename(r.path, backup); err != nil {
 		if oerr := r.open(); oerr != nil {
 			r.closed = true
 		}

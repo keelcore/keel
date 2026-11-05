@@ -7,7 +7,7 @@ on:
 
 # No concurrency control: release runs must complete; never cancel them.
 
-# Default: least privilege. The publish job escalates only what it needs.
+# Default: least privilege. Each job escalates only what it needs.
 permissions:
   contents: read
 
@@ -15,6 +15,9 @@ permissions:
 env:
   TZ: UTC
 
+# build → approve → sign-blobs, attest-blobs, images, helm (side by side)
+#                 → upload (blobs), image-provenance (one per flavor)
+#                 → verify → publish
 jobs:
 
   # ---------------------------------------------------------------------------
@@ -39,43 +42,18 @@ jobs:
           submodules: recursive
           fetch-depth: 0
           fetch-tags: true
-      - name: Build min
-        run: make min
-      - name: Build max (no FIPS)
-        run: make max-no-fips
-      - name: Build max (FIPS) + verify symbols
-        run: make max
-      - name: Rename artifacts with platform suffix
-        run: make release-rename
-      # linux/arm64: the same three builds, cross-compiled (CGO_ENABLED=0), then
-      # renamed with the arm64 suffix. docker.sh pairs each flavor's amd64 and
+      # Each flavor for each architecture, concurrently. docker.sh pairs each flavor's amd64 and
       # arm64 binaries into one multi-arch image index.
-      - name: Build min (linux/arm64)
-        env:
-          GOARCH: arm64
-        run: make min
-      - name: Build max (no FIPS, linux/arm64)
-        env:
-          GOARCH: arm64
-        run: make max-no-fips
-      - name: Build max (FIPS, linux/arm64) + verify symbols
-        env:
-          GOARCH: arm64
-        run: make max
-      - name: Rename arm64 artifacts with platform suffix
-        env:
-          GOARCH: arm64
-        run: make release-rename
+      - name: Build release binaries
+        run: make release-binaries
       # One SBOM per release binary (keel, its version, the Go modules compiled into it); docker.sh
-      # adds one per image. TAG reaches the run line from the environment, never by expression.
-      - name: Generate SBOMs
+      # adds one per image. OpenVEX from govulncheck reachability, generated from the code being
+      # released; docker.sh attests it to every image index. TAG reaches the run line from the
+      # environment, never by expression.
+      - name: Generate SBOMs and OpenVEX
         env:
           TAG: ${{ github.ref_name }}
-        run: make release-sbom ARGS="--out-dir dist --name keel --version ${TAG} --license Apache-2.0 dist/keel-*"
-      # OpenVEX from govulncheck reachability, generated from the code being released;
-      # docker.sh attests it to every image index.
-      - name: Generate OpenVEX
-        run: make release-vex ARGS="--out-dir dist"
+        run: make release-metadata
       - name: Validate OpenVEX
         run: make lint-vex
       - name: Generate checksums
@@ -88,25 +66,108 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------------------
-  # Publish — download the already-built artifacts, verify checksums, sign,
-  # and upload to GitHub Release. Requires human approval: the release
-  # environment has a required reviewer and accepts only v* tags.
-  #
-  # Permissions elevated only in this job:
-  #   contents: write — create the GitHub Release and upload assets
-  #   id-token: write — OIDC token for cosign keyless signing
+  # Approve — the one human gate: the release environment has a required
+  # reviewer and accepts only v* tags. Every publishing job waits for this one.
   # ---------------------------------------------------------------------------
-  publish:
-    name: Publish Release
+  approve:
+    name: Approve and Verify Artifacts
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     environment: release
     permissions:
-      contents: write
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release-artifacts
+          path: dist/
+      - name: Verify artifact checksums
+        run: make release-checksums-verify
+
+  # ---------------------------------------------------------------------------
+  # Sign — sign each artifact (cosign keyless, GitHub OIDC).
+  # ---------------------------------------------------------------------------
+  sign-blobs:
+    name: Sign Artifacts
+    needs: approve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release-artifacts
+          path: dist/
+      - name: Sign artifacts
+        run: make release-sign ARGS="--sums-dir dist dist/keel-*"
+      # Signing runs in the dev image (root on a Linux runner); hand dist/ back to the runner user.
+      - name: Hand dist back to the runner
+        run: make dist-chmod
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: signed-blobs
+          path: |
+            dist/*.bundle
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Attest — SLSA provenance for each artifact.
+  # ---------------------------------------------------------------------------
+  attest-blobs:
+    name: Attest Artifacts
+    needs: approve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
       id-token: write
       attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release-artifacts
+          path: dist/
+      - name: Generate SLSA provenance attestation
+        id: provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
+        with:
+          subject-path: 'dist/keel-*'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: blob-provenance
+          path: ${{ steps.provenance.outputs.bundle-path }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Images — build, scan, push and sign the container images.
+  # ---------------------------------------------------------------------------
+  images:
+    name: Publish Images
+    needs: approve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
       packages: write
+    outputs:
+      max_digest: ${{ steps.images.outputs.max_digest }}
+      min_digest: ${{ steps.images.outputs.min_digest }}
+      fips_digest: ${{ steps.images.outputs.fips_digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
@@ -118,65 +179,164 @@ jobs:
         with:
           name: release-artifacts
           path: dist/
-      - name: Verify artifact checksums
-        run: make release-checksums-verify
-      - name: Sign artifacts
-        run: make release-sign ARGS="--sums-dir dist dist/keel-*"
-      # Signing runs in the dev image (root on a Linux runner); hand dist/ back to the runner user.
-      - name: Hand dist back to the runner
+      # Artifacts lose their mode in transit: the images need executable binaries.
+      - name: Make the binaries executable
         run: make dist-chmod
-      - name: Generate SLSA provenance attestation
-        id: provenance
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
-        with:
-          subject-path: 'dist/keel-*'
-      - name: Upload to GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
-          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
-        run: make release-upload
       - name: Build, scan, push and sign container images
         id: images
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: make release-docker
-      # SLSA provenance per image digest, pushed to GHCR next to each image.
-      - name: Image provenance (max)
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          subject-name: ghcr.io/keelcore/keel
-          subject-digest: ${{ steps.images.outputs.max_digest }}
-          push-to-registry: true
-      - name: Image provenance (min)
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
+          name: image-sboms
+          path: dist/sbom-*.spdx.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Helm — package, push and sign the chart.
+  # ---------------------------------------------------------------------------
+  helm:
+    name: Publish Helm Chart
+    needs: approve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
         with:
-          subject-name: ghcr.io/keelcore/keel
-          subject-digest: ${{ steps.images.outputs.min_digest }}
-          push-to-registry: true
-      - name: Image provenance (fips)
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
-        with:
-          subject-name: ghcr.io/keelcore/keel
-          subject-digest: ${{ steps.images.outputs.fips_digest }}
-          push-to-registry: true
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
       - name: Package and push Helm chart
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: make release-helm-push
-      # Last step: the release verifies its own output — signatures, SBOM, VEX
-      # and provenance attestations on every image and blob, aliases, chart.
+
+  # ---------------------------------------------------------------------------
+  # Upload — attach the artifacts, their signatures and provenance to the draft release.
+  # ---------------------------------------------------------------------------
+  upload:
+    name: Upload to GitHub Release
+    needs: [sign-blobs, attest-blobs]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release-artifacts
+          path: dist/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: signed-blobs
+          path: dist/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: blob-provenance
+          path: provenance/
+      - name: Upload to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          PROVENANCE_BUNDLE: provenance
+        run: make release-upload
+
+  # ---------------------------------------------------------------------------
+  # Image provenance — SLSA provenance per image digest, pushed to GHCR next to each image.
+  # ---------------------------------------------------------------------------
+  image-provenance:
+    name: Image Provenance
+    needs: images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [max, min, fips]
+    steps:
+      - name: Image provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
+        with:
+          subject-name: ghcr.io/keelcore/keel
+          subject-digest: ${{ needs.images.outputs[format('{0}_digest', matrix.flavor)] }}
+          push-to-registry: true
+
+  # ---------------------------------------------------------------------------
+  # Verify — the release verifies its own output: signatures, SBOM, VEX and
+  # provenance attestations on every image and blob, aliases, chart.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Verify Published Release
+    needs: [images, helm, upload, image-provenance]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release-artifacts
+          path: dist/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: signed-blobs
+          path: dist/
       - name: Verify published release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MAX_DIGEST: ${{ steps.images.outputs.max_digest }}
-          MIN_DIGEST: ${{ steps.images.outputs.min_digest }}
-          FIPS_DIGEST: ${{ steps.images.outputs.fips_digest }}
+          MAX_DIGEST: ${{ needs.images.outputs.max_digest }}
+          MIN_DIGEST: ${{ needs.images.outputs.min_digest }}
+          FIPS_DIGEST: ${{ needs.images.outputs.fips_digest }}
         run: make release-verify
-      # Immutable releases: every asset is attached to the draft first; publishing locks it.
+
+  # ---------------------------------------------------------------------------
+  # Publish — immutable releases: every asset is attached to the draft first; publishing locks it.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish Release
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: image-sboms
+          path: dist/
       - name: Attach image SBOMs and publish the release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
