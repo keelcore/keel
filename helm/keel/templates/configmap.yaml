@@ -127,6 +127,17 @@ data:
       my_id: {{ $v.authn.myID | quote }}
       my_signature_key_file: {{ $v.authn.mySignatureKeyFile | quote }}
       audience: {{ $v.authn.audience | quote }}
+      oidc:
+        enabled: {{ $v.authn.oidc.enabled }}
+        issuer: {{ $v.authn.oidc.issuer | quote }}
+        client_id: {{ $v.authn.oidc.clientId | quote }}
+        # Set through keel-secrets.yaml or KEEL_OIDC_CLIENT_SECRET, which override this.
+        client_secret: ""
+        redirect_url: {{ $v.authn.oidc.redirectUrl | quote }}
+        scopes: {{ toJson $v.authn.oidc.scopes }}
+        cookie_key_file: {{ $v.authn.oidc.cookieKeyFile | quote }}
+        ca_file: {{ $v.authn.oidc.caFile | quote }}
+        session_ttl: {{ $v.authn.oidc.sessionTtl | quote }}
 
     ext_authz:
       enabled: {{ $v.extAuthz.enabled }}
@@ -144,6 +155,25 @@ data:
         enabled: {{ $v.logging.remoteSink.enabled }}
         endpoint: {{ $v.logging.remoteSink.endpoint | quote }}
         protocol: {{ $v.logging.remoteSink.protocol | quote }}
+      file: {{ $v.logging.file | quote }}
+      rotation:
+        max_size_mb: {{ $v.logging.rotation.maxSizeMb }}
+        max_age_days: {{ $v.logging.rotation.maxAgeDays }}
+        max_backups: {{ $v.logging.rotation.maxBackups }}
+        compress: {{ $v.logging.rotation.compress }}
+
+    audit:
+      enabled: {{ $v.audit.enabled }}
+      file: {{ $v.audit.file | quote }}
+      rotation:
+        max_size_mb: {{ $v.audit.rotation.maxSizeMb }}
+        max_age_days: {{ $v.audit.rotation.maxAgeDays }}
+        max_backups: {{ $v.audit.rotation.maxBackups }}
+        compress: {{ $v.audit.rotation.compress }}
+      remote_sink:
+        enabled: {{ $v.audit.remoteSink.enabled }}
+        endpoint: {{ $v.audit.remoteSink.endpoint | quote }}
+        protocol: {{ $v.audit.remoteSink.protocol | quote }}
 
     metrics:
       prometheus: {{ $v.metrics.prometheus }}

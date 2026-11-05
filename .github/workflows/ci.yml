@@ -68,6 +68,10 @@ jobs:
         run: make audit
       - name: Verify canonical scripts are byte-identical to .standards
         run: make verify-canonical
+      - name: Check rulesets against .github/rulesets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make rulesets-check
 
   # ---------------------------------------------------------------------------
   # Secret Scan — required gate; runs on every push and PR.

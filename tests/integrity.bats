@@ -920,3 +920,88 @@ stop_protocol_keel() {
   [[ "${with}" == *'alt-svc: h3=":8443"; ma=86400'* ]] || false
   [[ "${without}" != *'alt-svc'* ]] || false
 }
+
+# ---------------------------------------------------------------------------
+# Log file sink and rotation (logging.file, logging.rotation)
+# ---------------------------------------------------------------------------
+
+@test "logging.file: SIGUSR2 rotates a live file sink; later lines go to the new file" {
+  local cfg pid log backups
+  cfg="$(mktemp)"
+  log="${BATS_TEST_TMPDIR}/keel-file.log"
+  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\nlogging:\n  json: true\n  file: %s\n  rotation:\n    compress: false\n' "${log}" > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  pid="${!}"
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
+  curl -s -o /dev/null --max-time 2 http://127.0.0.1:8080/before
+  kill -USR2 "${pid}"
+  for _ in $(seq 50); do
+    grep -q '"msg":"log_rotated"' "${log}" 2>/dev/null && break
+    sleep 0.1
+  done
+  curl -s -o /dev/null --max-time 2 http://127.0.0.1:8080/after
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  backups="$(ls "${log}".* )"
+  [ "$(printf '%s\n' "${backups}" | wc -l | tr -d ' ')" = '1' ]
+  grep -q '"path":"/before"' "${backups}"
+  ! grep -q '"path":"/after"' "${backups}"
+  grep -q '"path":"/after"' "${log}"
+  ! grep -q '"path":"/before"' "${log}"
+}
+
+# ---------------------------------------------------------------------------
+# Audit log: a hash chain of security events, checked by `keel audit verify`
+# ---------------------------------------------------------------------------
+
+@test "audit: events chain across a restart; keel audit verify passes, and fails after tampering" {
+  command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
+  local cfg pid audit_log
+  cfg="$(mktemp)"
+  audit_log="${BATS_TEST_TMPDIR}/audit.log"
+  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: true\n  trusted_signers:\n    - 0123456789abcdef0123456789abcdef\naudit:\n  enabled: true\n  file: %s\n' "${audit_log}" > "${cfg}"
+  local round
+  for round in 1 2; do
+    KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+    pid="${!}"
+    wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
+    curl -s -o /dev/null --max-time 2 http://127.0.0.1:8080/
+    kill -HUP "${pid}"
+    for _ in $(seq 50); do
+      [ "$(grep -c '"event":"config_reload"' "${audit_log}" 2>/dev/null)" = "${round}" ] && break
+      sleep 0.1
+    done
+    kill -TERM "${pid}"
+    wait "${pid}" || true
+  done
+  rm -f "${cfg}"
+  grep -q '"event":"authn_failure"' "${audit_log}"
+  grep -q '"event":"config_reload"' "${audit_log}"
+  run keel-max audit verify "${audit_log}"
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *'ok: 4 entries in 1 files'* ]] || false
+  sed -i.bak 's/missing bearer token/nothing to see here/' "${audit_log}"
+  rm -f "${audit_log}.bak"
+  run keel-max audit verify "${audit_log}"
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *'altered'* ]] || false
+}
+
+@test "SIGHUP re-reads the KEEL_CONFIG file" {
+  local cfg pid
+  cfg="$(mktemp)"
+  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\nlogging:\n  level: info\n' > "${cfg}"
+  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  pid="${!}"
+  wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
+  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\nlogging:\n  level: warn\n' > "${cfg}"
+  kill -HUP "${pid}"
+  sleep 0.3
+  kill -USR1 "${pid}"
+  sleep 0.3
+  kill -TERM "${pid}"
+  wait "${pid}" || true
+  rm -f "${cfg}"
+  grep -q '"Level": "warn"' "${BATS_TEST_TMPDIR}/keel.log"
+}

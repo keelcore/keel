@@ -19,12 +19,17 @@ import (
 // is created. Returns 0 on normal exit; terminal flag paths (--version, etc.)
 // exit via log.ExitFn which tests can intercept.
 func Run(log *logging.Logger) int {
+	if len(os.Args) > 1 && os.Args[1] == "audit" {
+		return runAudit(os.Args[2:], os.Stdout, os.Stderr)
+	}
 	if log == nil {
 		log = logging.New(logging.Config{JSON: true})
 	}
 	cfg := clisupport.ProcessArgs(log)
 	srv := core.NewServer(
 		log, cfg, core.WithDefaultRegistrar(),
+		// The same files startup read, so SIGHUP and /admin/reload re-read them.
+		core.WithConfigPaths(os.Getenv("KEEL_CONFIG"), os.Getenv("KEEL_SECRETS")),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())

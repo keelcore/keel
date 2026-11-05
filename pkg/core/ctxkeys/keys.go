@@ -6,4 +6,5 @@ const (
 	RequestID contextKey = iota
 	TraceID
 	SpanID
+	Principal // the authenticated subject (authn), for audit events
 )

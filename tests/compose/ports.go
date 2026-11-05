@@ -26,4 +26,9 @@ const (
 	SidecarReady = 9192
 	SidecarAdmin = 9199
 	MockControl  = 9380
+
+	// keel-oidc (OIDC login in front of dex) and dex itself.
+	OIDCHTTP  = 8280
+	OIDCReady = 9292
+	Dex       = 5556
 )

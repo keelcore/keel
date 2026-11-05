@@ -318,6 +318,8 @@ func (s *Server) drainListeners(cancel context.CancelFunc, wg *sync.WaitGroup, e
 	wg.Wait()
 	s.sinkWg.Wait()
 	s.bpWg.Wait()
+	s.closeFileSink()
+	s.closeAudit()
 	if s.sd != nil {
 		_ = s.sd.Close() // no request can reach statsd.Instrument any more
 	}

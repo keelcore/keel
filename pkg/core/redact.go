@@ -25,10 +25,12 @@ func redactedConfig(cfg config.Config) config.Config {
 	}
 	cfg.Authn.TrustedSigners = signers
 	cfg.Admin.Token = redactSecret(cfg.Admin.Token)
+	cfg.Authn.OIDC.ClientSecret = redactSecret(cfg.Authn.OIDC.ClientSecret)
 	cfg.Admin.MetricsToken = redactSecret(cfg.Admin.MetricsToken)
 	cfg.Sidecar.UpstreamURL = redactURL(cfg.Sidecar.UpstreamURL)
 	cfg.ExtAuthz.Endpoint = redactURL(cfg.ExtAuthz.Endpoint)
 	cfg.Logging.RemoteSink.Endpoint = redactURL(cfg.Logging.RemoteSink.Endpoint)
+	cfg.Audit.RemoteSink.Endpoint = redactURL(cfg.Audit.RemoteSink.Endpoint)
 	cfg.Tracing.OTLP.Endpoint = redactURL(cfg.Tracing.OTLP.Endpoint)
 	cfg.Metrics.StatsD.Endpoint = redactURL(cfg.Metrics.StatsD.Endpoint)
 	cfg.TLS.ACME.CAUrl = redactURL(cfg.TLS.ACME.CAUrl)

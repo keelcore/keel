@@ -169,6 +169,17 @@ keel:
     mySignatureKeyFile: ""
     # Required aud claim on inbound JWTs (authn.audience); empty: not checked.
     audience: ""
+    # Browser login (docs/security.md §10). Mount the cookie key and any CA through extraVolumes;
+    # set the client secret through keel-secrets.yaml or KEEL_OIDC_CLIENT_SECRET.
+    oidc:
+      enabled: false
+      issuer: ""
+      clientId: ""
+      redirectUrl: ""
+      scopes: ["openid", "email", "profile"]
+      cookieKeyFile: ""
+      caFile: ""
+      sessionTtl: "8h"
 
   extAuthz:
     enabled: false
@@ -182,6 +193,28 @@ keel:
     json: true
     level: info
     accessLog: true
+    remoteSink:
+      enabled: false
+      endpoint: ""
+      protocol: "http"
+    # Also write every log line to this path (a writable volume); empty: stdout and the remote sink only.
+    file: ""
+    # Bounds for logging.file. 0 turns a limit off. SIGUSR2 rotates at once.
+    rotation:
+      maxSizeMb: 100
+      maxAgeDays: 30
+      maxBackups: 5
+      compress: true
+
+  # Tamper-evident audit stream (docs/security.md §9). The file needs a writable volume.
+  audit:
+    enabled: false
+    file: ""
+    rotation:
+      maxSizeMb: 100
+      maxAgeDays: 0
+      maxBackups: 0
+      compress: true
     remoteSink:
       enabled: false
       endpoint: ""

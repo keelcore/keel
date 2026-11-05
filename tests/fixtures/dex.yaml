@@ -1,0 +1,22 @@
+# tests/fixtures/dex.yaml
+# A real OpenID Provider for the OIDC stack test (tests/compose/oidc_test.go). The mock connector
+# logs in without a form; certificates come from tests/fixtures/gen-certs.sh.
+issuer: https://dex:5556/dex
+storage:
+  type: memory
+web:
+  https: 0.0.0.0:5556
+  tlsCert: /etc/keel/certs/server.crt
+  tlsKey: /etc/keel/certs/server.key
+oauth2:
+  skipApprovalScreen: true
+connectors:
+  - type: mockCallback
+    id: mock
+    name: Mock
+staticClients:
+  - id: keel-oidc
+    name: keel-oidc
+    secret: stack-test-only
+    redirectURIs:
+      - http://localhost:8280/oauth2/callback

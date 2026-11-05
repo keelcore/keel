@@ -141,8 +141,8 @@ assumptions made at project inception.
 its server-side listener — applies the same cipher-suite and key-exchange policy enforced by
 `pkg/core/tls.BuildTLSConfig`.
 
-**Why it matters:** The current `BuildTLSConfig` policy (`policy_fips.go` / `policy.go`) is applied to the
-server-side TLS listener. Outbound connections — ACME CA endpoint (`httpClientWithCA`), remote log sink,
+**Why it matters:** The current `BuildTLSConfig` policy (`tlspolicy/base_fips.go` / `tlspolicy/base.go`) is applied
+to the server-side TLS listener. Outbound connections — ACME CA endpoint (`httpClientWithCA`), remote log sink,
 ext-authz transport, and future OTLP exporter — each construct their own `tls.Config{}` and do not go
 through that policy. This means:
 
@@ -159,8 +159,8 @@ through that policy. This means:
   extension of) `BuildTLSConfig`.
 - For outbound clients: derive a `*tls.Config` from `BuildTLSConfig`, then layer caller-specific fields on
   top (e.g. `RootCAs` for private CAs, `ServerName` for SNI overrides).
-- Enumerate cipher suites **explicitly** in `policy_fips.go` rather than relying solely on the Go Cryptographic Module's
-  runtime enforcement — defence-in-depth; catches misconfiguration before it reaches the crypto layer.
+- Enumerate cipher suites **explicitly** in `tlspolicy/base_fips.go` rather than relying solely on the Go
+  Cryptographic Module's runtime enforcement — defence-in-depth; catches misconfiguration before it reaches the crypto layer.
 - Add a unit test that constructs every outbound HTTP/gRPC client in the codebase and asserts
   `MinVersion >= TLS 1.2`, no RC4/DES/3DES in `CipherSuites`, and — under the `fips` tag — no X25519 in
   `CurvePreferences`.
@@ -178,7 +178,7 @@ through that policy. This means:
 
 - `go vet ./...` and `staticcheck ./...` continue to pass.
 - All call sites above go through `BuildTLSConfig` (or a validated wrapper).
-- `policy_fips.go` enumerates `CipherSuites` explicitly.
+- `tlspolicy/base_fips.go` enumerates `CipherSuites` explicitly.
 - New unit test `TestOutboundTLSPolicy` passes under both `fips` and non-`fips` build tags.
 - BATS: integrity test confirms ACME client successfully connects to pebble with FIPS-policy TLS settings.
 

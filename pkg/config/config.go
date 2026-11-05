@@ -182,6 +182,21 @@ type AuthnConfig struct {
 	MyID               string   `yaml:"my_id"`
 	MySignatureKeyFile string   `yaml:"my_signature_key_file"`
 	Audience           string   `yaml:"audience"`
+	// OIDC is the browser login flow (authorization code with PKCE).
+	OIDC OIDCConfig `yaml:"oidc"`
+}
+
+// OIDCConfig configures the OpenID Connect login flow (docs/security.md §10).
+type OIDCConfig struct {
+	Enabled       bool     `yaml:"enabled"`
+	Issuer        string   `yaml:"issuer"`
+	ClientID      string   `yaml:"client_id"`
+	ClientSecret  string   `yaml:"client_secret"`
+	RedirectURL   string   `yaml:"redirect_url"`
+	Scopes        []string `yaml:"scopes"`
+	CookieKeyFile string   `yaml:"cookie_key_file"`
+	CAFile        string   `yaml:"ca_file"`
+	SessionTTL    Duration `yaml:"session_ttl"`
 }
 
 type ExtAuthzConfig struct {
@@ -204,6 +219,25 @@ type LoggingConfig struct {
 	Level      string           `yaml:"level"`
 	AccessLog  bool             `yaml:"access_log"`
 	RemoteSink RemoteSinkConfig `yaml:"remote_sink"`
+	// File, when set, also writes every log line to this path, rotated per Rotation.
+	File     string            `yaml:"file"`
+	Rotation LogRotationConfig `yaml:"rotation"`
+}
+
+// AuditConfig is the tamper-evident audit stream (docs/security.md), separate from the logs.
+type AuditConfig struct {
+	Enabled    bool              `yaml:"enabled"`
+	File       string            `yaml:"file"`
+	Rotation   LogRotationConfig `yaml:"rotation"`
+	RemoteSink RemoteSinkConfig  `yaml:"remote_sink"`
+}
+
+// LogRotationConfig bounds logging.file. Zero turns a limit off.
+type LogRotationConfig struct {
+	MaxSizeMB  int  `yaml:"max_size_mb"`
+	MaxAgeDays int  `yaml:"max_age_days"`
+	MaxBackups int  `yaml:"max_backups"`
+	Compress   bool `yaml:"compress"`
 }
 
 type StatsDConfig struct {
@@ -256,6 +290,7 @@ type Config struct {
 	Authn        AuthnConfig        `yaml:"authn"`
 	ExtAuthz     ExtAuthzConfig     `yaml:"ext_authz"`
 	Logging      LoggingConfig      `yaml:"logging"`
+	Audit        AuditConfig        `yaml:"audit"`
 	Metrics      MetricsConfig      `yaml:"metrics"`
 	Tracing      TracingConfig      `yaml:"tracing"`
 	FIPS         FIPSConfig         `yaml:"fips"`
@@ -330,6 +365,10 @@ func defaults() Config {
 		},
 		Authn: AuthnConfig{
 			Enabled: true,
+			OIDC: OIDCConfig{
+				Scopes:     []string{"openid", "email", "profile"},
+				SessionTTL: DurationOf(8 * time.Hour),
+			},
 		},
 		ExtAuthz: ExtAuthzConfig{
 			Timeout:   DurationOf(500 * time.Millisecond),
@@ -339,6 +378,10 @@ func defaults() Config {
 			JSON:      true,
 			Level:     "info",
 			AccessLog: true,
+			Rotation:  LogRotationConfig{MaxSizeMB: 100, MaxAgeDays: 30, MaxBackups: 5, Compress: true},
+		},
+		Audit: AuditConfig{
+			Rotation: LogRotationConfig{MaxSizeMB: 100, Compress: true},
 		},
 		Metrics: MetricsConfig{
 			Prometheus: true,
@@ -433,6 +476,15 @@ func load(configPath, secretsPath string) (Config, error) {
 // or violates the constraints declared in pkg/config/schema.yaml.
 func Validate(cfg Config) error {
 	if err := validateProtocolNotice(cfg); err != nil {
+		return err
+	}
+	if err := validateLogRotation(cfg.Logging.Rotation); err != nil {
+		return err
+	}
+	if err := validateAudit(cfg.Audit); err != nil {
+		return err
+	}
+	if err := validateOIDC(cfg.Authn.OIDC); err != nil {
 		return err
 	}
 	httpsWantsCert := cfg.Listeners.HTTPS.Enabled || cfg.Listeners.H3.Enabled
@@ -667,6 +719,24 @@ func applyEnv(cfg *Config) {
 	// Logging
 	applyBool("KEEL_LOG_JSON", &cfg.Logging.JSON)
 	applyString("KEEL_LOG_LEVEL", &cfg.Logging.Level)
+	applyString("KEEL_LOG_FILE", &cfg.Logging.File)
+	applyInt("KEEL_LOG_MAX_SIZE_MB", &cfg.Logging.Rotation.MaxSizeMB)
+	applyInt("KEEL_LOG_MAX_AGE_DAYS", &cfg.Logging.Rotation.MaxAgeDays)
+	applyInt("KEEL_LOG_MAX_BACKUPS", &cfg.Logging.Rotation.MaxBackups)
+	applyBool("KEEL_LOG_COMPRESS", &cfg.Logging.Rotation.Compress)
+
+	// OIDC
+	applyBool("KEEL_OIDC_ENABLED", &cfg.Authn.OIDC.Enabled)
+	applyString("KEEL_OIDC_ISSUER", &cfg.Authn.OIDC.Issuer)
+	applyString("KEEL_OIDC_CLIENT_ID", &cfg.Authn.OIDC.ClientID)
+	applyString("KEEL_OIDC_CLIENT_SECRET", &cfg.Authn.OIDC.ClientSecret)
+	applyString("KEEL_OIDC_REDIRECT_URL", &cfg.Authn.OIDC.RedirectURL)
+	applyString("KEEL_OIDC_COOKIE_KEY_FILE", &cfg.Authn.OIDC.CookieKeyFile)
+	applyString("KEEL_OIDC_CA_FILE", &cfg.Authn.OIDC.CAFile)
+
+	// Audit
+	applyBool("KEEL_AUDIT_ENABLED", &cfg.Audit.Enabled)
+	applyString("KEEL_AUDIT_FILE", &cfg.Audit.File)
 }
 
 // ---------------------------------------------------------------------------

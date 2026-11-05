@@ -77,6 +77,8 @@ export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGES
 .PHONY: gen-schema
 .PHONY: install-hooks
 .PHONY: fresh-repo
+.PHONY: rulesets-check
+.PHONY: rulesets-apply
 .PHONY: help
 .PHONY: help-local
 .PHONY: pre-commit
@@ -279,6 +281,15 @@ keel-schema-regen:
 
 fresh-repo: install-hooks
 	bash scripts/fresh-repo.sh
+
+## Branch protection as code (docs/governance.md): check is read-only; apply needs an admin GH_TOKEN.
+rulesets-check:
+	@echo "🛡️  Checking rulesets against .github/rulesets..."
+	bash scripts/dev/run.sh bash scripts/admin/rulesets.sh check
+
+rulesets-apply:
+	@echo "🛡️  Applying .github/rulesets..."
+	bash scripts/dev/run.sh bash scripts/admin/rulesets.sh apply
 
 ## Universal Canonical Targets (language-independent interface; mandated by CI standards)
 build: min

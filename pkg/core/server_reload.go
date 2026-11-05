@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/audit"
 )
 
 // Reload re-reads the configuration from the paths supplied via
@@ -19,6 +20,7 @@ func (s *Server) Reload() error {
 	cfg, err := config.Load(s.cfgPaths[0], s.cfgPaths[1])
 	s.logIgnoredEnv(cfg)
 	if err != nil {
+		s.auditEvent(audit.Event{Event: "config_reload", Outcome: "fail", Detail: err.Error()})
 		return fmt.Errorf("load config: %w", err)
 	}
 
@@ -28,6 +30,10 @@ func (s *Server) Reload() error {
 
 	// Apply logging config and restart the remote sink if its config changed.
 	s.applyRemoteSink(cfg)
+	if err := s.applyAudit(cfg); err != nil {
+		s.logger.Warn("audit_reload_failed", map[string]any{"err": err.Error()})
+	}
+	s.auditEvent(audit.Event{Event: "config_reload", Outcome: "ok"})
 	// Re-initialise the outbound signer (Warn on error, preserves old signer).
 	s.applyOutboundSigner(cfg)
 	// Reload trusted signers list (trusted_signers_file is re-read from disk).
@@ -64,7 +70,9 @@ func (s *Server) ReloadHandler() http.Handler {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if err := s.Reload(); err != nil {
+		err := s.Reload()
+		s.auditEvent(audit.Event{Event: "admin_reload", SourceIP: r.RemoteAddr, Outcome: outcomeOf(err)})
+		if err != nil {
 			s.logger.Warn("admin_reload_failed", map[string]any{"err": err.Error()})
 			http.Error(w, "reload failed", http.StatusUnprocessableEntity)
 			return
@@ -80,4 +88,12 @@ func (s *Server) logIgnoredEnv(cfg config.Config) {
 	for _, e := range cfg.IgnoredEnv() {
 		s.logger.Warn("env_ignored", map[string]any{"env": e, "reason": "unparseable value; previous value kept"})
 	}
+}
+
+// outcomeOf is an audit outcome for err.
+func outcomeOf(err error) string {
+	if err != nil {
+		return "fail"
+	}
+	return "ok"
 }

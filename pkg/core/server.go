@@ -12,6 +12,7 @@ import (
 
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/acme"
+	"github.com/keelcore/keel/pkg/core/audit"
 	keelfips "github.com/keelcore/keel/pkg/core/fips"
 	"github.com/keelcore/keel/pkg/core/lifecycle"
 	"github.com/keelcore/keel/pkg/core/logging"
@@ -65,8 +66,16 @@ type Server struct {
 	sinkMu     sync.Mutex
 	sinkCancel context.CancelFunc
 	sinkWg     sync.WaitGroup
-	httpSink   atomic.Pointer[logging.HTTPSink]
-	sinkOut    io.Writer
+	// auditLog is the audit stream (nil: off); auditMu serialises its lifecycle.
+	auditMu      sync.Mutex
+	auditLog     atomic.Pointer[audit.Log]
+	auditCfg     config.AuditConfig
+	auditClosers []func()
+	// fileSink is the logging.file writer (nil: none); guarded by sinkMu like the remote sink.
+	fileSink     *logging.RotatingFile
+	fileSinkPath string
+	httpSink     atomic.Pointer[logging.HTTPSink]
+	sinkOut      io.Writer
 
 	// Outbound signer: updated atomically on SIGHUP so the sidecar proxy
 	// picks up the new key without being re-created.
@@ -127,6 +136,7 @@ func NewServer(log *logging.Logger, cfg config.Config, opts ...Option) *Server {
 	// After the options: WithLogger may have replaced the logger.
 	if rr, ok := s.runner.(realRunner); ok {
 		rr.onReject = handshakeRejectionLog(s.logger, s.met, rejectionLogsPerSecond)
+		rr.onReject = s.auditedRejections(rr.onReject)
 		rr.onRejected = func(c protonotice.Code) { s.met.IncProtocolRejection(string(c)) }
 		s.runner = rr
 	}
@@ -169,6 +179,7 @@ func (s *Server) Run(ctx context.Context) {
 	s.runCtx = ctx
 	s.applyBackpressure(s.cfg)
 	s.applyRemoteSink(s.cfg)
+	s.startAudit()
 	s.applyTracing(s.cfg)
 	defer func() { tracing.Shutdown(s.expPtr.Load()) }()
 
@@ -321,9 +332,11 @@ func (s *Server) wrapMain(h http.Handler) http.Handler {
 	// OWASP headers/limits → shedding → AuthnJWT → ExtAuthz → handler. Rejections
 	// (401/403/503) carry the OWASP headers and are access-logged; the external
 	// authorizer is only called for authenticated requests.
+	h = mw.AuditForbidden(s.auditEvent, h)
 	if s.cfg.ExtAuthz.Enabled {
-		h = mw.ExtAuthz(s.cfg, h, s.logger)
+		h = mw.ExtAuthz(s.cfg, h, s.logger, s.auditEvent)
 	}
+	authed := h // behind authentication: where an OIDC session goes
 	if s.cfg.Authn.Enabled {
 		// Signers and the trusted_ids allowlist both come from the authn snapshot,
 		// so a reload changes them atomically. Without a snapshot there are no
@@ -333,7 +346,10 @@ func (s *Server) wrapMain(h http.Handler) http.Handler {
 				return sn.signers
 			}
 			return nil
-		}, h, s.logger, mw.WithTrustedIDs(func() map[string]struct{} { return s.authn.Load().trustedIDSet() }))
+		}, h, s.logger, mw.WithTrustedIDs(func() map[string]struct{} { return s.authn.Load().trustedIDSet() }), mw.WithAudit(s.auditEvent))
+	}
+	if s.cfg.Authn.OIDC.Enabled {
+		h = s.wrapOIDC(authed, h)
 	}
 	if s.cfg.Backpressure.SheddingEnabled {
 		h = mw.Shedding(s.readiness, h)

@@ -6,6 +6,8 @@ rate and size limits, TLS policy, and sidecar upstream security (headers, XFF, c
 If you are new to these concepts, the bridging explanations throughout this document explain not just what each
 feature does, but why it exists and how it protects your service.
 
+Data flows: [architecture.md](architecture.md). Threats and mitigations: [threat-model.md](threat-model.md).
+
 ---
 
 ## 1. OWASP Hardening Middleware
@@ -312,6 +314,10 @@ been available in all major runtimes since 2018–2019.
 
 **Cipher suites:** In TLS 1.3, cipher suites are not negotiable — the protocol mandates them. Keel does not expose a
 cipher suite configuration option because there is nothing to configure.
+
+**Outbound connections** use the same policy (`pkg/core/tlspolicy`): the sidecar upstream, JWKS fetches, external
+authorization, the ACME CA, the OTLP exporter and the remote log sink all require TLS 1.3, with the same key exchange
+groups as the listeners. A test (`TestOutboundTLSPolicy_NoOtherPath`) fails on any client built outside that package.
 
 ### 4.2 Go Cryptographic Module (FIPS 140-3)
 
@@ -807,3 +813,67 @@ certificate is still verified during the handshake, and an invalid one still fai
 - Counters: `keel_tls_handshake_rejections_total{code}` (every refused handshake),
   `keel_protocol_rejections_total{code}` (301s sent), `keel_protocol_notices_served_total{code,format}`.
 - net/http's own server errors (handshake failures, malformed requests) are logged as `http_server_error` at debug.
+
+---
+
+## 9. Audit Log
+
+**Build-time opt-out:** `no_audit` (the `min` flavor)
+
+The audit stream records security events separately from the access log. Each entry is one JSON line carrying a sequence
+number, the SHA-256 hash of the previous entry (`prev_hash`) and its own `hash`, so editing, removing or reordering an
+entry breaks the chain.
+
+| Event | Outcome | When |
+| --- | --- | --- |
+| `authn_success` | `allow` | A valid token, with its subject as `principal` |
+| `authn_failure` | `deny` | A missing or invalid token |
+| `authn_forbidden` | `deny` | A valid token whose subject is not in `authn.trusted_ids` |
+| `authz_deny` | `deny` | External authorization refused the request |
+| `forbidden` | `deny` | The application or upstream answered 403 |
+| `tls_handshake_rejected` | `deny` | A refused handshake, with its `KEEL-PROTO` code; at most 10 entries a second |
+| `config_reload` | `ok`, `fail` | A SIGHUP or admin reload |
+| `admin_reload` | `ok`, `fail` | `POST /admin/reload` |
+
+Check a stream, including its rotated backups, oldest first:
+
+```sh
+keel audit verify /var/log/keel/audit.log
+```
+
+It exits 0 when the chain is intact and 1 at the first break, naming the entry.
+
+**Continuity:** rotation carries the chain across files, and a restart continues from the last entry on disk. If that
+entry cannot be read, Keel refuses to start rather than begin a second chain. Pruned backups are gone from the chain, so
+`max_age_days` and `max_backups` default to off.
+
+**Scope:** the chain makes tampering evident. An attacker who can rewrite the whole file can recompute every hash, so ship
+entries off the host with `audit.remote_sink` when that matters.
+
+---
+
+## 10. OIDC Login
+
+**Build-time opt-out:** `no_oidc` (the `min` flavor)
+
+`authn.oidc` adds browser login in front of the upstream, using the OpenID Connect authorization-code flow with PKCE.
+
+| Request | What happens |
+| --- | --- |
+| A valid session cookie | Served. The upstream receives `X-Auth-Request-User` and `X-Auth-Request-Email`; client copies of those headers are removed, and the session cookie is hidden from it |
+| A browser navigation (`GET` or `HEAD`, `Accept: text/html`) with no session | 302 to the provider, returning to the page asked for |
+| Anything else, including a request with an `Authorization` header | The JWT path (`authn.enabled`), else 401 |
+| `/oauth2/logout` | Ends the session, then goes to the provider's `end_session_endpoint`, or `/` |
+
+**What Keel checks:** `state` and `nonce` on every login, a PKCE S256 verifier, the ID token's signature against the
+provider's published keys (asymmetric algorithms only), its issuer, audience and expiry, and a discovery document whose
+issuer is the configured one. A return target is always a local path.
+
+**Sessions** live in the browser, in `HttpOnly`, `SameSite=Lax` cookies sealed with AES-256-GCM (key from
+`cookie_key_file`), `Secure` when `redirect_url` is https. When the ID token runs out, Keel uses the refresh token if the
+provider issued one (request `offline_access`); `session_ttl` ends a session regardless. Rotating the key file logs
+everyone out. Sessions are stateless: logout clears the cookie in that browser, and a copied cookie stays valid until it
+expires.
+
+**Outbound** calls to the provider use the TLS policy (TLS 1.3); `ca_file` trusts a private CA. Logins, refreshes,
+failures and logouts are audited (`oidc_login`, `oidc_refresh`, `oidc_login_failed`, `oidc_logout`).

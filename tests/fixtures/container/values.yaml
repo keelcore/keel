@@ -105,6 +105,19 @@ keel:
       endpoint: ""
       protocol: "http"
 
+  audit:
+    enabled: false
+    file: ""
+    rotation:
+      maxSizeMb: 100
+      maxAgeDays: 0
+      maxBackups: 0
+      compress: true
+    remoteSink:
+      enabled: false
+      endpoint: ""
+      protocol: "http"
+
   metrics:
     prometheus: true
     statsd:

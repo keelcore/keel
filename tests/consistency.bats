@@ -306,3 +306,185 @@ k8s_services() {
     [ "${got}" = "${want}" ] || { echo "${kind%%:*}: '${got}', want '${want}'"; return 1; }
   done
 }
+
+# ---------------------------------------------------------------------------
+# Branch protection as code: scripts/admin/rulesets.sh and .github/rulesets/*.json
+# ---------------------------------------------------------------------------
+
+# rulesets_fixture CONTEXT: a repository whose committed main ruleset requires CONTEXT, a
+# workflow with a plain job and a matrix job, and a live copy (RULESETS_LIVE_DIR) equal to it.
+rulesets_fixture() {
+  FIX="${BATS_TEST_TMPDIR}/repo"
+  mkdir -p "${FIX}/.github/rulesets" "${FIX}/.github/workflows" "${BATS_TEST_TMPDIR}/live"
+  jq -n --arg c "${1}" '{name: "main protection", target: "branch", enforcement: "active",
+    conditions: {ref_name: {exclude: [], include: ["~DEFAULT_BRANCH"]}},
+    bypass_actors: [{actor_id: 5, actor_type: "RepositoryRole", bypass_mode: "always"}],
+    rules: [{type: "deletion"}, {type: "required_status_checks", parameters: {required_status_checks: [{context: $c}]}}]}' \
+    > "${FIX}/.github/rulesets/main.json"
+  cp "${FIX}/.github/rulesets/main.json" "${BATS_TEST_TMPDIR}/live/main.json"
+  printf 'jobs:\n  lint:\n    name: Lint\n    runs-on: x\n  unit:\n    name: Unit (${{ matrix.platform }})\n    runs-on: x\n  bare:\n    runs-on: x\n' \
+    > "${FIX}/.github/workflows/ci.yml"
+  export RULESETS_LIVE_DIR="${BATS_TEST_TMPDIR}/live"
+  cd "${FIX}"
+}
+
+rulesets() {
+  run bash "${REPO_ROOT}/scripts/admin/rulesets.sh" "$@"
+}
+
+@test "rulesets check: live matching the committed JSON passes, whatever its key order or metadata" {
+  rulesets_fixture Lint
+  jq -S '. + {id: 1, node_id: "x", created_at: "t", updated_at: "t", source: "o/r", _links: {}} | .rules |= reverse' \
+    .github/rulesets/main.json > "${RULESETS_LIVE_DIR}/main.json"
+  rulesets check
+  [ "${status}" -eq 0 ]
+}
+
+@test "rulesets check: a drifted live ruleset fails and names it" {
+  rulesets_fixture Lint
+  jq '.enforcement = "disabled"' .github/rulesets/main.json > "${RULESETS_LIVE_DIR}/main.json"
+  rulesets check
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *'main protection'* ]] || false
+  [[ "${output}" == *'disabled'* ]] || false
+}
+
+@test "rulesets check: a read-only view without bypass_actors compares the rest" {
+  rulesets_fixture Lint
+  jq 'del(.bypass_actors)' .github/rulesets/main.json > "${RULESETS_LIVE_DIR}/main.json"
+  rulesets check
+  [ "${status}" -eq 0 ]
+  jq 'del(.bypass_actors) | .enforcement = "disabled"' .github/rulesets/main.json > "${RULESETS_LIVE_DIR}/main.json"
+  rulesets check
+  [ "${status}" -eq 1 ]
+}
+
+@test "rulesets contexts: a required check naming no workflow job fails and is named" {
+  rulesets_fixture 'Unit (ubuntu-latest)x'
+  jq '.rules[1].parameters.required_status_checks[0].context = "Gone"' .github/rulesets/main.json > m && mv m .github/rulesets/main.json
+  rulesets contexts
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *'Gone'* ]] || false
+}
+
+@test "rulesets contexts: plain, matrix and unnamed jobs all count as existing" {
+  local ctx
+  for ctx in Lint 'Unit (linux)' bare; do
+    rulesets_fixture "${ctx}"
+    rulesets contexts
+    [ "${status}" -eq 0 ] || { echo "${ctx}: ${output}"; return 1; }
+  done
+}
+
+@test "rulesets apply: refuses without a token; PUTs the committed JSON to the ruleset's id" {
+  rulesets_fixture Lint
+  unset RULESETS_LIVE_DIR
+  GH_TOKEN='' rulesets apply
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *'GH_TOKEN'* ]] || false
+  mkdir -p "${BATS_TEST_TMPDIR}/bin"
+  cat > "${BATS_TEST_TMPDIR}/bin/curl" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${BATS_TEST_TMPDIR}/curl.log"
+case "\$*" in
+  *'-X PUT'*) cat "\${@: -1}" > /dev/null; printf '{}' ;;
+  *) printf '[{"id": 77, "name": "main protection"}]' ;;
+esac
+STUB
+  chmod +x "${BATS_TEST_TMPDIR}/bin/curl"
+  PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" GH_TOKEN=t GITHUB_REPOSITORY=o/r rulesets apply
+  [ "${status}" -eq 0 ]
+  grep -q -- '-X PUT .*repos/o/r/rulesets/77' "${BATS_TEST_TMPDIR}/curl.log"
+}
+
+@test "committed rulesets: every required check names a job in this repository's workflows" {
+  cd "${REPO_ROOT}"
+  [ -f .github/rulesets/main.json ]
+  [ -f .github/rulesets/release-tags.json ]
+  rulesets contexts
+  [ "${status}" -eq 0 ]
+}
+
+@test "docs/governance.md lists every required check of the main ruleset" {
+  local ctx missing=''
+  while IFS= read -r ctx; do
+    grep -qF "\`${ctx}\`" "${REPO_ROOT}/docs/governance.md" || missing+="${ctx}; "
+  done < <(jq -r '.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context' \
+    "${REPO_ROOT}/.github/rulesets/main.json")
+  [ -z "${missing}" ] || { echo "missing from docs/governance.md: ${missing}"; false; }
+}
+
+# ---------------------------------------------------------------------------
+# Required documents (OSPS-SA-01.01, OSPS-SA-03.01, OSPS-DO-06.01) exist and are reachable.
+# ---------------------------------------------------------------------------
+
+@test "docs/architecture.md: the five diagrams, linked from security and operations" {
+  local -r doc="${REPO_ROOT}/docs/architecture.md"
+  [ "$(grep -c '^```mermaid$' "${doc}")" -eq 5 ]
+  grep -q 'architecture.md' "${REPO_ROOT}/docs/security.md"
+  grep -q 'architecture.md' "${REPO_ROOT}/docs/operations.md"
+}
+
+@test "docs/threat-model.md: every component has a threat row; linked; on the release checklist" {
+  local -r doc="${REPO_ROOT}/docs/threat-model.md"
+  grep -q '^| ID | Component | Threat | Likelihood | Impact | Mitigation | Residual |$' "${doc}"
+  local c missing=''
+  for c in TLS Authn Authz ACME Proxy Admin 'Remote log sink' 'FIPS monitor' 'Release pipeline'; do
+    grep -qE "^\| [A-Z]+-[0-9]+ \| ${c} \|" "${doc}" || missing+="${c}; "
+  done
+  [ -z "${missing}" ] || { echo "no threat row for: ${missing}"; false; }
+  grep -q 'threat-model.md' "${REPO_ROOT}/SECURITY.md"
+  grep -q 'threat-model.md' "${REPO_ROOT}/docs/security.md"
+  grep -q 'threat-model.md' "${REPO_ROOT}/docs/release-policy.md"
+}
+
+@test "docs/dependencies.md: the policy states the license allow list make lint-licenses enforces" {
+  local -r doc="${REPO_ROOT}/docs/dependencies.md"
+  local allowed
+  allowed="$(sed -nE "s/^readonly ALLOWED_LICENSES='([^']+)'/\1/p" "${REPO_ROOT}/scripts/lint/licenses.sh")"
+  [ -n "${allowed}" ]
+  local l missing=''
+  for l in ${allowed//,/ }; do
+    grep -qF "\`${l}\`" "${doc}" || missing+="${l} "
+  done
+  [ -z "${missing}" ] || { echo "licenses missing from the policy: ${missing}"; false; }
+  grep -q 'dependencies.md' "${REPO_ROOT}/docs/CONTRIBUTING.md"
+  grep -q 'dependencies.md' "${REPO_ROOT}/SECURITY.md"
+}
+
+# ---------------------------------------------------------------------------
+# Runbooks: docs/runbooks/, one template, every command exercised by a test.
+# ---------------------------------------------------------------------------
+
+@test "runbooks: each exists with the template's sections and is indexed in operations.md" {
+  local r s missing=''
+  for r in cert-expiry fips-monitor-trip opa-unavailable authn-reject-storm prestop-timeout \
+    remote-log-sink-down h3-quic-fallback log-rotation; do
+    local f="${REPO_ROOT}/docs/runbooks/${r}.md"
+    [ -f "${f}" ] || { missing+="${r}: file; "; continue; }
+    for s in 'Symptoms' 'Immediate triage' 'Root causes' 'Resolution' 'Escalation'; do
+      grep -q "^## ${s}\$" "${f}" || missing+="${r}: ${s}; "
+    done
+    grep -q "runbooks/${r}.md" "${REPO_ROOT}/docs/operations.md" || missing+="${r}: index; "
+  done
+  [ -z "${missing}" ] || { echo "${missing}"; false; }
+}
+
+# Every command in a runbook's sh blocks is curl on a keel endpoint or a signal to keel, and that
+# endpoint or signal is exercised by the test suites.
+@test "runbooks: every command is exercised by a test" {
+  local line bad=''
+  local -r tests="${REPO_ROOT}/tests/integrity.bats ${REPO_ROOT}/tests/compose/compose_test.go ${REPO_ROOT}/pkg/core/server_signals_internal_test.go"
+  while IFS= read -r line; do
+    case "${line}" in
+      curl\ *)
+        local path
+        path="$(sed -nE 's#.*https?://[^/ ]+(/[A-Za-z0-9/_-]*).*#\1#p' <<< "${line}")"
+        [ -n "${path}" ] && grep -qF "${path}" ${tests} || bad+="${line}; " ;;
+      kill\ -HUP\ *) grep -qE 'kill -HUP|SIGHUP' ${tests} || bad+="${line}; " ;;
+      kill\ -USR2\ *) grep -qE 'kill -USR2|SIGUSR2' ${tests} || bad+="${line}; " ;;
+      *) bad+="${line}; " ;;
+    esac
+  done < <(awk '/^```sh$/ { on = 1; next } /^```$/ { on = 0 } on' "${REPO_ROOT}"/docs/runbooks/*.md)
+  [ -z "${bad}" ] || { echo "not exercised: ${bad}"; false; }
+}

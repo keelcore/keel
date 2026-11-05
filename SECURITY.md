@@ -3,6 +3,8 @@
 This document describes the security policy for the Keel project, including how to report vulnerabilities, our triage and
 disclosure process, supported versions, and how we handle CVEs.
 
+Related: [threat model](docs/threat-model.md), [dependency policy](docs/dependencies.md).
+
 ---
 
 ## Security Contacts

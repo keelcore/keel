@@ -4,10 +4,12 @@ package core
 import (
 	cryptotls "crypto/tls"
 	stdlog "log"
+	"net"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/keelcore/keel/pkg/core/audit"
 	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/metrics"
 	"github.com/keelcore/keel/pkg/core/protonotice"
@@ -89,3 +91,29 @@ func (w errorLogWriter) Write(p []byte) (int, error) {
 
 // rejectionLogsPerSecond caps tls_handshake_rejected log lines; the counter sees every one.
 const rejectionLogsPerSecond = 10
+
+// auditedRejections records refused handshakes in the audit stream too, at most
+// rejectionLogsPerSecond entries a second, so a scan cannot flood the chain.
+func (s *Server) auditedRejections(next rejectFunc) rejectFunc {
+	sample := newSampler(rejectionLogsPerSecond)
+	return func(code protonotice.Code, hello *cryptotls.ClientHelloInfo) {
+		next(code, hello)
+		if !sample() {
+			return
+		}
+		e := audit.Event{Event: "tls_handshake_rejected", Outcome: "deny", Detail: string(code)}
+		if hello.Conn != nil {
+			e.SourceIP = addrIP(hello.Conn.RemoteAddr())
+		}
+		s.auditEvent(e)
+	}
+}
+
+// addrIP is the host part of addr.
+func addrIP(addr net.Addr) string {
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return addr.String()
+	}
+	return host
+}

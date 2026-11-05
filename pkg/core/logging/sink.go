@@ -5,6 +5,7 @@ package logging
 import (
 	"bytes"
 	"context"
+	"github.com/keelcore/keel/pkg/core/tlspolicy"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -34,7 +35,7 @@ func NewHTTPSink(endpoint string, bufCap int, flushInterval time.Duration) *HTTP
 		endpoint:      endpoint,
 		buf:           make(chan []byte, bufCap),
 		flushInterval: flushInterval,
-		client:        &http.Client{Timeout: 5 * time.Second},
+		client:        tlspolicy.NewHTTPClient(5 * time.Second),
 	}
 }
 

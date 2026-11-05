@@ -83,6 +83,10 @@ function deploy_stack() {
     --from-file="server.key=${fx}/certs/server.key" \
     --from-file="keel-sidecar.yaml=${fx}/keel-sidecar.yaml" \
     --from-file="sidecar-sign.key=${fx}/certs/sidecar-sign.key" \
+    --from-file="dex.yaml=${fx}/dex.yaml" \
+    --from-file="keel-oidc.yaml=${fx}/keel-oidc.yaml" \
+    --from-file="oidc-cookie.key=${fx}/certs/oidc-cookie.key" \
+    --from-file="ca.crt=${fx}/certs/ca.crt" \
     --dry-run=client -o yaml | kc apply -f -
   kc create configmap otel-config --from-file="otel-collector.yaml=${fx}/otel-collector.yaml" \
     --dry-run=client -o yaml | kc apply -f -
@@ -91,7 +95,7 @@ function deploy_stack() {
   # Server-side apply: client-side apply merges containerPorts by port number
   # alone, dropping the hostPort of keel's UDP 8443 entry (TCP and UDP share 8443).
   kc apply --server-side -f "${REPO_ROOT}/tests/compose/k8s-stack.yaml"
-  for deploy in upstream keel mockupstream keel-sidecar jaeger otel-collector prometheus; do
+  for deploy in upstream keel mockupstream keel-sidecar dex keel-oidc jaeger otel-collector prometheus; do
     kc rollout status "deployment/${deploy}" --timeout=300s || { dump_logs; exit 1; }
   done
   log '✅ Stack deployed'

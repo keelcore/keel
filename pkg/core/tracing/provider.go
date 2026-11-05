@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/tlspolicy"
 )
 
 const (
@@ -74,7 +75,7 @@ func Setup(cfg config.OTLPConfig) (*Exporter, error) {
 
 	e := &Exporter{
 		url:    scheme + ep + "/v1/traces",
-		client: &http.Client{Timeout: sendTimeout},
+		client: tlspolicy.NewHTTPClient(sendTimeout),
 		ch:     make(chan Span, chanCap),
 		done:   make(chan struct{}),
 	}

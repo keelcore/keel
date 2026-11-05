@@ -1,9 +1,12 @@
 package mw
 
+import "github.com/keelcore/keel/pkg/core/audit"
+
 // AuthnOption customizes AuthnJWT.
 type AuthnOption func(*authnOptions)
 
 type authnOptions struct {
+	audit      func(audit.Event)
 	trustedIDs func() map[string]struct{}
 }
 
@@ -22,4 +25,16 @@ func TrustedIDSet(ids []string) map[string]struct{} {
 		set[id] = struct{}{}
 	}
 	return set
+}
+
+// WithAudit reports each authentication outcome to record.
+func WithAudit(record func(audit.Event)) AuthnOption {
+	return func(o *authnOptions) { o.audit = record }
+}
+
+// record reports e when auditing is on.
+func (o authnOptions) record(e audit.Event) {
+	if o.audit != nil {
+		o.audit(e)
+	}
 }

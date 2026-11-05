@@ -48,16 +48,28 @@ func (s *Server) applyRemoteSink(cfg config.Config) {
 	s.sinkOut = nil
 	defer closeSinkWriter(prev)
 
+	// Before Run there is no context to bind a sink goroutine to; Run applies
+	// the (reloaded) config again once it has one.
+	var file io.Writer
+	if s.runCtx != nil {
+		var prevFile *logging.RotatingFile
+		file, prevFile = s.applyFileSink(cfg)
+		if prevFile != nil {
+			prev = prevFile // a detached file sink restores stdout below
+			defer func() { _ = prevFile.Close() }()
+		}
+	}
+
 	// Without a new sink, an attached one must actually be detached: Reconfigure
 	// ignores a nil Out, so restore stdout explicitly. With none attached, nil
 	// keeps whatever output the embedder configured.
 	var plain io.Writer
-	if prev != nil {
+	if file != nil {
+		plain = logWriters(file)
+	} else if prev != nil {
 		plain = os.Stdout
 	}
 
-	// Before Run there is no context to bind a sink goroutine to; Run applies
-	// the (reloaded) config again once it has one.
 	if s.runCtx == nil || !cfg.Logging.RemoteSink.Enabled || cfg.Logging.RemoteSink.Endpoint == "" {
 		_ = s.logger.Reconfigure(logging.Config{Level: cfg.Logging.Level, JSON: cfg.Logging.JSON, Out: plain})
 		return
@@ -84,7 +96,7 @@ func (s *Server) applyRemoteSink(cfg config.Config) {
 	_ = s.logger.Reconfigure(logging.Config{
 		Level: cfg.Logging.Level,
 		JSON:  cfg.Logging.JSON,
-		Out:   io.MultiWriter(os.Stdout, w),
+		Out:   logWriters(file, w),
 	})
 }
 

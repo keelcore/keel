@@ -14,6 +14,42 @@ properties:
             token:
                 type: string
         type: object
+    audit:
+        additionalProperties: false
+        properties:
+            enabled:
+                type: boolean
+            file:
+                type: string
+            remote_sink:
+                additionalProperties: false
+                properties:
+                    enabled:
+                        type: boolean
+                    endpoint:
+                        type: string
+                    protocol:
+                        enum:
+                            - http
+                            - syslog
+                        type: string
+                type: object
+            rotation:
+                additionalProperties: false
+                properties:
+                    compress:
+                        type: boolean
+                    max_age_days:
+                        minimum: 0
+                        type: integer
+                    max_backups:
+                        minimum: 0
+                        type: integer
+                    max_size_mb:
+                        minimum: 0
+                        type: integer
+                type: object
+        type: object
     authn:
         additionalProperties: false
         properties:
@@ -25,6 +61,33 @@ properties:
                 type: string
             my_signature_key_file:
                 type: string
+            oidc:
+                additionalProperties: false
+                properties:
+                    ca_file:
+                        type: string
+                    client_id:
+                        type: string
+                    client_secret:
+                        type: string
+                    cookie_key_file:
+                        type: string
+                    enabled:
+                        type: boolean
+                    issuer:
+                        format: uri
+                        type: string
+                    redirect_url:
+                        format: uri
+                        type: string
+                    scopes:
+                        items:
+                            type: string
+                        type: array
+                    session_ttl:
+                        description: Go duration string (e.g. "5s", "1m30s", "500ms")
+                        type: string
+                type: object
             trusted_ids:
                 items:
                     type: string
@@ -170,6 +233,8 @@ properties:
         properties:
             access_log:
                 type: boolean
+            file:
+                type: string
             json:
                 type: boolean
             level:
@@ -191,6 +256,21 @@ properties:
                             - http
                             - syslog
                         type: string
+                type: object
+            rotation:
+                additionalProperties: false
+                properties:
+                    compress:
+                        type: boolean
+                    max_age_days:
+                        minimum: 0
+                        type: integer
+                    max_backups:
+                        minimum: 0
+                        type: integer
+                    max_size_mb:
+                        minimum: 0
+                        type: integer
                 type: object
         type: object
     metrics:

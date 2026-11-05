@@ -4,6 +4,7 @@ package mw
 
 import (
 	"bufio"
+	"context"
 	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/x509"
@@ -18,6 +19,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/audit"
+	"github.com/keelcore/keel/pkg/core/ctxkeys"
 	"github.com/keelcore/keel/pkg/core/logging"
 )
 
@@ -37,6 +40,7 @@ func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("authorization")
 		if auth == "" || !strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+			o.record(audit.Event{Event: "authn_failure", SourceIP: clientIP(r), Outcome: "deny", Detail: "missing bearer token"})
 			http.Error(w, "missing bearer token", http.StatusUnauthorized)
 			return
 		}
@@ -49,6 +53,7 @@ func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, 
 		claims, err := parseWithAllSigners(raw, signers, cache, opts...)
 		if err != nil {
 			log.Warn("authn_fail", map[string]any{"err": err.Error()})
+			o.record(audit.Event{Event: "authn_failure", SourceIP: clientIP(r), Outcome: "deny", Detail: "invalid token"})
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
@@ -60,12 +65,14 @@ func AuthnJWT(cfg config.Config, getSigners func() []string, next http.Handler, 
 		sub, _ := claims["sub"].(string)
 		if len(allowed) > 0 {
 			if _, ok := allowed[sub]; !ok {
+				o.record(audit.Event{Event: "authn_forbidden", Principal: sub, SourceIP: clientIP(r), Outcome: "deny"})
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
 		}
 
-		next.ServeHTTP(w, r)
+		o.record(audit.Event{Event: "authn_success", Principal: sub, SourceIP: clientIP(r), Outcome: "allow"})
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxkeys.Principal, sub)))
 	})
 }
 

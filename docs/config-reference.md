@@ -368,6 +368,17 @@ authn:
                       # Empty: aud is not checked. Independently of this, every inbound
                       # token must carry exp, and only HS/RS/ES 256/384/512 are accepted.
 
+  oidc:               # Browser login: authorization code with PKCE (docs/security.md §10).
+    enabled: false
+    issuer: ""        # The provider's issuer URL: https (http on loopback only).
+    client_id: ""
+    client_secret: "" # Put this in keel-secrets.yaml or KEEL_OIDC_CLIENT_SECRET. Empty: a public client.
+    redirect_url: ""  # https://your.host/oauth2/callback, registered with the provider.
+    scopes: [openid, email, profile]  # Must include openid. Add offline_access for refresh.
+    cookie_key_file: ""  # File of at least 32 bytes; seals the session cookies. Required.
+    ca_file: ""       # PEM CA for a provider on a private CA.
+    session_ttl: 8h   # Absolute session lifetime, however long refresh keeps working.
+
 # -----------------------------------------------------------------------
 # External Authz: delegate authorization decisions to an external policy engine
 # -----------------------------------------------------------------------
@@ -406,6 +417,32 @@ logging:
     enabled: false    # Ship logs to a remote endpoint (e.g., a log aggregator).
     endpoint: ""      # URL of the remote log sink.
     protocol: http    # Protocol used to ship logs. Options: http, syslog.
+
+  file: ""            # Also write every log line to this path. Empty: stdout and the
+                      # remote sink only. Opened owner-only (0600); the directory must exist.
+
+  rotation:           # Bounds for logging.file. 0 turns a limit off. Reloaded on SIGHUP.
+    max_size_mb: 100  # Rotate before a write would pass this size. Lines are never split.
+    max_age_days: 30  # Remove backups older than this.
+    max_backups: 5    # Keep at most this many backups.
+    compress: true    # Gzip each backup (<file>.<UTC time>.gz), in the background.
+
+# -----------------------------------------------------------------------
+# Audit: tamper-evident security events, separate from the logs (docs/security.md §9)
+# -----------------------------------------------------------------------
+audit:
+  enabled: false      # Record security events as a SHA-256 hash chain. Needs file or remote_sink.
+  file: ""            # Append-only JSON lines, opened owner-only (0600). A restart continues the
+                      # chain found here. Check it with: keel audit verify FILE
+  rotation:           # Bounds for audit.file; the chain carries across files. 0 turns a limit
+    max_size_mb: 100  # off. Backups are kept by default: pruning removes audit history.
+    max_age_days: 0
+    max_backups: 0
+    compress: true
+  remote_sink:        # Also ship each entry: same protocols as logging.remote_sink.
+    enabled: false
+    endpoint: ""
+    protocol: http
 
 # -----------------------------------------------------------------------
 # Metrics: Prometheus and StatsD output
@@ -484,6 +521,20 @@ modifying the config file — and they work naturally with Kubernetes ConfigMaps
 | `KEEL_UPSTREAM_CA_FILE` | `sidecar.upstream_tls.ca_file` | `""` | |
 | `KEEL_UPSTREAM_CLIENT_CERT` | `sidecar.upstream_tls.client_cert_file` | `""` | |
 | `KEEL_UPSTREAM_CLIENT_KEY` | `sidecar.upstream_tls.client_key_file` | `""` | |
+| `KEEL_LOG_FILE` | `logging.file` | `""` | |
+| `KEEL_LOG_MAX_SIZE_MB` | `logging.rotation.max_size_mb` | `100` | |
+| `KEEL_LOG_MAX_AGE_DAYS` | `logging.rotation.max_age_days` | `30` | |
+| `KEEL_LOG_MAX_BACKUPS` | `logging.rotation.max_backups` | `5` | |
+| `KEEL_LOG_COMPRESS` | `logging.rotation.compress` | `true` | |
+| `KEEL_AUDIT_ENABLED` | `audit.enabled` | `false` | |
+| `KEEL_AUDIT_FILE` | `audit.file` | `""` | |
+| `KEEL_OIDC_ENABLED` | `authn.oidc.enabled` | `false` | |
+| `KEEL_OIDC_ISSUER` | `authn.oidc.issuer` | `""` | |
+| `KEEL_OIDC_CLIENT_ID` | `authn.oidc.client_id` | `""` | |
+| `KEEL_OIDC_CLIENT_SECRET` | `authn.oidc.client_secret` | `""` | Secret |
+| `KEEL_OIDC_REDIRECT_URL` | `authn.oidc.redirect_url` | `""` | |
+| `KEEL_OIDC_COOKIE_KEY_FILE` | `authn.oidc.cookie_key_file` | `""` | |
+| `KEEL_OIDC_CA_FILE` | `authn.oidc.ca_file` | `""` | |
 | `KEEL_UPSTREAM_DIAL_ATTEMPTS` | `sidecar.retry.dial_attempts` | `3` | |
 | `KEEL_UPSTREAM_DIAL_BACKOFF` | `sidecar.retry.dial_backoff` | `50ms` | |
 | `KEEL_UPSTREAM_HONOR_RETRY_AFTER` | `sidecar.retry.honor_retry_after` | `false` | |

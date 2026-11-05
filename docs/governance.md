@@ -152,6 +152,35 @@ submodule. Local edits to `.standards/` are silently discarded on the next `git 
 
 ---
 
+## Branch Protection
+
+`main` and release tags are protected by repository rulesets. The committed JSON in `.github/rulesets/` is the source
+of truth: `make rulesets-check` compares it with the live rulesets and checks that every required check names a job in
+`.github/workflows/`, and it runs in the CI Audit job, so drift or a renamed job fails CI. A maintainer publishes a
+change with `make rulesets-apply` (needs `GH_TOKEN` with admin rights).
+
+**`main` (`.github/rulesets/main.json`):** pull requests with 1 approval and code-owner review, stale approvals
+dismissed on push, review threads resolved, signed commits, no force-push, no deletion. Required checks:
+
+- `PR Policy`
+- `DCO Sign-off`
+- `CI Audit`
+- `Secret Scan`
+- `Consistency`
+- `Lint`
+- `Unit (linux)`
+- `Build`
+- `Build (FIPS)`
+- `Coverage No-Regression`
+
+**Release tags (`.github/rulesets/release-tags.json`, `refs/tags/v*`):** signed, with no update, deletion or
+force-push.
+
+**Bypass:** repository admins, for an emergency that cannot wait for a pull request. Each bypass is recorded in the
+next release's notes and gets a follow-up issue within 1 business day.
+
+---
+
 ## Emergency (Break-Glass) Procedures
 
 If CI or production requires a governance exception, follow the break-glass procedure documented in

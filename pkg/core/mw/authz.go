@@ -12,7 +12,10 @@ import (
 	"strings"
 
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/audit"
+	"github.com/keelcore/keel/pkg/core/ctxkeys"
 	"github.com/keelcore/keel/pkg/core/logging"
+	"github.com/keelcore/keel/pkg/core/tlspolicy"
 )
 
 // jsonMarshal is a seam over json.Marshal so tests can inject a marshal error.
@@ -21,11 +24,16 @@ var jsonMarshal = json.Marshal
 
 // ExtAuthz calls an external authorization endpoint before every inbound request.
 // A 200 response (or true OPA result) allows the request; anything else yields 403.
-// On network error the behaviour is governed by cfg.ExtAuthz.FailOpen.
-func ExtAuthz(cfg config.Config, next http.Handler, log *logging.Logger) http.Handler {
+// On network error the behaviour is governed by cfg.ExtAuthz.FailOpen. record (optional) receives
+// each deny.
+func ExtAuthz(cfg config.Config, next http.Handler, log *logging.Logger, record ...func(audit.Event)) http.Handler {
 	client := authzClient(cfg.ExtAuthz)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !authzAllow(r, cfg.ExtAuthz, client, log) {
+			if len(record) > 0 {
+				principal, _ := r.Context().Value(ctxkeys.Principal).(string)
+				record[0](audit.Event{Event: "authz_deny", Principal: principal, SourceIP: clientIP(r), Outcome: "deny", Detail: r.URL.Path})
+			}
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -127,19 +135,17 @@ const maxAuthzResponseBytes = 1 << 20
 func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // authzClient builds an *http.Client suited to the configured endpoint.
-// Unix socket endpoints get a custom dialer; HTTP(S) endpoints use the default.
+// Unix socket endpoints get a custom dialer; both use the outbound TLS policy.
 // Neither follows redirects.
 func authzClient(cfg config.ExtAuthzConfig) *http.Client {
 	if strings.HasPrefix(cfg.Endpoint, "unix://") {
 		socketPath := strings.TrimPrefix(cfg.Endpoint, "unix://")
-		return &http.Client{
-			CheckRedirect: noRedirects,
-			Transport: &http.Transport{
-				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-					return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
-				},
-			},
+		t := tlspolicy.NewHTTPTransport()
+		t.Proxy = nil
+		t.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 		}
+		return &http.Client{CheckRedirect: noRedirects, Transport: t}
 	}
-	return &http.Client{CheckRedirect: noRedirects}
+	return &http.Client{CheckRedirect: noRedirects, Transport: tlspolicy.NewHTTPTransport()}
 }

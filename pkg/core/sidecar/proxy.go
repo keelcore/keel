@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/tlspolicy"
 )
 
 var (
@@ -29,7 +30,7 @@ var (
 
 // Seam for injecting library values in tests. The production value is the bare
 // library value, so runtime behaviour is unchanged.
-var httpDefaultTransport http.RoundTripper = http.DefaultTransport
+var httpDefaultTransport http.RoundTripper = tlspolicy.NewHTTPTransport()
 
 // limitBody streams an upstream body while capping it at remaining bytes. It
 // never buffers: each Read passes through at most the bytes still allowed, and
@@ -156,20 +157,18 @@ func NewWithHooks(cfg config.Config, hooks Hooks, sign ...func(*http.Request) er
 	return rp, nil
 }
 
-// buildTransport constructs an *http.Transport for upstream connections. Both
-// branches start from a clone of http.DefaultTransport (dial, TLS handshake and
-// idle timeouts). When cfg.Enabled is true, a TLS 1.3-minimum client config is
-// added with optional CA pool, client cert (mTLS), and insecure-skip-verify.
+// buildTransport constructs an *http.Transport for upstream connections, on the outbound
+// TLS policy (pkg/core/tlspolicy). When cfg.Enabled is true, the policy gets the optional
+// CA pool, client cert (mTLS) and insecure-skip-verify.
 func buildTransport(cfg config.UpstreamTLSConfig) (*http.Transport, error) {
-	t := &http.Transport{}
+	t := tlspolicy.NewHTTPTransport()
 	if dt, ok := httpDefaultTransport.(*http.Transport); ok {
 		t = dt.Clone()
 	}
+	tlsCfg := tlspolicy.ClientConfig()
+	t.TLSClientConfig = tlsCfg
 	if !cfg.Enabled {
 		return t, nil
-	}
-	tlsCfg := &tls.Config{
-		MinVersion: tls.VersionTLS13, // TLS 1.3 minimum enforced
 	}
 
 	if cfg.InsecureSkipVerify {
@@ -196,7 +195,6 @@ func buildTransport(cfg config.UpstreamTLSConfig) (*http.Transport, error) {
 		tlsCfg.Certificates = []tls.Certificate{cert}
 	}
 
-	t.TLSClientConfig = tlsCfg
 	return t, nil
 }
 

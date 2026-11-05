@@ -20,17 +20,34 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   (`tls_handshake_rejected`) and counted (`keel_tls_handshake_rejections_total{code}`) with a stable `KEEL-PROTO`
   code; plain HTTP on the HTTPS port, and requests below `security.min_http_version`, get a 301 to the notice page
   `/.well-known/keel/upgrade` with an RFC 9457 problem body.
+- Docs: `docs/architecture.md`, `docs/threat-model.md`, `docs/dependencies.md`, and branch protection as code
+  (`.github/rulesets/`, `make rulesets-check`, `make rulesets-apply`).
 - `security.min_http_version` (`1.1` default, `2`, `3`), `security.alt_svc_max_age`, `tls.notice.base_url`,
   `tls.notice.help_url`, `tls.notice.contact`, `tls.client_cert_notice`.
+- `logging.file` with `logging.rotation.{max_size_mb,max_age_days,max_backups,compress}`: a file sink rotated by size, age
+  and backup count; `SIGUSR2` rotates at once.
+- Audit log: `audit.*` records security events as a SHA-256 hash chain (file, syslog or HTTP); `keel audit verify FILE`
+  checks it across rotated files. Compiled out of `keel-min` by `no_audit`.
+- OIDC browser login: `authn.oidc.*`, authorization-code flow with PKCE, sealed session cookies, refresh and logout; the
+  identity reaches the upstream in `X-Auth-Request-User` and `X-Auth-Request-Email`. Compiled out of `keel-min` by
+  `no_oidc`.
 - HTTPS responses advertise HTTP/3 (`Alt-Svc`) when `listeners.h3` is enabled.
 - net/http server errors are logged as `http_server_error` (debug) instead of written to stderr.
 
 ### Changed
 
+- Every outbound connection (sidecar upstream, JWKS, external authorization, ACME CA, OTLP exporter, remote log sink)
+  uses one TLS policy, the listeners': TLS 1.3 only, with the same key exchange groups. An endpoint limited to TLS 1.2
+  now fails to connect.
 - External authorization input: `headers` maps each header name to an array with one element per field line (was
   one comma-joined string). Policies read a single-valued header as `input.headers["name"][0]`.
 - Without a trusted hop (`sidecar.xff_trusted_hops: 0`), Keel generates its own `traceparent` and `x-request-id`
   instead of continuing the client's; the upstream receives Keel's values.
+
+### Fixed
+
+- SIGHUP and `POST /admin/reload` on the `keel` binary re-read the `KEEL_CONFIG` and `KEEL_SECRETS` files. They previously
+  reloaded from defaults and environment only, dropping the file's settings.
 
 ### Security
 

@@ -162,6 +162,80 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
+  name: dex
+spec:
+  selector:
+    matchLabels: { app: dex }
+  template:
+    metadata:
+      labels: { app: dex }
+    spec:
+      containers:
+        - name: dex
+          image: ghcr.io/dexidp/dex:v2.46.1@sha256:65b72ca0f4b0bf6d4ada84ec21da8851782563404ac7b8f926923d27ceced9ab
+          args: ["dex", "serve", "/etc/keel/dex.yaml"]
+          ports:
+            - { containerPort: 5556, hostPort: 5556, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /dex/healthz, port: 5556, scheme: HTTPS }
+            periodSeconds: 1
+          volumeMounts:
+            - { name: fixtures, mountPath: /etc/keel, readOnly: true }
+      volumes:
+        - name: fixtures
+          secret:
+            secretName: keel-fixtures
+            items:
+              - { key: dex.yaml, path: dex.yaml }
+              - { key: server.crt, path: certs/server.crt }
+              - { key: server.key, path: certs/server.key }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dex
+spec:
+  selector: { app: dex }
+  ports:
+    - { name: https, port: 5556 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keel-oidc
+spec:
+  selector:
+    matchLabels: { app: keel-oidc }
+  template:
+    metadata:
+      labels: { app: keel-oidc }
+    spec:
+      containers:
+        - name: keel-oidc
+          image: docker.io/library/keel:test-max
+          imagePullPolicy: Never
+          env:
+            - { name: KEEL_CONFIG, value: /etc/keel/keel-oidc.yaml }
+          ports:
+            - { containerPort: 8280, hostPort: 8280, protocol: TCP }
+            - { containerPort: 9292, hostPort: 9292, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /readyz, port: 9292 }
+            periodSeconds: 1
+          volumeMounts:
+            - { name: fixtures, mountPath: /etc/keel, readOnly: true }
+      volumes:
+        - name: fixtures
+          secret:
+            secretName: keel-fixtures
+            items:
+              - { key: keel-oidc.yaml, path: keel-oidc.yaml }
+              - { key: oidc-cookie.key, path: certs/oidc-cookie.key }
+              - { key: ca.crt, path: certs/ca.crt }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
   name: jaeger
 spec:
   selector:

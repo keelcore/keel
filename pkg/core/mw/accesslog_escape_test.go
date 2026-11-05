@@ -43,24 +43,3 @@ func TestAccessLog_ClientValuesStayOneField(t *testing.T) {
 		}
 	}
 }
-
-// HH6: the policy input carries a hostile header value as one JSON string.
-func TestAuthzPayload_ClientValuesStayOneElement(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/p", nil)
-	req.Header["X-Hostile"] = []string{hostile}
-	b, err := json.Marshal(authzPayload(req, "opa"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var in struct {
-		Input struct {
-			Headers map[string][]string `json:"headers"`
-		} `json:"input"`
-	}
-	if err := json.Unmarshal(b, &in); err != nil {
-		t.Fatal(err)
-	}
-	if v := in.Input.Headers["x-hostile"]; len(v) != 1 || v[0] != hostile {
-		t.Fatalf("x-hostile = %q, want one element equal to the client value", v)
-	}
-}

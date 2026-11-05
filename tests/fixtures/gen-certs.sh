@@ -43,6 +43,7 @@ function generate_all() {
   generate_server_cert "${cert_dir}"
   generate_client_cert "${cert_dir}"
   generate_signing_key "${cert_dir}"
+  generate_oidc_cookie_key "${cert_dir}"
   cleanup_temp "${cert_dir}"
   log '✅ Certificates generated successfully'
   list_certs "${cert_dir}"
@@ -75,6 +76,7 @@ function write_server_ext() {
   printf '%s\n' '[alt_names]'                                       >> "${path}"
   printf '%s\n' 'DNS.1 = localhost'                                 >> "${path}"
   printf '%s\n' 'DNS.2 = keel'                                      >> "${path}"
+  printf '%s\n' 'DNS.3 = dex'                                       >> "${path}"
   printf '%s\n' 'IP.1  = 127.0.0.1'                                >> "${path}"
 }
 
@@ -102,6 +104,12 @@ function generate_client_cert() {
     -in "${dir}/client.csr" -CA "${dir}/ca.crt" -CAkey "${dir}/ca.key" \
     -CAcreateserial -out "${dir}/client.crt" 2>/dev/null
   log '✅ Client certificate generated'
+}
+
+# generate_oidc_cookie_key: the key keel-oidc seals its session cookies with.
+function generate_oidc_cookie_key() {
+  local -r dir="${1}"
+  openssl rand -hex 32 > "${dir}/oidc-cookie.key"
 }
 
 # generate_signing_key: ECDSA P-256 key keel-sidecar signs outbound requests with

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/keelcore/keel/pkg/core/tlspolicy"
 )
 
 const (
@@ -30,11 +31,12 @@ const (
 )
 
 // jwksClient is used for all JWKs endpoint fetches.
-var jwksClient = &http.Client{Timeout: 10 * time.Second}
+var jwksClient = tlspolicy.NewHTTPClient(10 * time.Second)
 
 // jwksCache holds fetched JWKs sets, keyed by URL, with TTL-based expiry.
 // Fetches for one URL are serialized (one in flight; waiters reuse its result).
 type jwksCache struct {
+	client   *http.Client // nil: jwksClient
 	mu       sync.Mutex
 	entries  map[string]*jwksCacheEntry
 	fetching map[string]*sync.Mutex
@@ -128,7 +130,7 @@ func (c *jwksCache) get(url string) (*jwksCacheEntry, error) {
 		return e, err
 	}
 
-	keys, err := fetchJWKS(url)
+	keys, err := c.fetch(url)
 	now := time.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -165,10 +167,22 @@ func (c *jwksCache) lookup(url string) (*jwksCacheEntry, error, bool) {
 // forge any token — except from loopback. Only a 200 is accepted, and at most
 // maxJWKSBytes are read.
 func fetchJWKS(rawURL string) ([]parsedJWK, error) {
+	return fetchJWKSWith(jwksClient, rawURL)
+}
+
+// fetch uses the cache's own client when it has one (OIDC with a private CA).
+func (c *jwksCache) fetch(rawURL string) ([]parsedJWK, error) {
+	if c.client != nil {
+		return fetchJWKSWith(c.client, rawURL)
+	}
+	return fetchJWKS(rawURL)
+}
+
+func fetchJWKSWith(client *http.Client, rawURL string) ([]parsedJWK, error) {
 	if err := requireSecureJWKSURL(rawURL); err != nil {
 		return nil, err
 	}
-	resp, err := jwksClient.Get(rawURL) // URL is from trusted operator config
+	resp, err := client.Get(rawURL) // URL is from trusted operator config
 	if err != nil {
 		return nil, err
 	}

@@ -63,8 +63,17 @@ var fieldConstraints = map[string]map[string]interface{}{
 	// ExtAuthz
 	"ext_authz.transport": {"enum": []string{"http", "opa"}},
 	// Logging
-	"logging.level":                {"enum": []string{"debug", "info", "warn", "error"}},
-	"logging.remote_sink.protocol": {"enum": []string{"http", "syslog"}},
+	"logging.level":                 {"enum": []string{"debug", "info", "warn", "error"}},
+	"logging.remote_sink.protocol":  {"enum": []string{"http", "syslog"}},
+	"logging.rotation.max_size_mb":  {"minimum": 0},
+	"logging.rotation.max_age_days": {"minimum": 0},
+	"logging.rotation.max_backups":  {"minimum": 0},
+	"audit.rotation.max_size_mb":    {"minimum": 0},
+	"audit.rotation.max_age_days":   {"minimum": 0},
+	"audit.rotation.max_backups":    {"minimum": 0},
+	"audit.remote_sink.protocol":    {"enum": []string{"http", "syslog"}},
+	"authn.oidc.issuer":             {"format": "uri"},
+	"authn.oidc.redirect_url":       {"format": "uri"},
 	// TLS/ACME
 	"tls.acme.email":      {"format": "email"},
 	"tls.acme.ca_url":     {"format": "uri"},

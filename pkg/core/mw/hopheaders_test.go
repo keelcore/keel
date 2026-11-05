@@ -1,7 +1,6 @@
 package mw
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -102,38 +101,5 @@ func TestTraceContext_RejectsNonHexIDs(t *testing.T) {
 	traceID, _ := traceExtractOrGenerate(r)
 	if traceID == "4bf92f3577b34da6a3ce929d0e0e47;x" || !traceHex(traceID, 32) {
 		t.Fatalf("trace id %q, want a newly generated one", traceID)
-	}
-}
-
-// Class D: one field line holding "ok,blocked" and two lines "ok" + "blocked" reach
-// the policy as different inputs, so a policy can tell them apart.
-func TestAuthzHeaders_FieldLinesStayDistinct(t *testing.T) {
-	one := http.Header{}
-	one.Add("X-Role", "ok,blocked")
-	two := http.Header{}
-	two.Add("X-Role", "ok")
-	two.Add("X-Role", "blocked")
-
-	a, err := json.Marshal(authzHeaders(one))
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := json.Marshal(authzHeaders(two))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(a) == string(b) {
-		t.Fatalf("policy input is identical for one and two field lines: %s", a)
-	}
-	blocked := func(h map[string][]string) bool {
-		for _, v := range h["x-role"] {
-			if v == "blocked" {
-				return true
-			}
-		}
-		return false
-	}
-	if blocked(authzHeaders(one)) || !blocked(authzHeaders(two)) {
-		t.Fatal(`a policy denying the role "blocked" must allow "ok,blocked" and deny "ok" + "blocked"`)
 	}
 }

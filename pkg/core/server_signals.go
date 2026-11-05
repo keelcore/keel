@@ -12,7 +12,7 @@ import (
 )
 
 // runSignalLoop handles SIGHUP (reload), SIGUSR1 (dump config), and SIGUSR2
-// (log rotation placeholder) until ctx is cancelled.
+// (rotate the log file sink) until ctx is cancelled.
 func (s *Server) runSignalLoop(ctx context.Context) {
 	ch := make(chan os.Signal, 4)
 	signal.Notify(ch, syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2)
@@ -32,7 +32,8 @@ func (s *Server) runSignalLoop(ctx context.Context) {
 			case syscall.SIGUSR1:
 				s.dumpConfig()
 			case syscall.SIGUSR2:
-				s.logger.Info("sigusr2_received", map[string]any{"note": "log rotation not yet configured"})
+				s.logger.Info("sigusr2_received", nil)
+				s.rotateLogs()
 			}
 		case <-ctx.Done():
 			return

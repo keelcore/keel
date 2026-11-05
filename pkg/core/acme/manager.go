@@ -26,6 +26,7 @@ import (
 	xacme "golang.org/x/crypto/acme"
 
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/tlspolicy"
 )
 
 // Manager holds per-challenge tokens, the current TLS certificate obtained via
@@ -161,6 +162,7 @@ func resolveDirectoryURL(caURL string) string {
 func buildACMEClient(accountKey *ecdsa.PrivateKey, cfg config.ACMEConfig) (acmeClient, error) {
 	client := &xacme.Client{Key: accountKey, DirectoryURL: resolveDirectoryURL(cfg.CAUrl)}
 	if cfg.CACertFile == "" {
+		client.HTTPClient = tlspolicy.NewHTTPClient(0)
 		return client, nil
 	}
 	hc, err := httpClientWithCA(cfg.CACertFile)
@@ -607,11 +609,9 @@ func httpClientWithCA(path string) (*http.Client, error) {
 	if !pool.AppendCertsFromPEM(pem) {
 		return nil, fmt.Errorf("no valid PEM certificate in %s", path)
 	}
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{RootCAs: pool},
-		},
-	}, nil
+	c := tlspolicy.NewHTTPClient(0)
+	c.Transport.(*http.Transport).TLSClientConfig.RootCAs = pool
+	return c, nil
 }
 
 // matchDomain returns the configured domain equal to host (case-insensitive,

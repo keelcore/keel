@@ -4,6 +4,8 @@ This document covers runtime operational behavior: graceful shutdown lifecycle, 
 handling, Kubernetes pre-stop hook patterns, sidecar health probing and circuit breaker state machine, hot
 config reload, and ACME certificate lifecycle.
 
+Data flows: [architecture.md](architecture.md).
+
 ---
 
 ## 1. Why Graceful Shutdown Matters
@@ -74,7 +76,7 @@ value and why it exists.
 | `SIGHUP` | Reload config and secrets files from disk. See Section 5 (Hot Reload). |
 | `SIGQUIT` | Dump full goroutine stack trace to stderr (useful for diagnosing goroutine leaks or hung requests), then begin graceful shutdown |
 | `SIGUSR1` | Log the current active configuration to stderr. Useful for verifying which config values are in effect without restarting. |
-| `SIGUSR2` | Rotate the access log file handle. If the access log is being written to a file (not stdout), send this signal after moving the file to cause Keel to open a new file handle. Compatible with logrotate. |
+| `SIGUSR2` | Rotate the log file sink (`logging.file`) at once: the file becomes `<file>.<UTC time>` (gzipped when `logging.rotation.compress` is on) and a new file opens. Logged as `log_rotated`. With no file sink, it logs `log_rotation_no_file_sink` and changes nothing. |
 
 **Sending signals:**
 
@@ -601,3 +603,18 @@ section documents what is implemented, one intentional deviation, and known limi
 - **`ca_url` HTTPS enforcement** (RFC §6.1 MUST): Keel does not validate that `ca_url` starts with
   `https://`. In practice, all production CAs use HTTPS. Using an `http://` CA URL outside of loopback (test)
   environments violates RFC 8555 and exposes account keys to interception.
+
+---
+
+## Runbooks
+
+Step-by-step responses to common incidents:
+
+- [Certificate expiry](runbooks/cert-expiry.md)
+- [FIPS monitor trip](runbooks/fips-monitor-trip.md)
+- [OPA or external authorization unavailable](runbooks/opa-unavailable.md)
+- [Authentication reject storm](runbooks/authn-reject-storm.md)
+- [Prestop or shutdown timeout](runbooks/prestop-timeout.md)
+- [Remote log sink down](runbooks/remote-log-sink-down.md)
+- [HTTP/3 falling back to HTTP/2](runbooks/h3-quic-fallback.md)
+- [Log rotation](runbooks/log-rotation.md)

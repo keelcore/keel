@@ -127,6 +127,8 @@ Build tags are **negative** ("remove X"), so defaults stay on:
 | `no_owasp` | OWASP hardening middleware layer |
 | `no_authn` | Authn middleware layer |
 | `no_authz` | External authorization middleware layer |
+| `no_audit` | Audit log (`audit.*`; included in `min`) |
+| `no_oidc` | OIDC browser login (`authn.oidc.*`; included in `min`) |
 | `no_sidecar` | Sidecar reverse-proxy envelope mode |
 | `no_h2` | HTTP/2 support |
 | `no_h3` | HTTP/3 support |

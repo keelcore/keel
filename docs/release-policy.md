@@ -9,6 +9,9 @@ policy is [`ci.md`](../.standards/governance/ci.md) under **Release Tagging**.
 This document covers only keel's customization, as that policy's **Project
 Customization** section provides.
 
+**Release checklist (keel):** for each MINOR release, or when keel gains an external interface, review
+[threat-model.md](threat-model.md) and update it in the same release.
+
 ---
 
 ## Keel's Bump Hook

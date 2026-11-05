@@ -20,6 +20,8 @@ to go from idea to merged pull request.
 
 ## 1. Before You Start
 
+Adding or updating a dependency? Read the [dependency policy](dependencies.md) first.
+
 - Check [open issues](https://github.com/keelcore/keel/issues) and
   [open PRs](https://github.com/keelcore/keel/pulls) to avoid duplicating effort.
 - For significant changes (new features, architectural changes, breaking API changes),

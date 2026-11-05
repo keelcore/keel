@@ -1,0 +1,31 @@
+# tests/fixtures/keel-oidc.yaml
+# keel with the OIDC login flow in front of dex, for tests/compose/oidc_test.go.
+listeners:
+  http:
+    enabled: true
+    port: 8280
+  https:
+    enabled: false
+  h3:
+    enabled: false
+  health:
+    enabled: true
+    port: 9291
+  ready:
+    enabled: true
+    port: 9292
+  startup:
+    enabled: false
+  admin:
+    enabled: false
+
+authn:
+  enabled: false
+  oidc:
+    enabled: true
+    issuer: https://dex:5556/dex
+    client_id: keel-oidc
+    client_secret: stack-test-only
+    redirect_url: http://localhost:8280/oauth2/callback
+    cookie_key_file: /etc/keel/certs/oidc-cookie.key
+    ca_file: /etc/keel/certs/ca.crt
