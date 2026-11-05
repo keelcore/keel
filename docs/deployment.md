@@ -208,8 +208,8 @@ image:
 
 | Flavor | Build tags | Binary size | Use when |
 | --- | --- | --- | --- |
-| `default` | none | ~5–8 MB | All features; standard production deployment |
-| `min` | `no_otel,no_statsd,no_remotelog,no_h3,no_pprof` (and more; see `scripts/build/ci_min.sh`) | ~7.5–8.3 MB | Minimal footprint where observability comes from the platform |
+| `default` | none | ~5–10 MB | All features; standard production deployment |
+| `min` | `no_otel,no_statsd,no_remotelog,no_h3,no_pprof` (and more; see `scripts/build/ci_min.sh`) | ~8–8.6 MB | Minimal footprint where observability comes from the platform |
 | `fips` | Go Cryptographic Module (FIPS 140-3) build | ~6–10 MB | Compliance environments (FedRAMP, HIPAA, PCI) requiring FIPS 140-2/3 validated cryptography |
 | `custom` | user-defined | varies | When you build your own binary with custom tags and want to use the Keel chart |
 

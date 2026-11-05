@@ -16,7 +16,7 @@
 [![SBOM](https://img.shields.io/badge/SBOM-available-brightgreen)](#security-governance)
 [![SLSA 2](https://slsa.dev/images/gh-badge-level2.svg)](https://github.com/keelcore/keel/attestations)
 [![License](https://img.shields.io/github/license/keelcore/keel)](./LICENSE)
-[![Container](https://img.shields.io/badge/container-5--8MB-success)](#2-stated-objective-10-year-durability)
+[![Container](https://img.shields.io/badge/container-5--10MB-success)](#2-stated-objective-10-year-durability)
 [![Helm](https://img.shields.io/github/actions/workflow/status/keelcore/keel/helm-lint.yml?branch=main&label=helm)](https://github.com/keelcore/keel/actions/workflows/helm-lint.yml)
 [![FIPS](https://img.shields.io/badge/FIPS-compatible-blue)](docs/FIPS.md)
 
@@ -51,7 +51,7 @@ smallest, most secure subset of features *fully app-integrated*—built to be **
 
 ## 0. Call to Action
 
-- **Minimal size, maximal performance + functionality**: scratch-style images in the **~5–8 MB** range while
+- **Minimal size, maximal performance + functionality**: scratch-style images in the **~5–10 MB** range while
   still being a good Kubernetes/observability citizen.
 - **Keel-haul legacy services into compliance**: run Keel as a sidecar envelope around legacy HTTP/HTTPS apps to force
   modern security posture without rewriting the app.
@@ -79,7 +79,7 @@ We picked **golang** because it hits the best "ops-to-footprint" ratio for a dep
 
 | Option | Typical minimal prod container size | HTTPS/TLS story | Notes |
 | --- | ------------------------------------: | --- | --- |
-| **golang** | **~5-8 MB** | Built-in `crypto/tls`; easy to make TLS1.3-only | Best "small + capable + boring" combo |
+| **golang** | **~5-10 MB** | Built-in `crypto/tls`; easy to make TLS1.3-only | Best "small + capable + boring" combo |
 | Rust | ~5–15 MB | Strong crates (`rustls`, `hyper/axum`) | Great, but more build complexity |
 | Zig | ~10–30+ MB | You bring TCP/TLS/HTTP(S) plumbing | Not "that small" once you add HTTP(S) |
 | Python | ~40–120+ MB | Runtime-heavy; TLS via OpenSSL | Great DX; not aligned with "tiny core" |
@@ -93,7 +93,7 @@ We picked **golang** because it hits the best "ops-to-footprint" ratio for a dep
 This project optimizes for:
 
 - **Longevity**: stable APIs, conservative dependencies, strong upgrade story.
-- **Small prod footprint**: core image target **~5–8 MB** (scratch-style + CA certs where needed).
+- **Small prod footprint**: core image target **~5–10 MB** (scratch-style + CA certs where needed).
 - **Security posture by default**: TLS 1.3-only, safe defaults, documented hardening, proactive vulnerability handling.
 - **Operational excellence**: predictable behavior in Kubernetes, systemd, Windows services, and "boring" infra.
 
@@ -127,8 +127,8 @@ Build tags are **negative** ("remove X"), so defaults stay on:
 | `no_owasp` | OWASP hardening middleware layer |
 | `no_authn` | Authn middleware layer |
 | `no_authz` | External authorization middleware layer |
-| `no_audit` | Audit log (`audit.*`; included in `min`) |
-| `no_oidc` | OIDC browser login (`authn.oidc.*`; included in `min`) |
+| `no_audit` | Audit log (`audit.*`) |
+| `no_oidc` | OIDC browser login (`authn.oidc.*`; `no_authn` also removes it, so `min` builds without it) |
 | `no_sidecar` | Sidecar reverse-proxy envelope mode |
 | `no_h2` | HTTP/2 support |
 | `no_h3` | HTTP/3 support |

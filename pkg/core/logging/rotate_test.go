@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestRotatingFile_CreatesOwnerOnlyAndAppends(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows has no POSIX modes
 		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
 	}
 	again, err := NewRotatingFile(path, RotationPolicy{MaxSizeMB: 1})

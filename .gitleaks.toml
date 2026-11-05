@@ -32,3 +32,9 @@ id          = "hop-header-client-jwt-fixture"
 description = "Fake unsigned client JWT (sub=client, signature 'signature') in hop_test.go, used to show a client token reaches the upstream byte-identical; the jwt rule matches its shape, but it is a test fixture, not a credential"
 paths       = ['''pkg/core/sidecar/hop_test\.go''']
 regexes     = ['''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJjbGllbnQifQ\.c2lnbmF0dXJl''']
+
+[[allowlists]]
+id          = "audit-events-hmac-fixture"
+description = "Literal HMAC key auditTestSecret in audit_events_test.go, signing tokens for an in-process test; generic-api-key matches its name and entropy, but it is a test fixture, not a secret"
+paths       = ['''pkg/core/mw/audit_events_test\.go''']
+regexes     = ['''0123456789abcdef0123456789abcdef''']

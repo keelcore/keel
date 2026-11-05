@@ -238,3 +238,53 @@ func TestRotatingFile_CloseTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A rename that fails reopens the path, so logging carries on in a file that exists.
+func TestRotatingFile_RenameFailureReopens(t *testing.T) {
+	r, path := newRotating(t, RotationPolicy{})
+	write(t, r, "first\n")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Rotate(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Rotate = %v", err)
+	}
+	write(t, r, "second\n")
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "second\n" {
+		t.Fatalf("file = %q", got)
+	}
+}
+
+// When the rename fails and the path cannot be reopened, later writes are dropped.
+func TestRotatingFile_RenameAndReopenFailureStopsWriting(t *testing.T) {
+	r, path := newRotating(t, RotationPolicy{})
+	write(t, r, "first\n")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	failOpens(t, "keel.log", func(string) (*os.File, error) { return nil, errors.New("open boom") })
+	if err := r.Rotate(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Rotate = %v", err)
+	}
+	if !r.closed {
+		t.Fatal("want the file marked closed")
+	}
+}
+
+// Rotation closes the file before renaming it: Windows refuses to rename an open file.
+func TestRotatingFile_ClosesBeforeRenaming(t *testing.T) {
+	r, path := newRotating(t, RotationPolicy{})
+	write(t, r, "first\n")
+	old := r.f
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Rotate() // the rename fails; the file must already be closed
+	if _, err := old.Write([]byte("x")); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("old file: err = %v, want it closed", err)
+	}
+}

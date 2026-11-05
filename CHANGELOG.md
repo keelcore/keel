@@ -27,15 +27,16 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 - `logging.file` with `logging.rotation.{max_size_mb,max_age_days,max_backups,compress}`: a file sink rotated by size, age
   and backup count; `SIGUSR2` rotates at once.
 - Audit log: `audit.*` records security events as a SHA-256 hash chain (file, syslog or HTTP); `keel audit verify FILE`
-  checks it across rotated files. Compiled out of `keel-min` by `no_audit`.
+  checks it across rotated files. Opt out with `no_audit`.
 - OIDC browser login: `authn.oidc.*`, authorization-code flow with PKCE, sealed session cookies, refresh and logout; the
-  identity reaches the upstream in `X-Auth-Request-User` and `X-Auth-Request-Email`. Compiled out of `keel-min` by
-  `no_oidc`.
+  identity reaches the upstream in `X-Auth-Request-User` and `X-Auth-Request-Email`. Opt out with `no_oidc` or
+  `no_authn` (the `min` flavor builds with `no_authn`).
 - HTTPS responses advertise HTTP/3 (`Alt-Svc`) when `listeners.h3` is enabled.
 - net/http server errors are logged as `http_server_error` (debug) instead of written to stderr.
 
 ### Changed
 
+- The `keel-min` size gate moves from 8 MB to 10 MB (10,485,760 bytes, linux/amd64).
 - Every outbound connection (sidecar upstream, JWKS, external authorization, ACME CA, OTLP exporter, remote log sink)
   uses one TLS policy, the listeners': TLS 1.3 only, with the same key exchange groups. An endpoint limited to TLS 1.2
   now fails to connect.

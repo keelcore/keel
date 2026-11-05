@@ -121,15 +121,11 @@ func TestRotateLogs_FailureWarns(t *testing.T) {
 	s, _ := fileSinkServer(t, path)
 	s.applyRemoteSink(s.cfg)
 	s.logger.Info("line", nil)
-	kept := filepath.Join(t.TempDir(), "kept.log") // the sink keeps writing to this inode once unlinked
-	if err := os.Link(path, kept); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	s.rotateLogs()
-	if !logged(t, kept, "log_rotation_failed") {
+	if !logged(t, path, "log_rotation_failed") {
 		t.Fatal("want the failure logged")
 	}
 }

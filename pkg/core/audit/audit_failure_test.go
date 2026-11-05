@@ -42,12 +42,8 @@ func TestFiles_Failures(t *testing.T) {
 	if _, err := Files(filepath.Join(dir, "audit[.log")); err == nil {
 		t.Fatal("bad pattern: want an error")
 	}
-	file := filepath.Join(dir, "file")
-	if err := os.WriteFile(file, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Files(filepath.Join(file, "audit.log")); err == nil {
-		t.Fatal("a path under a file: want an error")
+	if _, err := Files(filepath.Join(dir, "audit\x00.log")); err == nil {
+		t.Fatal("an invalid path: want an error")
 	}
 }
 

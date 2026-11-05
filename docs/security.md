@@ -818,7 +818,7 @@ certificate is still verified during the handshake, and an invalid one still fai
 
 ## 9. Audit Log
 
-**Build-time opt-out:** `no_audit` (the `min` flavor)
+**Build-time opt-out:** `no_audit`
 
 The audit stream records security events separately from the access log. Each entry is one JSON line carrying a sequence
 number, the SHA-256 hash of the previous entry (`prev_hash`) and its own `hash`, so editing, removing or reordering an
@@ -854,7 +854,7 @@ entries off the host with `audit.remote_sink` when that matters.
 
 ## 10. OIDC Login
 
-**Build-time opt-out:** `no_oidc` (the `min` flavor)
+**Build-time opt-out:** `no_oidc` or `no_authn` (the `min` flavor builds with `no_authn`)
 
 `authn.oidc` adds browser login in front of the upstream, using the OpenID Connect authorization-code flow with PKCE.
 

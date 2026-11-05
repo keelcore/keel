@@ -12,7 +12,7 @@ cost. A new dependency needs all of the following, stated in the pull request:
 - **Security history:** its CVE record, how quickly those were fixed, and a clean `make lint-vuln`.
 - **License:** on the allow list that `make lint-licenses` enforces: `Apache-2.0`, `BSD-2-Clause`, `BSD-3-Clause`,
   `MIT`, `ISC`.
-- **Binary size:** the impact measured with `make size-report`. `keel-min` stays under its 8 MB gate.
+- **Binary size:** the impact measured with `make size-report`. `keel-min` stays under its 10 MB gate.
 - **Build tags:** a feature dependency sits behind its opt-out tag (for example `no_h3`), so the minimal build excludes
   it.
 - **FIPS:** cryptography comes from the Go Cryptographic Module (the standard library). A dependency that brings its

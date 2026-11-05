@@ -62,7 +62,7 @@ out how to get Prometheus metrics and OpenTelemetry spans out of the legacy app.
 where a single pod has three different sidecars eating up compute.
 
 **Keel's Advantage:** Keel consolidates the sprawl. It handles TLS, identity validation, authorization, and
-observability in a single binary. The min flavor ships under 8 MB; the full-featured build is approximately
+observability in a single binary. The min flavor ships under 10 MB; the full-featured build is approximately
 10 MB — either is a fraction of what three separate sidecars would cost.
 
 ---

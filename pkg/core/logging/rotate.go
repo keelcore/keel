@@ -93,11 +93,15 @@ func (r *RotatingFile) Rotate() error {
 
 func (r *RotatingFile) rotateLocked() error {
 	backup := r.path + "." + time.Now().UTC().Format(backupTime)
-	if err := os.Rename(r.path, backup); err != nil {
-		return err
-	}
+	// Close first: Windows refuses to rename an open file.
 	if err := r.f.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "log file close failed: %v\n", err)
+	}
+	if err := os.Rename(r.path, backup); err != nil {
+		if oerr := r.open(); oerr != nil {
+			r.closed = true
+		}
+		return err
 	}
 	if err := r.open(); err != nil {
 		// Put the file back, reopened, so logging carries on where it was.
@@ -159,6 +163,7 @@ func compressFile(path string) (err error) {
 	if err = os.Rename(tmp, path+".gz"); err != nil {
 		return err
 	}
+	_ = in.Close() // Windows refuses to remove an open file
 	return os.Remove(path)
 }
 
