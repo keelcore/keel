@@ -84,7 +84,7 @@ function download_and_verify() {
 
 function download_tarball() {
   local -r tmp="${1}"
-  curl -fsSL "${GRYPE_URL}" -o "${tmp}/${GRYPE_TARBALL}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${GRYPE_URL}" -o "${tmp}/${GRYPE_TARBALL}"
 }
 
 function verify_checksum() {

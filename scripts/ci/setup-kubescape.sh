@@ -73,7 +73,7 @@ function as_root() {
 function install_linux() {
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL "${KUBESCAPE_URL}" -o "${tmp}/${KUBESCAPE_ASSET}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${KUBESCAPE_URL}" -o "${tmp}/${KUBESCAPE_ASSET}"
   printf '%s  %s/%s\n' "${KUBESCAPE_SHA256}" "${tmp}" "${KUBESCAPE_ASSET}" | sha256sum --check --quiet
   stage_binary "${tmp}"
   as_root install -m 0755 "${tmp}/kubescape.staged" "${KUBESCAPE_INSTALL_PATH}"

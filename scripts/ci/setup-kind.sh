@@ -65,7 +65,7 @@ function is_pinned_version_installed() {
 function download_and_verify() {
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL "${KIND_URL}" -o "${tmp}/kind-linux-amd64"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${KIND_URL}" -o "${tmp}/kind-linux-amd64"
   printf '%s  %s/kind-linux-amd64\n' "${KIND_SHA256}" "${tmp}" \
     | sha256sum --check --quiet
   mv "${tmp}/kind-linux-amd64" /tmp/kind-staged

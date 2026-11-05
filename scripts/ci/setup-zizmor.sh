@@ -73,7 +73,7 @@ function as_root() {
 function install_linux() {
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL "${ZIZMOR_URL}" -o "${tmp}/${ZIZMOR_ASSET}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${ZIZMOR_URL}" -o "${tmp}/${ZIZMOR_ASSET}"
   printf '%s  %s/%s\n' "${ZIZMOR_SHA256}" "${tmp}" "${ZIZMOR_ASSET}" | sha256sum --check --quiet
   stage_binary "${tmp}"
   as_root install -m 0755 "${tmp}/zizmor.staged" "${ZIZMOR_INSTALL_PATH}"

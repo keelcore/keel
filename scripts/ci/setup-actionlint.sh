@@ -74,7 +74,7 @@ function require_linux() {
 function download_and_verify() {
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL "${ACTIONLINT_URL}" -o "${tmp}/${ACTIONLINT_TARBALL}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${ACTIONLINT_URL}" -o "${tmp}/${ACTIONLINT_TARBALL}"
   printf '%s  %s/%s\n' "${ACTIONLINT_SHA256}" "${tmp}" "${ACTIONLINT_TARBALL}" | sha256sum --check --quiet
   tar -xz -C "${tmp}" -f "${tmp}/${ACTIONLINT_TARBALL}" actionlint
   mv "${tmp}/actionlint" /tmp/actionlint-staged

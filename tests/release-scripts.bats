@@ -529,3 +529,16 @@ job_permissions() {
   [ -n "${chmod_line}" ]
   [ "${chmod_line}" -lt "${docker_line}" ]
 }
+
+# --- tool downloads ----------------------------------------------------------------------------
+
+@test "keel's own setup scripts: every curl download retries, on any error" {
+  local script line missing=''
+  for script in "${REPO_ROOT}"/scripts/ci/setup-*.sh; do
+    [ ! -f "${REPO_ROOT}/.standards/scripts/ci/$(basename "${script}")" ] || continue # canonical: .standards owns it
+    while IFS= read -r line; do
+      [[ "${line}" == *'--retry-all-errors'* ]] || missing+="$(basename "${script}"): ${line}"$'\n'
+    done < <(grep -E '^[[:space:]]*curl ' "${script}" || true)
+  done
+  [ -z "${missing}" ] || { printf '%s' "${missing}"; return 1; }
+}

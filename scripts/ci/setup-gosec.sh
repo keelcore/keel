@@ -75,7 +75,7 @@ function require_linux() {
 function download_and_verify() {
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL "${GOSEC_URL}" -o "${tmp}/${GOSEC_TARBALL}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${GOSEC_URL}" -o "${tmp}/${GOSEC_TARBALL}"
   printf '%s  %s/%s\n' "${GOSEC_SHA256}" "${tmp}" "${GOSEC_TARBALL}" | sha256sum --check --quiet
   tar -xz -C "${tmp}" -f "${tmp}/${GOSEC_TARBALL}" gosec
   mv "${tmp}/gosec" /tmp/gosec-staged
