@@ -78,7 +78,8 @@ function runtime() {
 }
 
 # dev_image DIR NAME: the reference for DIR's NAME image — the pinned image.ref when it
-# matches the current build context, else a local build of that context.
+# matches the current build context, else the published image of that context (the
+# dev-image workflow publishes each context once), else a local build of it.
 function dev_image() {
   local -r dir="${1}" name="${2}"
   local -r cf="$(dev_containerfile "${name}")"
@@ -89,6 +90,11 @@ function dev_image() {
   fi
   hash="$(dev_context_hash "${dir}" "${name}" "${base}")"
   if ref="$(dev_pinned_ref "${dir}" "${name}" "${hash}")"; then
+    printf '%s' "${ref}"
+    return 0
+  fi
+  if ref="$(dev_published_ref "$(dev_repository "${dir}" "${name}")" "${hash}")"; then
+    log "ℹ️  ${dir}/$(dev_ref_file "${name}") pins another build context; using the published ${ref%@*}"
     printf '%s' "${ref}"
     return 0
   fi

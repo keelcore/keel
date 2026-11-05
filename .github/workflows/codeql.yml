@@ -23,30 +23,54 @@ env:
 jobs:
 
   # ---------------------------------------------------------------------------
-  # CodeQL — SAST for Go. Results upload to the repository's code scanning
-  # alerts. gosec (ci.yml) is the complementary fast gate.
+  # The CodeQL languages this repository holds (scripts/ci/codeql-languages.sh).
+  # ---------------------------------------------------------------------------
+  languages:
+    name: CodeQL languages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      languages: ${{ steps.detect.outputs.languages }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Detect languages
+        id: detect
+        run: make codeql-languages
+
+  # ---------------------------------------------------------------------------
+  # CodeQL — SAST. Results upload to the repository's code scanning alerts.
   # ---------------------------------------------------------------------------
   analyze:
-    name: CodeQL (Go)
+    name: CodeQL (${{ matrix.language }})
+    needs: languages
+    if: ${{ needs.languages.outputs.languages != '[]' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(needs.languages.outputs.languages) }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5.6.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6.5.0
+        if: ${{ matrix.language == 'go' }}
         with:
           go-version-file: go.mod
           cache: true
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4.39.1
         with:
-          languages: go
-          build-mode: autobuild
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.language == 'go' && 'autobuild' || 'none' }}
           queries: security-extended
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4.39.1
         with:
-          category: /language:go
+          category: /language:${{ matrix.language }}

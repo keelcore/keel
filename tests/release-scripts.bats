@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # tests/release-scripts.bats
-# The release scripts run their slow work concurrently (scripts/lib/parallel.sh). Each script runs
+# keel's release scripts run their slow work concurrently (run_parallel is tested in .standards). Each script runs
 # here against stubs of docker, git, gh and the dev image, in a throwaway tree. A concurrency test
 # uses a barrier: every job waits until all of them have started, which only concurrent jobs reach.
 
@@ -117,97 +117,6 @@ RUN
 
 calls() { grep -E "${1}" "${STATE}/calls"; }
 call_count() { grep -cE "${1}" "${STATE}/calls" || true; }
-
-# --- run_parallel ------------------------------------------------------------------------------
-
-# A file sourcing the library, with one job function per test.
-parallel_script() {
-  cat > "${WORK}/job.sh" <<SCRIPT
-#!/usr/bin/env bash
-set -o nounset
-set -o errexit
-set -o pipefail
-exec 5>&1
-source scripts/lib/parallel.sh
-${1}
-SCRIPT
-}
-
-@test "run_parallel: jobs run concurrently" {
-  parallel_script '
-source bin/stub-lib
-job() { barrier "${1}" 3; }
-run_parallel job a b c
-'
-  run bash job.sh
-  [ "${status}" -eq 0 ]
-}
-
-@test "run_parallel: each job gets its item, then the shared arguments" {
-  parallel_script '
-job() { printf "%s:%s:%s\n" "${1}" "${2}" "${3}"; }
-run_parallel job a b -- x y
-'
-  run bash job.sh
-  [ "${status}" -eq 0 ]
-  [ "${lines[0]}" = 'a:x:y' ]
-  [ "${lines[1]}" = 'b:x:y' ]
-}
-
-@test "run_parallel: a failed job fails the call, after the others finish" {
-  parallel_script '
-job() {
-  if [ "${1}" = bad ]; then exit 3; fi
-  sleep 1
-  printf "finished %s\n" "${1}"
-}
-run_parallel job bad good
-printf "not reached\n"
-'
-  run bash job.sh
-  [ "${status}" -ne 0 ]
-  [[ "${output}" == *'finished good'* ]]
-  [[ "${output}" != *'not reached'* ]]
-}
-
-@test "run_parallel: a failing command stops its own job (errexit holds inside a job)" {
-  parallel_script '
-job() { false; printf "kept going\n"; }
-run_parallel job a
-'
-  run bash job.sh
-  [ "${status}" -ne 0 ]
-  [[ "${output}" != *'kept going'* ]]
-}
-
-@test "run_parallel: output stays grouped by job, in the order given" {
-  parallel_script '
-job() {
-  if [ "${1}" = a ]; then sleep 1; fi
-  printf "%s one\n" "${1}"
-  printf "%s two\n" "${1}" >&5
-  printf "%s three\n" "${1}" >&2
-}
-run_parallel job a b
-'
-  run bash job.sh
-  [ "${status}" -eq 0 ]
-  [ "${lines[0]}" = 'a one' ]
-  [ "${lines[1]}" = 'a two' ]
-  [ "${lines[2]}" = 'a three' ]
-  [ "${lines[3]}" = 'b one' ]
-}
-
-@test "run_parallel: calls nest" {
-  parallel_script '
-source bin/stub-lib
-inner() { barrier "${1}" 4; }
-outer() { run_parallel inner "${1}1" "${1}2"; }
-run_parallel outer a b
-'
-  run bash job.sh
-  [ "${status}" -eq 0 ]
-}
 
 # --- docker.sh ---------------------------------------------------------------------------------
 
@@ -456,58 +365,6 @@ VEX
   [ "${status}" -ne 0 ]
 }
 
-# --- sign.sh -----------------------------------------------------------------------------------
-
-stub_cosign() {
-  cat > "${WORK}/bin/cosign" <<'COSIGN'
-#!/usr/bin/env bash
-source "${WORK}/bin/stub-lib"
-record "cosign $*"
-maybe_fail "cosign $*"
-[ -z "${SIGN_BARRIER:-}" ] || [[ "${*: -1}" == *SHA256SUMS ]] || barrier "${*: -1}" "${SIGN_BARRIER}"
-bundle=''
-while [ "${#}" -gt 0 ]; do
-  if [ "${1}" = '--bundle' ]; then bundle="${2}"; fi
-  shift
-done
-: > "${bundle}"
-COSIGN
-  chmod +x "${WORK}/bin/cosign"
-  rm -f dist/*.bundle dist/SHA256SUMS
-}
-
-@test "sign.sh: artifacts sign concurrently" {
-  stub_cosign
-  export SIGN_BARRIER=6
-  run bash scripts/release/sign.sh --sums-dir dist dist/keel-*
-  [ "${status}" -eq 0 ]
-}
-
-@test "sign.sh: SHA256SUMS covers every artifact and is signed last" {
-  stub_cosign
-  run bash scripts/release/sign.sh --sums-dir dist dist/keel-*
-  [ "${status}" -eq 0 ]
-  [ "$(wc -l < dist/SHA256SUMS)" -eq 6 ]
-  [ -f dist/SHA256SUMS.bundle ]
-  [ -f dist/keel-min-linux-arm64.bundle ]
-  tail -1 "${STATE}/calls" | grep -q 'dist/SHA256SUMS$'
-}
-
-@test "sign.sh: a failed signature fails the step, and SHA256SUMS is not signed" {
-  stub_cosign
-  export FAIL_ON='cosign .*dist/keel-fips-linux-amd64$'
-  run bash scripts/release/sign.sh --sums-dir dist dist/keel-*
-  [ "${status}" -ne 0 ]
-  [ ! -f dist/SHA256SUMS.bundle ]
-}
-
-@test "sign.sh: a missing artifact fails before anything is signed" {
-  stub_cosign
-  run bash scripts/release/sign.sh --sums-dir dist dist/keel-min-linux-amd64 dist/nope
-  [ "${status}" -ne 0 ]
-  [ "$(call_count '^cosign ')" -eq 0 ]
-}
-
 # --- upload.sh ---------------------------------------------------------------------------------
 
 stub_release_gh() {
@@ -645,6 +502,24 @@ job_permissions() {
   [ "$(job_permissions image-provenance | paste -sd, -)" = 'attestations: write,contents: read,id-token: write,packages: write' ]
   [ "$(job_permissions verify | paste -sd, -)" = 'attestations: read,contents: read,packages: read' ]
   [ "$(job_permissions publish)" = 'contents: write' ]
+}
+
+@test "release.yml: image provenance logs in to the registry before pushing the attestation" {
+  local login attest
+  login="$(job_block image-provenance | grep -n 'make release-ghcr-login' | cut -d: -f1)"
+  attest="$(job_block image-provenance | grep -n 'attest-build-provenance' | cut -d: -f1)"
+  [ -n "${login}" ]
+  [ "${login}" -lt "${attest}" ]
+  job_block image-provenance | grep -q 'GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}'
+}
+
+@test "ghcr-login.sh: logs in with the job's token and fails without one" {
+  run env -u GITHUB_TOKEN bash scripts/release/ghcr-login.sh
+  [ "${status}" -ne 0 ]
+  export GITHUB_TOKEN=token GITHUB_ACTOR=actor
+  run bash scripts/release/ghcr-login.sh
+  [ "${status}" -eq 0 ]
+  calls '^docker login ghcr\.io --username actor --password-stdin$'
 }
 
 @test "release.yml: artifacts that lose their mode are made executable before the images use them" {

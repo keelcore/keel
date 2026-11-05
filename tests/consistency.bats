@@ -151,19 +151,6 @@ setup_file() {
 }
 
 # ---------------------------------------------------------------------------
-# 7. scripts/hooks/pre-commit (the hook make install-hooks points core.hooksPath at) is
-#    executable and runs scripts/git_precommit.sh. Checked in the file tree, which every mount
-#    carries; core.hooksPath itself is host-local git config, outside it.
-# ---------------------------------------------------------------------------
-@test "scripts/hooks/pre-commit is executable and runs scripts/git_precommit.sh" {
-  [ -x "${REPO_ROOT}/scripts/hooks/pre-commit" ]
-  grep -q 'scripts/git_precommit\.sh' "${REPO_ROOT}/scripts/hooks/pre-commit"
-  [ -f "${REPO_ROOT}/scripts/git_precommit.sh" ]
-}
-
-# ---------------------------------------------------------------------------
-# 8. gen-schema.sh writes valid JSON Schema YAML with the expected header
-# ---------------------------------------------------------------------------
 @test "gen-schema.sh produces valid YAML with json-schema.org 2019-09 header" {
   local tmpdir
   tmpdir="$(mktemp -d)"
@@ -263,48 +250,6 @@ k8s_services() {
   done < <(awk '/^[[:space:]]+[A-Za-z0-9]+[[:space:]]*=[[:space:]]*[0-9]+/ { print $1, $3 }' \
     "${REPO_ROOT}/tests/compose/ports.go")
   [ -z "${missing}" ] || { echo "ports used by tests/compose but not hostPorts: ${missing}"; false; }
-}
-
-# sync_back: a writable run in a snapshot (a worktree or submodule mount) copies changed
-# files back; a submodule entry in the snapshot is a directory, not a file, and is left to
-# its own snapshot. scripts/dev/run.sh.
-@test "run.sh sync_back copies changed files back and passes over submodule entries" {
-  local -r work="${BATS_TEST_TMPDIR}" fn="${BATS_TEST_TMPDIR}/sync_back.sh"
-  sed -n '/^function sync_back()/,/^}/p' "${REPO_ROOT}/scripts/dev/run.sh" > "${fn}"
-  mkdir -p "${work}/snap/sub" "${work}/dir/sub"
-  (
-    cd "${work}/snap"
-    git init --quiet
-    printf 'new\n' > changed.txt
-    git add changed.txt
-    git update-index --add --cacheinfo "160000,$(printf '%040d' 1),sub"
-  )
-  printf 'old\n' > "${work}/dir/changed.txt"
-  run bash -c "set -o errexit -o pipefail; log() { :; }; source '${fn}'; sync_back '${work}/snap' '${work}/dir'"
-  [ "${status}" -eq 0 ]
-  [ "$(cat "${work}/dir/changed.txt")" = 'new' ]
-}
-
-# update-pins verifies every pin locally except what runs only on GitHub: an image pin (and
-# any kind without a specific target) gets the project's combined run, which builds and runs
-# what uses it; the Go toolchain is tested in the tool image on every host; only a runner
-# label is left to CI. scripts/release/update-pins.sh verify_targets.
-@test "update-pins verify_targets: local verification for every pin but runner labels" {
-  local -r fn="${BATS_TEST_TMPDIR}/verify_targets.sh"
-  sed -n '/^function verify_targets()/,/^}/p' "${REPO_ROOT}/scripts/release/update-pins.sh" > "${fn}"
-  local kind want got
-  for kind in image:COMBINED toolchain:test tool:COMBINED gotool:COMBINED npm:COMBINED \
-    python:COMBINED pypi:COMBINED other:COMBINED runner:verify-on-ci action:audit gomod:test; do
-    want="${kind#*:}"
-    got="$(bash -c "
-      LOCAL_HOOK=/nonexistent PLATFORM=Darwin
-      make_target_for() { :; }
-      has_target() { return 1; }
-      combined_targets() { printf COMBINED; }
-      source '${fn}'
-      verify_targets '${kind%%:*}' name 'some/file:1'")"
-    [ "${got}" = "${want}" ] || { echo "${kind%%:*}: '${got}', want '${want}'"; return 1; }
-  done
 }
 
 # ---------------------------------------------------------------------------

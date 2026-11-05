@@ -65,10 +65,14 @@ function sign_artifacts() {
 function sign_artifact() {
   local -r artifact="${1}"
   log "Signing ${artifact}..."
-  cosign sign-blob \
+  # Its own HOME: cosign refreshes its TUF cache in ~/.sigstore, and concurrent writers collide.
+  local home
+  home="$(mktemp -d)"
+  HOME="${home}" cosign sign-blob \
     --yes \
     --bundle "${artifact}.bundle" \
     "${artifact}"
+  rm -rf "${home}"
   log "✅ Signed: ${artifact}.bundle"
 }
 

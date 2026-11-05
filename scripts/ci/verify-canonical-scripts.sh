@@ -21,6 +21,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/canonical-files.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/canonical-files.sh"
+
 readonly LOG_FILE='/tmp/verify_canonical.log'
 
 # Rule A (bytewise identity): EVERY shell script shipped under the standards
@@ -33,9 +36,11 @@ readonly LOG_FILE='/tmp/verify_canonical.log'
 # scripts/hooks/ (core.hooksPath) are canonical too.
 function canonical_scripts() {
   local -r standards_root="${1}"
-  find "${standards_root}/scripts" -type f \( -path "${standards_root}/scripts/hooks/*" -o -name '*.sh' ! -name '*.local.sh' \) \
-    | sed "s|^${standards_root}/||" \
-    | sort
+  {
+    find "${standards_root}/scripts" -type f \( -path "${standards_root}/scripts/hooks/*" -o -name '*.sh' ! -name '*.local.sh' \) \
+      | sed "s|^${standards_root}/||"
+    canonical_workflows
+  } | sort
 }
 
 # excluded_scripts prints the canonical scripts a consumer opts out of, read from

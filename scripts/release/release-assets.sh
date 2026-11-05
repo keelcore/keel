@@ -162,11 +162,13 @@ function fetch_npm() {
   url="$(jq -r '.dist.tarball' <<< "${meta}")"
   integrity="$(jq -r '.dist.integrity' <<< "${meta}")"
   file="${dir}/$(basename "${url}")"
-  curl -fsSL "${url}" -o "${file}"
+  retry_fetch "${url}" > "${file}" \
+    || { log "❌ npm ${name}@${tag#v} tarball not found"; exit 1; }
   [ "sha512-$(openssl dgst -sha512 -binary "${file}" | base64 | tr -d '\n')" = "${integrity}" ] \
     || { log "❌ ${file}: integrity mismatch with the npm registry"; exit 1; }
-  # npm's provenance and publish attestations for this version.
-  curl -fsSL "$(jq -r '.dist.attestations.url' <<< "${meta}")" -o "${file}.npm-attestations.json"
+  # npm's provenance and publish attestations for this version; they appear after the version does.
+  retry_fetch "$(jq -r '.dist.attestations.url' <<< "${meta}")" > "${file}.npm-attestations.json" \
+    || { log "❌ npm ${name}@${tag#v} attestations not found"; exit 1; }
   log "✅ npm ${name}@${tag#v}"
   printf '%s\n' "${file}"
 }

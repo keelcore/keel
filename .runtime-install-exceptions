@@ -2,4 +2,3 @@
 # from the pinned tool image. One job per line: <workflow>:<job>  <reason>.
 .github/workflows/ci.yml:integrity-macos  native macOS BATS run; macOS runners have no container runtime
 .github/workflows/ci.yml:k8s  helm drives the kind cluster on the runner
-.github/workflows/codeql.yml:analyze  CodeQL autobuild compiles keel with Go on the runner

@@ -1,6 +1,6 @@
 # containers/dev/Containerfile
 # keel dev image: the keelcore-standards dev image (Go, Node, shellcheck, bats,
-# markdownlint, staticcheck, gitleaks, syft, cosign) plus keel's own build, lint,
+# markdownlint, staticcheck, gitleaks, syft, cosign, govulncheck) plus keel's own build, lint,
 # test and release tools, each installed once at build time by its pinned
 # scripts/ci/setup-<tool>.sh. Every keel make target that builds or runs a tool
 # runs in this image (scripts/dev/run.sh) on every host, with the repository
@@ -17,8 +17,6 @@ WORKDIR /opt/keel
 # no download timeout) into a failed step; a step that fails moves to the end of this list.
 COPY scripts/ci/setup-gotestsum.sh /opt/keel/scripts/ci/
 RUN timeout 300 bash scripts/ci/setup-gotestsum.sh
-COPY scripts/ci/setup-govulncheck.sh /opt/keel/scripts/ci/
-RUN timeout 300 bash scripts/ci/setup-govulncheck.sh && go clean -modcache -cache
 COPY scripts/ci/setup-actionlint.sh /opt/keel/scripts/ci/
 RUN timeout 300 bash scripts/ci/setup-actionlint.sh
 COPY scripts/ci/setup-pebble.sh /opt/keel/scripts/ci/

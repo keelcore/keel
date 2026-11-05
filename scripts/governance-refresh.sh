@@ -50,6 +50,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=lib/canonical-files.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/canonical-files.sh"
+
 declare REPO_ROOT
 REPO_ROOT="${GOVREFRESH_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
 declare -r REPO_ROOT
@@ -274,10 +277,11 @@ function maybe_stage_submodule() {
 # git hooks under scripts/hooks/ (core.hooksPath) are synced. Scripts the
 # consumer lists in .canonical-exclude are never synced either.
 function canonical_scripts() {
-  find "${STANDARDS_ROOT}/scripts" -type f \( -path "${STANDARDS_ROOT}/scripts/hooks/*" -o -name '*.sh' ! -name '*.local.sh' \) \
-    | sed "s|^${STANDARDS_ROOT}/||" \
-    | sort \
-    | grep -vxF -f <(excluded_scripts "${REPO_ROOT}")
+  {
+    find "${STANDARDS_ROOT}/scripts" -type f \( -path "${STANDARDS_ROOT}/scripts/hooks/*" -o -name '*.sh' ! -name '*.local.sh' \) \
+      | sed "s|^${STANDARDS_ROOT}/||"
+    canonical_workflows
+  } | sort | grep -vxF -f <(excluded_scripts "${REPO_ROOT}")
 }
 
 # excluded_scripts prints the canonical scripts a consumer opts out of, read from
@@ -559,7 +563,9 @@ function apply_script_changes() {
     dst_dir="${REPO_ROOT}/$(dirname "${rel}")"
     mkdir -p "${dst_dir}"
     cp "${STANDARDS_ROOT}/${rel}" "${REPO_ROOT}/${rel}"
-    chmod +x "${REPO_ROOT}/${rel}"
+    case "${rel}" in
+      *.sh) chmod +x "${REPO_ROOT}/${rel}" ;;
+    esac
   done <<< "${changes}"
 }
 

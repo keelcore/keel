@@ -224,7 +224,9 @@ function check_clean_tree() {
   fi
 }
 
-# check_pins DRY_RUN: discover every pin; stale pins block the release unless
+# check_pins DRY_RUN: read what was checked and committed (docs/current_pins.md), with no network
+# query, so nothing upstream changing between that check and this tag can block a commit that was
+# current; the next update-pins run reports it. Stale pins block the release unless
 # --allow-stale-pins gave a reason (a dry run only warns). A tool-image pin (devimage) never
 # blocks: run.sh builds an unpinned build context locally.
 function check_pins() {
@@ -232,9 +234,9 @@ function check_pins() {
   local -r driver="$(dirname "${BASH_SOURCE[0]}")/update-pins.sh"
   local report
   log '📌 Checking pins...'
-  if ! report="$(bash "${driver}" --discover-only --tsv "${PINS_TSV}" 5>&1)"; then
+  if ! report="$(bash "${driver}" --from-pins-doc docs/current_pins.md --tsv "${PINS_TSV}" 5>&1)"; then
     log "${report}"
-    log '❌ Pin discovery failed; the release cannot show its pins are current.'
+    log '❌ docs/current_pins.md cannot show the pins are current.'
     [ "${dry_run}" = '1' ] && return 0
     exit 1
   fi

@@ -352,7 +352,8 @@ function _eval_recipe_shape() {
 # `make setup-<tool>` step. A job that genuinely runs on the host (a native
 # macOS/Windows runner, a step that drives docker or a cluster on the runner) is
 # listed in <root>/.runtime-install-exceptions as `<workflow file>:<job id>`,
-# followed by its reason (blank lines and # comments ignored).
+# followed by its reason (blank lines and # comments ignored). The canonical CodeQL job compiles
+# with Go on the runner in every repository, so it is listed here.
 # ---------------------------------------------------------------------------
 function check_runtime_installs() {
   [ -d "${WORKFLOWS_DIR}" ] || return 0
@@ -360,6 +361,7 @@ function check_runtime_installs() {
   local failed=0 wf job line
   while IFS=$'\t' read -r wf job line; do
     [ -n "${wf}" ] || continue
+    [ "${wf}:${job}" != '.github/workflows/codeql.yml:analyze' ] || continue
     if [ -f "${exceptions}" ] && sed -e 's/#.*//' "${exceptions}" | awk '{ print $1 }' | grep -qxF "${wf}:${job}"; then
       continue
     fi

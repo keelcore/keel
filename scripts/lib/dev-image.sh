@@ -122,3 +122,21 @@ function dev_pinned_ref() {
     *) return 1 ;;
   esac
 }
+
+# dev_published_ref REPOSITORY HASH: REPOSITORY:ctx-HASH@<digest> when the registry holds the
+# multi-arch image for build context HASH (the dev-image workflow publishes it); fails when it
+# does not, or the registry cannot be reached. Anonymous pull token, as for any public image.
+function dev_published_ref() {
+  local -r repository="${1}" hash="${2}"
+  local -r host="${repository%%/*}" path="${repository#*/}"
+  local token digest
+  token="$(curl -fsS --max-time 5 "https://${host}/token?scope=repository:${path}:pull" 2> /dev/null \
+    | sed -nE 's/.*"token":"([^"]+)".*/\1/p')" || return 1
+  [ -n "${token}" ] || return 1
+  digest="$(curl -fsSI --max-time 5 -H "Authorization: Bearer ${token}" \
+    -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+    "https://${host}/v2/${path}/manifests/ctx-${hash}" 2> /dev/null \
+    | tr -d '\r' | sed -nE 's/^[Dd]ocker-[Cc]ontent-[Dd]igest: (sha256:[0-9a-f]{64})$/\1/p')" || return 1
+  [ -n "${digest}" ] || return 1
+  printf '%s:ctx-%s@%s' "${repository}" "${hash}" "${digest}"
+}

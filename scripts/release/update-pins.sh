@@ -20,6 +20,10 @@
 #   --check-pins-doc FILE
 #                    local only (no network): the Pinned column of FILE matches every pin
 #                    discovered in the tree; exit 1 listing each difference (the pre-commit check)
+#   --from-pins-doc FILE
+#                    local only (no network): report the pins and statuses FILE records, after the
+#                    --check-pins-doc check (the create-release gate); no FILE is fine for a tree
+#                    with no pins
 # Exit status: 1 when a pin or the combined run failed, else 0.
 #
 # Pin kinds:
@@ -73,7 +77,7 @@
 # uname -s), UPDATE_PINS_LOGDIR (per-pin verification logs; default: next to the
 # throwaway worktree), GITHUB_TOKEN (else `gh auth token`).
 #
-# Usage: update-pins.sh [--apply | --discover-only] [--tsv FILE] [--report FILE]
+# Usage: update-pins.sh [--apply | --discover-only | --from-pins-doc FILE] [--tsv FILE] [--report FILE]
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -120,6 +124,11 @@ function main() {
     check_pins_doc "${CHECK_DOC}"
     return
   fi
+  if [ "${MODE}" = 'from-doc' ]; then
+    load_hook
+    report_from_pins_doc "${CHECK_DOC}"
+    return
+  fi
   cache_github_token
   if [ -n "${REPORT_OUT}" ]; then
     mkdir -p "$(dirname "${REPORT_OUT}")"
@@ -141,6 +150,31 @@ function main() {
     log '📝 docs/current_pins.md rewritten'
   fi
   return "${rc}"
+}
+
+# report_from_pins_doc FILE: the discovery summary and --tsv file, from what FILE records.
+function report_from_pins_doc() {
+  local -r doc="${1}"
+  local rows=''
+  if [ -f "${doc}" ] || [ -n "$(discover)" ]; then
+    check_pins_doc "${doc}"
+    rows="$(pins_doc_rows "${doc}")"
+  fi
+  local statuses total summary
+  statuses="$(cut -f6 <<< "${rows}")"
+  total="$(grep -c . <<< "${rows}" || true)"
+  summary="$(count_summary "${statuses}" current stale cooldown major unpinned unresolved hold)"
+  log "update-pins (discovery) — ${total} pins${summary:+: ${summary}}"
+  [ -z "${TSV_OUT}" ] || write_tsv "${rows}" > "${TSV_OUT}"
+}
+
+# pins_doc_rows FILE: the table write_pins_md wrote, as resolved rows (kind, name, location,
+# pinned, source, status, candidate).
+function pins_doc_rows() {
+  awk -F' \\| ' -v OFS='\t' '/^\| [a-z]+ \| `/ {
+    for (i = 1; i <= NF; i++) gsub(/`|^\| | \|$/, "", $i)
+    print $1, $2, $6, $3, "-", $4, $5
+  }' "${1}"
 }
 
 # check_pins_doc FILE: every pin discovered in the tree (kind, name, pinned value) against the
@@ -200,6 +234,11 @@ function validate_args() {
         [ -n "${2:-}" ] || { log '❌ Error: --check-pins-doc needs a file'; exit 1; }
         CHECK_DOC="${2}"
         MODE='check-doc'
+        shift ;;
+      --from-pins-doc)
+        [ -n "${2:-}" ] || { log '❌ Error: --from-pins-doc needs a file'; exit 1; }
+        CHECK_DOC="${2}"
+        MODE='from-doc'
         shift ;;
       *)
         log "❌ Error: Unexpected argument: ${1}"
@@ -1504,7 +1543,7 @@ function verify_targets() {
     runner)
       printf 'verify-on-ci' ;;
     # An image pin, and any kind without a specific target: the project's combined run builds
-    # and runs what uses it. Keel ahead of .standards (keel-best-practices.md, BP18).
+    # and runs what uses it.
     *)
       combined_targets ;;
   esac

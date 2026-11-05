@@ -36,6 +36,11 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- `.standards` moves to v0.10.13: its tool image now carries govulncheck.
+- `make lint-fmt` and `make lint-md` are removed: use `make format` and `make lint-markdown`.
+- CodeQL and Scorecard, govulncheck (`make lint-vuln`), `run_parallel` and concurrent `sign.sh`, `run.sh` and `update-pins`
+  move to `.standards`; keel carries the canonical copies. CodeQL now finds its languages from the tracked files.
+- `make create-release` decides on the pin status committed in `docs/current_pins.md`, with no network query.
 - The `keel-min` size gate moves from 8 MB to 10 MB (10,485,760 bytes, linux/amd64).
 - The release runs concurrently: binaries, SBOMs, signatures, uploads, images, attestations and verification, with one
   approval gate ahead of all publishing, and each concurrent job's log printed whole.
@@ -49,6 +54,7 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- The release's image provenance jobs log in to GHCR before pushing their attestations.
 - A fixable HIGH or CRITICAL Grype finding, or a failed image build or push, now stops the release: `docker.sh` carried
   on past them, because errexit is off inside a command substitution.
 - SIGHUP and `POST /admin/reload` on the `keel` binary re-read the `KEEL_CONFIG` and `KEEL_SECRETS` files. They previously

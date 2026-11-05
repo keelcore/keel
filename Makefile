@@ -43,10 +43,7 @@ export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGES
 .PHONY: lint-go
 .PHONY: lint-helm
 .PHONY: lint-helm-validate
-.PHONY: lint-fmt
 .PHONY: lint-newlines
-.PHONY: lint-md
-.PHONY: lint-vuln
 .PHONY: lint-gosec
 .PHONY: test-fuzz
 .PHONY: lint-workflows
@@ -64,6 +61,7 @@ export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGES
 .PHONY: release-metadata
 .PHONY: release-docker
 .PHONY: release-helm-push
+.PHONY: release-ghcr-login
 .PHONY: release-cosign
 .PHONY: release-verify
 .PHONY: release-ci
@@ -92,7 +90,6 @@ export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGES
 .PHONY: setup-syft
 .PHONY: setup-gotestsum
 .PHONY: setup-grype
-.PHONY: setup-govulncheck
 .PHONY: setup-gosec
 .PHONY: setup-actionlint
 .PHONY: setup-go-licenses
@@ -148,14 +145,6 @@ max-no-fips:
 	@echo "⚓ Building Ripped (Full Feature/No-FIPS)..."
 	bash scripts/dev/run.sh bash scripts/build/ci_max_no_fips.sh
 
-lint-fmt:
-	@echo "🔍 Running gofmt check..."
-	bash scripts/dev/run.sh bash scripts/lint/fmt.sh
-
-lint-md:
-	@echo "🔍 Running markdown lint..."
-	bash scripts/dev/run.sh bash scripts/lint/md.sh
-
 lint-helm:
 	@echo "🔍 Running Helm lint..."
 	bash scripts/dev/run.sh bash scripts/lint/helm.sh
@@ -163,10 +152,6 @@ lint-helm:
 lint-helm-validate:
 	@echo "🔍 Validating Helm template against Kubernetes schema..."
 	bash scripts/dev/run.sh bash scripts/lint/helm-validate.sh
-
-lint-vuln:
-	@echo "🔍 Running govulncheck..."
-	bash scripts/dev/run.sh bash scripts/lint/vuln.sh
 
 lint-gosec:
 	@echo "🔍 Running gosec..."
@@ -321,10 +306,6 @@ setup-grype:
 	@echo "🔧 Installing grype..."
 	bash scripts/dev/run.sh bash scripts/ci/setup-grype.sh
 
-setup-govulncheck:
-	@echo "🔧 Installing govulncheck..."
-	bash scripts/dev/run.sh bash scripts/ci/setup-govulncheck.sh
-
 setup-gosec:
 	@echo "🔧 Installing gosec..."
 	bash scripts/dev/run.sh bash scripts/ci/setup-gosec.sh
@@ -403,6 +384,11 @@ release-docker:
 release-helm-push:
 	@echo "⎈ Packaging and pushing Helm chart..."
 	bash scripts/dev/run.sh bash scripts/release/helm-push.sh
+
+## release-ghcr-login: the runner's docker login, for an action that pushes to GHCR itself.
+release-ghcr-login:
+	@echo "🔑 Logging in to GHCR..."
+	./scripts/release/ghcr-login.sh
 
 release-cosign:
 	@echo "🔏 cosign (GHCR, dev image) $(ARGS)..."
@@ -557,12 +543,9 @@ help-local:
 	@echo ""
 	@echo "Lint:"
 	@echo "  lint            gofmt check + go vet + staticcheck"
-	@echo "  lint-fmt        gofmt -s check only"
 	@echo "  lint-go         gofmt check + go vet + staticcheck"
-	@echo "  lint-md         markdownlint-cli check on all tracked .md files"
 	@echo "  lint-helm       Helm chart lint (no cluster required)"
 	@echo "  lint-helm-validate  Helm template schema validation via kubeconform (no cluster required)"
-	@echo "  lint-vuln         Dependency vulnerability gate (govulncheck)"
 	@echo "  lint-gosec        Go security linter (gosec)"
 	@echo "  lint-workflows    Workflow security lint (actionlint, zizmor)"
 	@echo "  lint-helm-policy  Chart policy scan (kubescape)"
@@ -597,7 +580,6 @@ help-local:
 	@echo "  setup-syft        Install syft SBOM tool"
 	@echo "  setup-cosign      Install cosign signing tool"
 	@echo "  setup-grype       Install grype image scanner"
-	@echo "  setup-govulncheck Install govulncheck"
 	@echo "  setup-gosec       Install gosec"
 	@echo "  setup-actionlint  Install actionlint"
 	@echo "  setup-go-licenses Install go-licenses"

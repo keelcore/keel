@@ -337,7 +337,11 @@ func TestOIDC_TamperedSessionRestartsLogin(t *testing.T) {
 	x := newOIDC(t, newFakeOP(t), nil)
 	x.login(t)
 	c := x.cookies[oidcSessionCookie]
-	c.Value = "A" + c.Value[1:]
+	first := "A"
+	if c.Value[0] == 'A' { // the ciphertext is random: a fixed replacement sometimes changes nothing
+		first = "B"
+	}
+	c.Value = first + c.Value[1:]
 	if rec := x.do(http.MethodGet, "/app", html); rec.Code != http.StatusFound {
 		t.Fatalf("status %d, want a new login", rec.Code)
 	}

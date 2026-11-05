@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/ci/setup-govulncheck.sh
-# Install a pinned govulncheck into the Go toolchain bin. No-op if that version is present.
+# Install a pinned govulncheck into the Go toolchain bin while the tool image is built. No-op if
+# that version is present.
 #
 # Pinned version: v1.9.0
 
@@ -24,6 +25,7 @@ function main() {
     log "✅ govulncheck ${TOOL_VERSION} already installed"
     return 0
   fi
+  require_image_build
   log "🔧 Installing govulncheck ${TOOL_VERSION}..."
   go install "${TOOL_MODULE}@${TOOL_VERSION}"
   log "✅ govulncheck ${TOOL_VERSION} installed"
@@ -31,7 +33,7 @@ function main() {
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_setup_govulncheck.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/setup_govulncheck.log' >&5
 }
 
 function validate_args() {
@@ -44,6 +46,15 @@ function validate_args() {
 function is_pinned_version_installed() {
   command -v govulncheck >/dev/null 2>&1 && \
     go version -m "$(command -v govulncheck)" 2>/dev/null | grep -qE "^\s+mod\s+\S+\s+${TOOL_VERSION}\b"
+}
+
+# require_image_build: tools are installed only while the tool image is built
+# (containers/*/Containerfile sets KEELCORE_IMAGE_BUILD); anywhere else the tool is already in the
+# image, and a missing or different version is an error, never an install.
+function require_image_build() {
+  [ -n "${KEELCORE_IMAGE_BUILD:-}" ] && return 0
+  log "❌ govulncheck ${TOOL_VERSION} is not in this tool image; tools install only when the image is built"
+  exit 1
 }
 
 main "${@:-}"
