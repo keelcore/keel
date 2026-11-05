@@ -44,6 +44,9 @@ readonly -a VERIFY_IDENTITY=(
   --certificate-identity-regexp '^https://github\.com/keelcore/keel/\.github/workflows/release\.yml@refs/tags/v'
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 )
+# One at a time: concurrent runs of gh attestation verify failed to initialize their verifier on the runner.
+GH_ATTEST_LOCK="$(mktemp)"
+readonly GH_ATTEST_LOCK
 
 # cosign: the dev image's, logged in to GHCR (scripts/release/cosign.sh; the packages may be private).
 function cosign() {
@@ -85,6 +88,11 @@ function validate_args() {
   fi
 }
 
+# gh_attest SUBJECT: its GitHub provenance attestation, under the lock.
+function gh_attest() {
+  flock "${GH_ATTEST_LOCK}" gh attestation verify "${1}" --repo "${REPO}" >/dev/null
+}
+
 function verify_index() {
   local -r flavor="${1}"
   local -r ref="${IMAGE}@${2}"
@@ -93,7 +101,7 @@ function verify_index() {
   expect_digest "${tag_ref}" "${2}"
   cosign verify "${VERIFY_IDENTITY[@]}" "${ref}" >/dev/null
   cosign verify-attestation "${VERIFY_IDENTITY[@]}" --type openvex "${ref}" >/dev/null
-  gh attestation verify "oci://${ref}" --repo "${REPO}" >/dev/null
+  gh_attest "oci://${ref}"
   local digests
   digests="$(arch_digests "${tag_ref}")"
   local -a refs=()
@@ -149,7 +157,7 @@ function verify_blob() {
   local -r blob="${1}"
   log "🔍 blob ${blob}"
   cosign verify-blob "${VERIFY_IDENTITY[@]}" --bundle "${blob}.bundle" "${blob}" >/dev/null
-  [ "${blob}" = "${DIST}/SHA256SUMS" ] || gh attestation verify "${blob}" --repo "${REPO}" >/dev/null
+  [ "${blob}" = "${DIST}/SHA256SUMS" ] || gh_attest "${blob}"
 }
 
 function verify_chart() {

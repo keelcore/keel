@@ -227,6 +227,24 @@ verify_env() {
   [ "$(call_count 'cosign\.sh verify .*charts/keel:1\.2\.3$')" -eq 1 ]
 }
 
+@test "verify-release.sh: gh attestation verify never runs concurrently: its cache is not safe for that" {
+  verify_env
+  cat > "${WORK}/bin/gh" <<'GH'
+#!/usr/bin/env bash
+source "${WORK}/bin/stub-lib"
+record "gh $*"
+if ! mkdir "${STATE}/gh-running" 2> /dev/null; then
+  printf 'overlap\n' >> "${STATE}/gh-overlaps"
+fi
+sleep 0.2
+rmdir "${STATE}/gh-running" 2> /dev/null || true
+GH
+  run bash scripts/release/verify-release.sh
+  [ "${status}" -eq 0 ]
+  [ "$(call_count '^gh attestation verify')" -eq 9 ]
+  [ ! -f "${STATE}/gh-overlaps" ]
+}
+
 @test "verify-release.sh: one failed check fails the whole verification" {
   verify_env
   local check

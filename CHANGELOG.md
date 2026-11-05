@@ -54,6 +54,7 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- The release's self-verification runs `gh attestation verify` one at a time; concurrent runs failed to initialize.
 - keel's setup scripts retry their tool downloads, so a passing server error no longer fails a tool image build.
 - The release's image provenance jobs log in to GHCR before pushing their attestations.
 - A fixable HIGH or CRITICAL Grype finding, or a failed image build or push, now stops the release: `docker.sh` carried
