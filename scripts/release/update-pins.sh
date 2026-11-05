@@ -1490,19 +1490,23 @@ function verify_targets() {
       printf 'test' ;;
     devimage)
       printf 'audit' ;;
-    gotool | npm)
-      if [ -n "${setup}" ]; then printf '%s' "${setup}"; else printf 'verify-on-ci'; fi ;;
     # Tool installs run in the tool image (Linux) on every host.
-    tool)
-      if [ -n "${setup}" ]; then printf '%s' "${setup}"; else printf 'verify-on-ci'; fi ;;
+    gotool | npm | tool)
+      if [ -n "${setup}" ]; then printf '%s' "${setup}"; else combined_targets; fi ;;
+    # The tool image is Linux on every host, so the toolchain is tested locally everywhere.
     toolchain)
-      if [ "${PLATFORM}" = 'Linux' ]; then printf 'test'; else printf 'verify-on-ci'; fi ;;
+      printf 'test' ;;
     node | npmlock)
       printf 'lint' ;;
     python | pypi)
-      if has_target release-pypi; then printf 'release-pypi'; else printf 'verify-on-ci'; fi ;;
-    *)
+      if has_target release-pypi; then printf 'release-pypi'; else combined_targets; fi ;;
+    # Runner images exist only on GitHub-hosted runners: the one kind left to CI.
+    runner)
       printf 'verify-on-ci' ;;
+    # An image pin, and any kind without a specific target: the project's combined run builds
+    # and runs what uses it. Keel ahead of .standards (keel-best-practices.md, BP18).
+    *)
+      combined_targets ;;
   esac
 }
 

@@ -11,3 +11,8 @@ scripts/release/pypi-publish.sh
 # BP17): sync_back passes over submodule entries, so a writable run from a worktree of a repo
 # with submodules no longer fails after its edits are copied back.
 scripts/dev/run.sh
+
+# Ahead of .standards until it adopts the change (.standards/docs/plans/keel-best-practices.md,
+# BP18): update-pins verifies every pin locally (an image pin by the combined run, the Go
+# toolchain in the tool image); only runner labels are left to CI.
+scripts/release/update-pins.sh
