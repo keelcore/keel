@@ -298,3 +298,59 @@ func TestRotatingFile_ClosesBeforeRenaming(t *testing.T) {
 		t.Fatalf("write at rename: err = %v, want the file closed", atRename)
 	}
 }
+
+// A rename the system refuses for a moment (a scanner holding the new backup) is tried again.
+func TestRotatingFile_RenameRetriesWhileBusy(t *testing.T) {
+	r, path := newRotating(t, RotationPolicy{})
+	write(t, r, "first\n")
+	busy := errors.New("busy")
+	calls := 0
+	origRename, origBusy := rotateRename, renameBusy
+	rotateRename = func(from, to string) error {
+		calls++
+		if calls < 3 {
+			return busy
+		}
+		return origRename(from, to)
+	}
+	renameBusy = func(err error) bool { return errors.Is(err, busy) }
+	t.Cleanup(func() { rotateRename, renameBusy = origRename, origBusy })
+	if err := r.Rotate(); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 3 {
+		t.Fatalf("rename calls = %d, want 3", calls)
+	}
+	if got := backups(t, path); len(got) != 1 {
+		t.Fatalf("backups = %v, want 1", got)
+	}
+}
+
+// A rename that stays busy gives up with the error, and another error is not retried.
+func TestRenameRetrying_GivesUp(t *testing.T) {
+	busy := errors.New("busy")
+	calls := 0
+	origRename, origBusy, origDelay := rotateRename, renameBusy, renameRetryDelay
+	rotateRename = func(string, string) error {
+		calls++
+		return busy
+	}
+	renameBusy = func(err error) bool { return errors.Is(err, busy) }
+	renameRetryDelay = 0
+	t.Cleanup(func() { rotateRename, renameBusy, renameRetryDelay = origRename, origBusy, origDelay })
+	if err := renameRetrying("a", "b"); !errors.Is(err, busy) {
+		t.Fatalf("err = %v", err)
+	}
+	if calls != renameRetries {
+		t.Fatalf("calls = %d, want %d", calls, renameRetries)
+	}
+	calls = 0
+	other := errors.New("other")
+	rotateRename = func(string, string) error {
+		calls++
+		return other
+	}
+	if err := renameRetrying("a", "b"); !errors.Is(err, other) || calls != 1 {
+		t.Fatalf("err = %v, calls = %d", err, calls)
+	}
+}

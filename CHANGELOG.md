@@ -58,6 +58,7 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- Log and audit rotation on Windows tries the rename again when a scanner has the file open for a moment.
 - keel's tool image publishes on the `.standards` image of its context, without waiting for a pin (`.standards` v0.10.19).
 - The release's self-verification runs `gh attestation verify` one at a time; concurrent runs failed to initialize.
 - keel's setup scripts retry their tool downloads, so a passing server error no longer fails a tool image build.

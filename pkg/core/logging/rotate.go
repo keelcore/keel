@@ -30,6 +30,26 @@ var rotateOpenFile = os.OpenFile
 // rotateRename is a seam over os.Rename so tests can inject rename failures.
 var rotateRename = os.Rename
 
+// renameBusy reports a rename refused only for the moment. A seam for tests.
+var renameBusy = renameBusyOS
+
+// renameRetries bounds renameRetrying, renameRetryDelay spaces its tries: 2 seconds in all.
+const renameRetries = 20
+
+var renameRetryDelay = 100 * time.Millisecond
+
+// renameRetrying renames, trying again while the system refuses for the moment.
+func renameRetrying(from, to string) error {
+	var err error
+	for i := 0; i < renameRetries; i++ {
+		if err = rotateRename(from, to); err == nil || !renameBusy(err) {
+			return err
+		}
+		time.Sleep(renameRetryDelay)
+	}
+	return err
+}
+
 // RotatingFile is an io.Writer on a log file that rotates by size or on demand. Rotation renames
 // the file to <path>.<UTC time> and opens a new one; compression and pruning of backups run in
 // the background, so a write never waits for them. Safe for concurrent use. Whole lines stay
@@ -100,7 +120,7 @@ func (r *RotatingFile) rotateLocked() error {
 	if err := r.f.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "log file close failed: %v\n", err)
 	}
-	if err := rotateRename(r.path, backup); err != nil {
+	if err := renameRetrying(r.path, backup); err != nil {
 		if oerr := r.open(); oerr != nil {
 			r.closed = true
 		}
