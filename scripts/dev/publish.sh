@@ -103,12 +103,12 @@ function for_each_image() {
   done
 }
 
-# standards_ref: the pinned .standards dev image an image builds on.
+# standards_ref: the .standards dev image an image builds on. Never an unpublished base.
 function standards_ref() {
   local hash
   hash="$(dev_context_hash .standards dev)"
-  dev_pinned_ref .standards dev "${hash}" \
-    || { log "❌ .standards/$(dev_ref_file dev) does not pin its current build context (ctx-${hash})"; exit 1; }
+  dev_resolve_ref .standards dev "${hash}" \
+    || { log "❌ the .standards tool image ctx-${hash} is not published yet"; exit 1; }
 }
 
 function published() {

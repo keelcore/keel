@@ -126,6 +126,14 @@ function dev_pinned_ref() {
 # dev_published_ref REPOSITORY HASH: REPOSITORY:ctx-HASH@<digest> when the registry holds the
 # multi-arch image for build context HASH (the dev-image workflow publishes it); fails when it
 # does not, or the registry cannot be reached. Anonymous pull token, as for any public image.
+# dev_resolve_ref DIR NAME HASH: the image of this build context: the pinned reference when image.ref
+# pins it, else the published one. Fails when neither exists; what happens then is the caller's.
+function dev_resolve_ref() {
+  local -r dir="${1}" name="${2}" hash="${3}"
+  dev_pinned_ref "${dir}" "${name}" "${hash}" \
+    || dev_published_ref "$(dev_repository "${dir}" "${name}")" "${hash}"
+}
+
 function dev_published_ref() {
   local -r repository="${1}" hash="${2}"
   local -r host="${repository%%/*}" path="${repository#*/}"

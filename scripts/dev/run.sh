@@ -89,12 +89,9 @@ function dev_image() {
     base="$(dev_image "${dir}/.standards" dev)" || return 1
   fi
   hash="$(dev_context_hash "${dir}" "${name}" "${base}")"
-  if ref="$(dev_pinned_ref "${dir}" "${name}" "${hash}")"; then
-    printf '%s' "${ref}"
-    return 0
-  fi
-  if ref="$(dev_published_ref "$(dev_repository "${dir}" "${name}")" "${hash}")"; then
-    log "ℹ️  ${dir}/$(dev_ref_file "${name}") pins another build context; using the published ${ref%@*}"
+  if ref="$(dev_resolve_ref "${dir}" "${name}" "${hash}")"; then
+    dev_pinned_ref "${dir}" "${name}" "${hash}" > /dev/null \
+      || log "ℹ️  ${dir}/$(dev_ref_file "${name}") pins another build context; using the published ${ref%@*}"
     printf '%s' "${ref}"
     return 0
   fi
