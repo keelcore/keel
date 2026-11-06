@@ -1,0 +1,4 @@
+--set
+mode=sidecar
+--set
+sidecar.app.image=placeholder

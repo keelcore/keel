@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
 # scripts/release/vex.sh
-# Generates the release's OpenVEX document from govulncheck's reachability
-# analysis: every vulnerability govulncheck finds in a required module but
-# cannot reach from keel's code is stated not_affected /
-# vulnerable_code_not_present. Generated per release from the code being
-# shipped, never committed. docker.sh attests it to every image index.
-#
-# Usage: scripts/release/vex.sh [--out-dir DIR]   (default: dist)
-# Requires: govulncheck on PATH (make setup-govulncheck)
+# OpenVEX from govulncheck reachability, as dist/<project>.openvex.json.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -19,6 +12,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
+
 declare OUT_DIR='dist'
 
 function main() {
@@ -29,14 +25,15 @@ function main() {
   fi
   validate_args "${@:-}"
   mkdir -p "${OUT_DIR}"
-  log "Generating OpenVEX → ${OUT_DIR}/keel.openvex.json"
-  govulncheck -format openvex ./... > "${OUT_DIR}/keel.openvex.json"
-  log "✅ OpenVEX: $(jq '.statements | length' "${OUT_DIR}/keel.openvex.json") statement(s)"
+  local -r document="${OUT_DIR}/$(project_name).openvex.json"
+  log "Generating OpenVEX → ${document}"
+  govulncheck -format openvex ./... > "${document}"
+  log "✅ OpenVEX: $(jq '.statements | length' "${document}") statement(s)"
 }
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_release_vex.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/release_vex.log' >&5
 }
 
 function validate_args() {

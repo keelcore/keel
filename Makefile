@@ -34,36 +34,16 @@ export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGES
 .PHONY: build
 .PHONY: integration-test
 .PHONY: unit-test
-.PHONY: test-unit
 .PHONY: test-consistency
 .PHONY: test-integrity
 .PHONY: test-compose
 .PHONY: test-k8s
 .PHONY: coverage
 .PHONY: lint-go
-.PHONY: lint-helm
-.PHONY: lint-helm-validate
 .PHONY: lint-newlines
-.PHONY: lint-gosec
-.PHONY: test-fuzz
-.PHONY: lint-workflows
-.PHONY: lint-helm-policy
-.PHONY: lint-licenses
-.PHONY: release-vex
-.PHONY: lint-vex
-.PHONY: release-checksums
-.PHONY: release-checksums-verify
 .PHONY: release-sbom
 .PHONY: release-sign
-.PHONY: release-upload
-.PHONY: release-rename
 .PHONY: release-binaries
-.PHONY: release-metadata
-.PHONY: release-docker
-.PHONY: release-helm-push
-.PHONY: release-ghcr-login
-.PHONY: release-cosign
-.PHONY: release-verify
 .PHONY: release-ci
 .PHONY: container-setup
 .PHONY: container-deploy
@@ -83,39 +63,28 @@ export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGES
 .PHONY: help-local
 .PHONY: pre-commit
 .PHONY: keel-schema-regen
-.PHONY: setup-helm
 .PHONY: setup-bats
 .PHONY: setup-pebble
 .PHONY: setup-kind
 .PHONY: setup-syft
-.PHONY: setup-gotestsum
-.PHONY: setup-grype
-.PHONY: setup-gosec
-.PHONY: setup-actionlint
-.PHONY: setup-go-licenses
-.PHONY: setup-zizmor
-.PHONY: setup-kubescape
 .PHONY: setup-markdownlint
-.PHONY: setup-kubeconform
 .PHONY: setup-ghcr
 .PHONY: ci-pr-policy
 .PHONY: ci-secret-scan
 .PHONY: ci-dco
 .PHONY: ci-coverage-delta
 .PHONY: ci-smoke-windows
-.PHONY: native-build
-.PHONY: native-run
-.PHONY: native-integrity
 .PHONY: bats-integrity
 .PHONY: bats-example
 .PHONY: ci-build-example
-.PHONY: dist-chmod
 .PHONY: clean-local
 .PHONY: setup-bats-local
 .PHONY: create-release-local
 .PHONY: update-pins-local
+.PHONY: release-images-local
+.PHONY: native-build-local
+.PHONY: native-integrity-local
 .PHONY: dev-image-publish-local
-.PHONY: coverage-profile
 .PHONY: coverage-report
 .PHONY: audit
 .PHONY: check-legal-drift
@@ -144,47 +113,6 @@ max:
 max-no-fips:
 	@echo "⚓ Building Ripped (Full Feature/No-FIPS)..."
 	bash scripts/dev/run.sh bash scripts/build/ci_max_no_fips.sh
-
-lint-helm:
-	@echo "🔍 Running Helm lint..."
-	bash scripts/dev/run.sh bash scripts/lint/helm.sh
-
-lint-helm-validate:
-	@echo "🔍 Validating Helm template against Kubernetes schema..."
-	bash scripts/dev/run.sh bash scripts/lint/helm-validate.sh
-
-lint-gosec:
-	@echo "🔍 Running gosec..."
-	bash scripts/dev/run.sh bash scripts/lint/gosec.sh
-
-test-fuzz:
-	@echo "🧪 Running fuzz targets..."
-	bash scripts/dev/run.sh bash scripts/test/fuzz.sh
-
-lint-workflows:
-	@echo "🔍 Linting workflows (actionlint, zizmor)..."
-	bash scripts/dev/run.sh bash scripts/lint/workflows.sh
-
-lint-helm-policy:
-	@echo "🔍 Scanning chart policy (kubescape)..."
-	bash scripts/dev/run.sh bash scripts/lint/helm-policy.sh
-
-lint-licenses:
-	@echo "🔍 Checking dependency licenses..."
-	bash scripts/dev/run.sh bash scripts/lint/licenses.sh
-
-## Release Targets
-release-checksums:
-	@echo "🔐 Generating SHA256SUMS..."
-	bash scripts/dev/run.sh bash scripts/release/checksums.sh
-
-release-upload:
-	@echo "🚀 Uploading release artifacts..."
-	RELEASE_TAG=$(TAG) ./scripts/release/upload.sh $(ARGS)
-
-test-unit:
-	@echo "🧪 Running unit tests..."
-	bash scripts/dev/run.sh bash scripts/test/ci.sh
 
 test-consistency:
 	@echo "🧪 Running consistency suite..."
@@ -285,11 +213,6 @@ unit-test: test-unit
 
 integration-test: test-integrity test-consistency
 
-## Setup Targets
-setup-helm:
-	@echo "🔧 Installing Helm..."
-	./scripts/ci/setup-helm.sh
-
 setup-pebble:
 	@echo "🔧 Installing pebble..."
 	bash scripts/dev/run.sh bash scripts/ci/setup-pebble.sh
@@ -298,52 +221,10 @@ setup-kind:
 	@echo "🔧 Installing kind and creating cluster..."
 	./scripts/ci/setup-kind.sh
 
-setup-gotestsum:
-	@echo "🔧 Installing gotestsum..."
-	bash scripts/dev/run.sh bash scripts/ci/setup-gotestsum.sh
-
-setup-grype:
-	@echo "🔧 Installing grype..."
-	bash scripts/dev/run.sh bash scripts/ci/setup-grype.sh
-
-setup-gosec:
-	@echo "🔧 Installing gosec..."
-	bash scripts/dev/run.sh bash scripts/ci/setup-gosec.sh
-
-setup-actionlint:
-	@echo "🔧 Installing actionlint..."
-	bash scripts/dev/run.sh bash scripts/ci/setup-actionlint.sh
-
-setup-go-licenses:
-	@echo "🔧 Installing go-licenses..."
-	bash scripts/dev/run.sh bash scripts/ci/setup-go-licenses.sh
-
-setup-zizmor:
-	@echo "🔧 Installing zizmor..."
-	bash scripts/dev/run.sh bash scripts/ci/setup-zizmor.sh
-
-setup-kubescape:
-	@echo "🔧 Installing kubescape..."
-	bash scripts/dev/run.sh bash scripts/ci/setup-kubescape.sh
-
 ## CI Gate Targets
 ci-smoke-windows:
 	@echo "🪟 Running Windows smoke test..."
 	./scripts/build/ci_smoke_windows.sh
-
-## Native platforms: the dev image cross-builds the test binaries, keel, pebble and bats for
-## OS/ARCH (target/native/<os>-<arch>, dist/); the native macOS or Windows host only runs them.
-native-build:
-	@echo "🔨 Cross-building native test binaries for $(OS)/$(ARCH)..."
-	bash scripts/dev/run.sh bash scripts/test/native-build.sh $(OS) $(ARCH)
-
-native-run:
-	@echo "🧪 Running native test binaries ($(DIR))..."
-	bash scripts/test/native-run.sh $(DIR)
-
-native-integrity:
-	@echo "🧪 Running the integrity suite natively ($(DIR))..."
-	bash scripts/test/native-integrity.sh $(DIR)
 
 ## BATS Runner Targets (artifact-based; distinct from test-integrity which builds first)
 bats-integrity:
@@ -358,53 +239,10 @@ ci-build-example:
 	@echo "🔨 Building examples/myapp (CI, no BATS)..."
 	bash scripts/dev/run.sh bash scripts/build/ci_example.sh
 
-## Additional Release Targets
-release-checksums-verify:
-	@echo "🔐 Verifying SHA256SUMS..."
-	bash scripts/dev/run.sh bash scripts/release/checksums.sh --verify
-
-release-rename:
-	@echo "📦 Renaming release artifacts with platform suffix..."
-	bash scripts/dev/run.sh bash scripts/release/rename-assets.sh
-
 ## release-binaries: every flavor for every architecture, concurrently, under its release name.
 release-binaries:
 	@echo "⚓ Building release binaries..."
 	bash scripts/dev/run.sh bash scripts/release/build-binaries.sh
-
-## release-metadata: the binaries' SBOMs and the OpenVEX document, concurrently.
-release-metadata:
-	@echo "🧾 Generating release metadata..."
-	TAG='$(TAG)' KEELCORE_DEV_ENV='$(KEELCORE_DEV_ENV) TAG' bash scripts/dev/run.sh bash scripts/release/metadata.sh
-
-release-docker:
-	@echo "🐳 Building and pushing container images..."
-	./scripts/release/docker.sh
-
-release-helm-push:
-	@echo "⎈ Packaging and pushing Helm chart..."
-	bash scripts/dev/run.sh bash scripts/release/helm-push.sh
-
-## release-ghcr-login: the runner's docker login, for an action that pushes to GHCR itself.
-release-ghcr-login:
-	@echo "🔑 Logging in to GHCR..."
-	./scripts/release/ghcr-login.sh
-
-release-cosign:
-	@echo "🔏 cosign (GHCR, dev image) $(ARGS)..."
-	bash scripts/dev/run.sh bash scripts/release/cosign.sh $(ARGS)
-
-lint-vex:
-	@echo "🔍 Validating generated OpenVEX document..."
-	bash scripts/dev/run.sh bash scripts/lint/vex.sh
-
-release-vex:
-	@echo "🧾 Generating OpenVEX (govulncheck)..."
-	bash scripts/dev/run.sh bash scripts/release/vex.sh $(ARGS)
-
-release-verify:
-	@echo "🔍 Verifying published release..."
-	bash scripts/release/verify-release.sh
 
 ## Kubernetes Helper Targets (internal; called by test-k8s)
 k8s-cluster-test:
@@ -435,11 +273,6 @@ k8s-kind-teardown:
 	@echo "⎈ Tearing down kind cluster..."
 	./scripts/k8s/kind-teardown.sh
 
-## Additional Setup Targets
-setup-kubeconform:
-	@echo "🔧 Installing kubeconform..."
-	bash scripts/dev/run.sh bash scripts/ci/setup-kubeconform.sh
-
 setup-ghcr:
 	@echo "🔧 Setting up GHCR credentials..."
 	./scripts/release/setup-ghcr.sh
@@ -460,12 +293,6 @@ roadmap-issues:
 
 ## Utility Targets
 # Host uid:gid on Linux, where the dev image runs as root (dist-chmod hands dist/ back); empty elsewhere.
-DIST_OWNER := $(shell [ "$$(uname -s)" = Linux ] && printf '%s:%s' "$$(id -u)" "$$(id -g)")
-
-dist-chmod:
-	@echo "🔑 Making dist binaries executable..."
-	DIST_OWNER='$(DIST_OWNER)' KEELCORE_DEV_ENV=DIST_OWNER bash scripts/dev/run.sh bash scripts/build/dist-chmod.sh
-
 ## Local artifact cleanup — also delegated to by canonical clean.sh (`make clean`)
 clean-local:
 	@echo "🧹 Removing keel build artifacts (dist/, target/)..."
@@ -481,6 +308,20 @@ create-release-local:
 	@echo "📐 Computing bump level from the config schema diff..."
 	bash scripts/release/create-release.local.sh $(PREV_TAG)
 
+## The CA bundle image keel's images copy from: run by make release-images, and runnable alone.
+release-images-local:
+	@echo "🐳 Building the CA bundle image..."
+	bash scripts/release/docker.local.sh
+
+## keel's part of the canonical native targets: run by them, and runnable alone.
+native-build-local:
+	@echo "🔨 Building keel and pebble for $(OS)/$(ARCH)..."
+	bash scripts/dev/run.sh bash scripts/test/native-build.local.sh $(OS) $(ARCH) target/native/$(OS)-$(ARCH) $(EXT)
+
+native-integrity-local:
+	@echo "🧪 Running the integrity suite against dist/..."
+	bash scripts/test/native-integrity.local.sh
+
 ## Pin hook (WHAT=pins|holds) — also called by canonical update-pins.sh (`make update-pins`)
 update-pins-local:
 	@echo "📌 keel pin hook: $(WHAT)"
@@ -489,15 +330,6 @@ update-pins-local:
 dev-image-publish-local:
 	@echo "📦 keel publish hook: $(WHAT)"
 	bash scripts/dev/publish.local.sh $(WHAT)
-
-## coverage-profile: write the whole-module Go statement-coverage profile to
-## target/coverage.txt (with a total%/uncovered/lines summary). This is the profile
-## ci.sh generates during `make test-unit` and uploads to Codecov — named for
-## the artifact it produces, and distinct from the canonical per-file LCOV
-## flow (coverage-go / coverage-aggregate / ci-coverage-no-regression).
-coverage-profile:
-	@echo "📊 Generating Go coverage profile (target/coverage.txt)..."
-	bash scripts/dev/run.sh bash scripts/test/coverage.sh
 
 ## coverage-report: pretty-print the merged per-file LCOV (from `make coverage`)
 ## as an ascending, colorized console table with coverage bars. Read-only view;
@@ -523,9 +355,7 @@ help-local:
 	@echo ""
 	@echo "Test:"
 	@echo "  test             Run unit + consistency + BATS integrity tests"
-	@echo "  test-unit        Unit tests only"
 	@echo "  test-consistency Consistency suite only"
-	@echo "  test-fuzz        Short fuzz pass over every Go fuzz target (FUZZTIME=10s)"
 	@echo "  test-integrity   BATS integrity suite only"
 	@echo "  test-compose     Docker Compose integration tests (P3)"
 	@echo "  test-compose-keep  Same but leave compose stack running"
@@ -544,34 +374,17 @@ help-local:
 	@echo "Lint:"
 	@echo "  lint            gofmt check + go vet + staticcheck"
 	@echo "  lint-go         gofmt check + go vet + staticcheck"
-	@echo "  lint-helm       Helm chart lint (no cluster required)"
-	@echo "  lint-helm-validate  Helm template schema validation via kubeconform (no cluster required)"
-	@echo "  lint-gosec        Go security linter (gosec)"
-	@echo "  lint-workflows    Workflow security lint (actionlint, zizmor)"
-	@echo "  lint-helm-policy  Chart policy scan (kubescape)"
-	@echo "  lint-licenses     Dependency license allowlist (go-licenses)"
 	@echo ""
 	@echo "Release:"
-	@echo "  release-checksums         Generate dist/SHA256SUMS"
-	@echo "  release-checksums-verify  Verify dist/SHA256SUMS"
 	@echo "  release-sbom              Generate SBOM (requires syft)"
 	@echo "  release-sign              Sign artifacts (requires cosign)"
-	@echo "  release-rename            Rename artifacts with platform suffix"
 	@echo "  release-binaries          Build every release binary, concurrently"
-	@echo "  release-metadata          Generate binary SBOMs and OpenVEX, concurrently"
-	@echo "  release-docker            Build and push container images"
-	@echo "  release-vex               Generate dist/keel.openvex.json from govulncheck"
-	@echo "  lint-vex                  Validate dist/keel.openvex.json before it is attested"
-	@echo "  release-verify            Verify signatures and attestations of a published release"
-	@echo "  release-helm-push         Package and push Helm chart"
-	@echo "  release-upload TAG=v1.x.x  Upload to GitHub Release (sets RELEASE_TAG)"
 	@echo "  gen-schema                Regenerate pkg/config/schema.yaml from config.Config"
 	@echo "  create-release            Compute and tag next semver release"
 	@echo "  create-release FORCE=v1.0.0  Force a specific version"
 	@echo "  create-release DRY_RUN=1  Compute and show the next tag; no tag, no push"
 	@echo ""
 	@echo "Setup (CI tooling):"
-	@echo "  setup-helm        Install Helm"
 	@echo "  setup-bats        Install bats-core"
 	@echo "  setup-pebble      Install pebble ACME test server"
 	@echo "  setup-kind        Install kind and create cluster"
@@ -579,12 +392,6 @@ help-local:
 	@echo "  setup-staticcheck Install staticcheck linter"
 	@echo "  setup-syft        Install syft SBOM tool"
 	@echo "  setup-cosign      Install cosign signing tool"
-	@echo "  setup-grype       Install grype image scanner"
-	@echo "  setup-gosec       Install gosec"
-	@echo "  setup-actionlint  Install actionlint"
-	@echo "  setup-go-licenses Install go-licenses"
-	@echo "  setup-zizmor      Install zizmor"
-	@echo "  setup-kubescape   Install kubescape"
 	@echo ""
 	@echo "CI Gates:"
 	@echo "  ci-pr-policy      Run PR policy check"
@@ -592,8 +399,6 @@ help-local:
 	@echo "  ci-dco            Run DCO sign-off check"
 	@echo "  ci-coverage-delta Check coverage delta vs base branch"
 	@echo "  ci-smoke-windows  Smoke test the Windows binary (built by native-build)"
-	@echo "  native-build      Cross-build native tests/binaries (OS=darwin|windows ARCH=arm64|amd64)"
-	@echo "  native-run        Run cross-built native tests (DIR=target/native/<os>-<arch>)"
 	@echo "  ci-build-example  Build examples/myapp only (no BATS)"
 	@echo "  bats-integrity    Run BATS integrity suite (artifact must exist)"
 	@echo "  bats-example      Run BATS example suite"
@@ -604,7 +409,6 @@ help-local:
 	@echo ""
 	@echo "Utilities:"
 	@echo "  audit             Run CI/Makefile standards compliance audit"
-	@echo "  dist-chmod        Make dist/keel-* binaries executable"
 	@echo "  gen-certs         Generate self-signed TLS certs for testing"
 	@echo "  check-legal-drift Check legal file drift"
 	@echo "  size-report       Generate binary size report"

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # scripts/test/native-integrity.sh
-# Run the BATS integrity suite on a native macOS host with the bats and pebble the
-# dev image cross-built (scripts/test/native-build.sh) first on PATH, against the
-# keel binaries it built into dist/. The host installs nothing.
+# Run scripts/test/native-integrity.local.sh on a native host, with the tools the dev image
+# cross-built (scripts/test/native-build.sh) first on PATH. The host installs nothing.
 #
 # Usage: native-integrity.sh DIR   (DIR: target/native/<os>-<arch>)
 
@@ -16,18 +15,21 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# What the project runs natively.
+readonly LOCAL_HOOK='scripts/test/native-integrity.local.sh'
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
   local -r dir="$(cd "${1}" && pwd)"
   # Artifacts lose their executable bits in transit: bats runs its bin/ and libexec/ scripts.
-  chmod +x "${dir}/bats/bin/"* "${dir}/bats/libexec/bats-core/"* "${dir}/bin/"* dist/keel-*
-  PATH="${dir}/bats/bin:${dir}/bin:${PATH}" bash scripts/test/bats-integrity.sh
+  chmod +x "${dir}/bats/bin/"* "${dir}/bats/libexec/bats-core/"* "${dir}/bin/"* 2> /dev/null || true
+  PATH="${dir}/bats/bin:${dir}/bin:${PATH}" bash "${LOCAL_HOOK}"
 }
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a "${TMPDIR:-/tmp}/keel_native_integrity.log" >&5
+  printf '%s\n' "${msg}" | tee -a "${TMPDIR:-/tmp}/native_integrity.log" >&5
 }
 
 function validate_args() {

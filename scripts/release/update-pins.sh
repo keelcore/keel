@@ -909,7 +909,8 @@ function image_digest() {
       token="$(curl -fsSL --max-time 20 "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -r .token)" ;;
   esac
   [ -n "${token}" ] && auth=(-H "Authorization: Bearer ${token}")
-  curl -fsSI --max-time 20 ${auth[@]+"${auth[@]}"} \
+  # Silent on failure: a tag that does not exist yet (an unpublished build context) is an answer.
+  curl -fsI --max-time 20 ${auth[@]+"${auth[@]}"} \
     -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json' \
     "https://${registry}/v2/${repo}/manifests/${tag}" \
     | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }'
@@ -1262,14 +1263,28 @@ function report() {
     [ -n "${kind}" ] || continue
     statuses+="${status}"$'\n'
     total=$(( total + 1 ))
-    rows+="$(printf '%-10s %-44s %-14s %-14s %-5s %-10s %-11s %s  (%s)' "${kind}" "${name:0:44}" "${current:0:14}" \
+    rows+="$(status_rank "${status}")"$'\t'"$(printf '%-10s %-44s %-14s %-14s %-5s %-10s %-11s %s  (%s)' "${kind}" "${name:0:44}" "${current:0:14}" \
       "${cand:0:14}" "${age}" "${status}" "${origin}" "${note}" "${loc}")"$'\n'
   done <<< "${resolved}"
   local summary
   summary="$(count_summary "${statuses}" current stale cooldown major unpinned unresolved hold)"
   log "update-pins (discovery) — ${total} pins${summary:+: ${summary}}"
   log "$(printf '%-10s %-44s %-14s %-14s %-5s %-10s %-11s %s' KIND PIN CURRENT CANDIDATE AGE STATUS SOURCE 'NOTE  (LOCATION)')"
-  printf "%s" "${rows}" | sort >&5
+  printf "%s" "${rows}" | sort -t$'\t' -k1,1n -k2,2 | cut -f2- >&5
+}
+
+# status_rank STATUS: the report's order, what needs action first.
+function status_rank() {
+  case "${1}" in
+    stale) printf 1 ;;
+    unresolved) printf 2 ;;
+    unpinned) printf 3 ;;
+    major) printf 4 ;;
+    hold) printf 5 ;;
+    cooldown) printf 6 ;;
+    current) printf 7 ;;
+    *) printf 8 ;;
+  esac
 }
 
 # write_tsv RESOLVED: the resolved pins plus an 11th column, the consequence of

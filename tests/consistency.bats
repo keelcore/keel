@@ -386,7 +386,7 @@ STUB
 @test "docs/dependencies.md: the policy states the license allow list make lint-licenses enforces" {
   local -r doc="${REPO_ROOT}/docs/dependencies.md"
   local allowed
-  allowed="$(sed -nE "s/^readonly ALLOWED_LICENSES='([^']+)'/\1/p" "${REPO_ROOT}/scripts/lint/licenses.sh")"
+  allowed="$(grep -v '^#' "${REPO_ROOT}/.standards/config/go-licenses.txt" | paste -sd, -)"
   [ -n "${allowed}" ]
   local l missing=''
   for l in ${allowed//,/ }; do

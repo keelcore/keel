@@ -23,8 +23,14 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
+
 # shellcheck source=../lib/parallel.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parallel.sh"
+
+PROJECT="$(project_name)"
+readonly PROJECT
 
 function main() {
   exec 5>&1
@@ -43,7 +49,7 @@ function main() {
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_upload.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/upload.log' >&5
 }
 
 function validate_args() {
@@ -93,7 +99,7 @@ function require_gh() {
 # (Signed-Releases) detects them: each cosign bundle also as
 # <artifact>.sigstore.json, and the SLSA provenance DSSE envelope from
 # PROVENANCE_BUNDLE (actions/attest-build-provenance bundle-path, or the
-# directory holding it) as keel.intoto.jsonl.
+# directory holding it) as <project>.intoto.jsonl.
 function stage_scorecard_assets() {
   local bundle
   for bundle in dist/*.bundle; do
@@ -105,8 +111,8 @@ function stage_scorecard_assets() {
     if [ -d "${provenance}" ]; then
       provenance="$(find "${provenance}" -type f | head -n 1)"
     fi
-    jq -ce '.dsseEnvelope' "${provenance}" > dist/keel.intoto.jsonl
-    log '  Staged dist/keel.intoto.jsonl'
+    jq -ce '.dsseEnvelope' "${provenance}" > "dist/${PROJECT}.intoto.jsonl"
+    log "  Staged dist/${PROJECT}.intoto.jsonl"
   fi
 }
 
@@ -116,8 +122,8 @@ function collect_and_upload() {
   local artifact
 
   stage_scorecard_assets
-  for artifact in dist/keel-* dist/SHA256SUMS dist/SHA256SUMS.bundle dist/SHA256SUMS.sigstore.json \
-    dist/keel.openvex.json dist/keel.intoto.jsonl; do
+  for artifact in "dist/${PROJECT}"-* dist/SHA256SUMS dist/SHA256SUMS.bundle dist/SHA256SUMS.sigstore.json \
+    "dist/${PROJECT}.openvex.json" "dist/${PROJECT}.intoto.jsonl"; do
     [ -f "${artifact}" ] || continue
     files+=("${artifact}")
     log "  Queuing ${artifact}"
@@ -138,13 +144,13 @@ function upload_asset() {
   gh release upload "${2}" "${1}" --clobber
 }
 
-# publish_release TAG: attach the six per-image SBOMs (flavor × arch, all required), then publish the
+# publish_release TAG: attach the per-image SBOMs (variant × arch, all required), then publish the
 # draft; publishing locks the release (immutable releases).
 function publish_release() {
   local -r tag="${1}"
   local -a files=()
   local flavor arch
-  for flavor in max min fips; do
+  for flavor in $(release_variants | cut -f1); do
     for arch in amd64 arm64; do
       [ -f "dist/sbom-${flavor}-${arch}.spdx.json" ] \
         || { log "ERROR: image SBOM missing: dist/sbom-${flavor}-${arch}.spdx.json"; exit 1; }
@@ -182,7 +188,7 @@ function ensure_release() {
       "${notes}" "$(printf '%s\n' "${overrides}" | sed 's/^/- /')")"
   fi
   if [ -n "${notes}" ]; then
-    tmp="$(mktemp /tmp/keel-release-XXXXXX.md)"
+    tmp="$(mktemp /tmp/release-XXXXXX.md)"
     printf '%s\n' "${notes}" >"${tmp}"
     gh release create "${tag}" --title "${tag}" --draft --notes-file "${tmp}"
     rm -f "${tmp}"

@@ -45,7 +45,7 @@ function main() {
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a "${TMPDIR:-/tmp}/keel_native_run.log" >&5
+  printf '%s\n' "${msg}" | tee -a "${TMPDIR:-/tmp}/native_run.log" >&5
 }
 
 function validate_args() {

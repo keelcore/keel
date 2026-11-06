@@ -37,6 +37,10 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 ### Changed
 
 - `.standards` moves to v0.10.13: its tool image now carries govulncheck.
+- The image release, chart push, upload and self-verification are canonical too; `make release-docker` is now
+  `make release-images`. Signatures still carry this repository's identity.
+- Workflow, gosec, license, Helm, VEX, fuzz, unit-test, checksum and native targets are canonical (`.standards`); keel keeps
+  its settings in `config/` and its native steps in `scripts/test/native-*.local.sh`. `make release-rename` is removed.
 - `make lint-fmt` and `make lint-md` are removed: use `make format` and `make lint-markdown`.
 - CodeQL and Scorecard, govulncheck (`make lint-vuln`), `run_parallel` and concurrent `sign.sh`, `run.sh` and `update-pins`
   move to `.standards`; keel carries the canonical copies. CodeQL now finds its languages from the tracked files.

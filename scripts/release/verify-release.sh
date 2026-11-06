@@ -2,7 +2,7 @@
 # scripts/release/verify-release.sh
 # The release verifies its own output as its last step. Fails unless every
 # published artifact carries this workflow's signatures and attestations:
-#   - each image index (max, min, fips): cosign signature, OpenVEX attestation,
+#   - each image index: cosign signature, OpenVEX attestation,
 #     GitHub SLSA provenance; each arch image behind it: cosign signature and
 #     SPDX SBOM attestation;
 #   - vX.Y, vX and latest resolve to the max index;
@@ -10,7 +10,7 @@
 #   - the Helm chart: cosign signature.
 #
 # Required environment variables:
-#   MAX_DIGEST, MIN_DIGEST, FIPS_DIGEST — index digests (sha256:...) from docker.sh
+#   <VARIANT>_DIGEST                   — each variant's index digest (sha256:...) from docker.sh
 #   GH_TOKEN                           — for gh attestation verify
 #   GITHUB_TOKEN, GITHUB_ACTOR         — GHCR login for cosign (scripts/release/cosign.sh)
 #
@@ -34,14 +34,20 @@ shopt -s inherit_errexit
 
 # shellcheck source=../lib/parallel.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parallel.sh"
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 
-readonly IMAGE='ghcr.io/keelcore/keel'
-readonly CHART='ghcr.io/keelcore/charts/keel'
-readonly REPO='keelcore/keel'
+REPO="$(release_repo)"
+readonly REPO
+readonly IMAGE="ghcr.io/${REPO}"
+PROJECT="$(project_name)"
+readonly PROJECT
+CHART="ghcr.io/${REPO%%/*}/charts/$(chart_name)"
+readonly CHART
 readonly DIST='dist'
 readonly SBOM_PREDICATE='https://spdx.dev/Document'
 readonly -a VERIFY_IDENTITY=(
-  --certificate-identity-regexp '^https://github\.com/keelcore/keel/\.github/workflows/release\.yml@refs/tags/v'
+  --certificate-identity-regexp "$(release_identity)"
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 )
 # One at a time: concurrent runs of gh attestation verify failed to initialize their verifier on the runner.
@@ -59,7 +65,12 @@ function main() {
   local tag
   tag="$(git describe --tags --exact-match)"
   log "Verifying release ${tag}"
-  run_parallel verify_step index-max index-min index-fips aliases blobs chart -- "${tag}"
+  local -a steps=(aliases blobs chart)
+  local variant
+  while IFS= read -r variant; do
+    steps+=("index-${variant}")
+  done < <(release_variants | cut -f1)
+  run_parallel verify_step "${steps[@]}" -- "${tag}"
   log "✅ Release ${tag} verified"
 }
 
@@ -67,18 +78,32 @@ function main() {
 function verify_step() {
   local -r tag="${2}"
   case "${1}" in
-    index-max) verify_index max "${MAX_DIGEST}" "${IMAGE}:${tag}" ;;
-    index-min) verify_index min "${MIN_DIGEST}" "${IMAGE}:${tag}-min" ;;
-    index-fips) verify_index fips "${FIPS_DIGEST}" "${IMAGE}:${tag}-fips" ;;
-    aliases) verify_aliases "${tag}" "${MAX_DIGEST}" ;;
+    index-*) verify_variant "${1#index-}" "${tag}" ;;
+    aliases) verify_aliases "${tag}" "$(variant_digest "$(primary_variant)")" ;;
     blobs) verify_blobs ;;
-    chart) verify_chart "${tag#v}" ;;
+    chart) [ -z "$(chart_name)" ] || verify_chart "${tag#v}" ;;
   esac
+}
+
+# variant_digest VARIANT: its index digest, from <VARIANT>_DIGEST (docker.sh records them).
+function variant_digest() {
+  local -r var="$(printf '%s' "${1}" | tr '[:lower:]' '[:upper:]')_DIGEST"
+  printf '%s' "${!var:?${var} is required}"
+}
+
+function primary_variant() {
+  release_variants | awk -F'\t' '$2 == "" { print $1; exit }'
+}
+
+function verify_variant() {
+  local -r variant="${1}" tag="${2}"
+  local -r suffix="$(release_variants | awk -F'\t' -v v="${variant}" '$1 == v { print $2; exit }')"
+  verify_index "${variant}" "$(variant_digest "${variant}")" "${IMAGE}:${tag}${suffix}"
 }
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_verify_release.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/verify_release.log' >&5
 }
 
 function validate_args() {
@@ -147,7 +172,7 @@ function verify_aliases() {
 function verify_blobs() {
   local -a blobs=()
   local blob
-  for blob in "${DIST}"/keel-*-linux-* "${DIST}/SHA256SUMS"; do
+  for blob in "${DIST}/${PROJECT}"-*-linux-* "${DIST}/SHA256SUMS"; do
     [[ "${blob}" == *.bundle || "${blob}" == *.sigstore.json ]] || blobs+=("${blob}")
   done
   run_parallel verify_blob "${blobs[@]}"

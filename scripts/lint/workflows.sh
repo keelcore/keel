@@ -16,10 +16,15 @@ set -o errexit
 set -o pipefail
 
 readonly WORKFLOWS='.github/workflows'
+readonly ZIZMOR_CONFIG='config/zizmor.local.yml'
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  if [ -z "$(find "${WORKFLOWS}" -name '*.yml' 2> /dev/null)" ]; then
+    log 'ℹ️  No workflows; nothing to lint'
+    return 0
+  fi
   require_tool actionlint
   require_tool zizmor
   log '🔍 actionlint'
@@ -31,7 +36,7 @@ function main() {
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_lint_workflows.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/lint_workflows.log' >&5
 }
 
 function validate_args() {
@@ -44,6 +49,7 @@ function validate_args() {
 function run_zizmor() {
   local -a mode=('--offline')
   [ -z "${GH_TOKEN:-}" ] || mode=()
+  [ ! -f "${ZIZMOR_CONFIG}" ] || mode+=(--config "${ZIZMOR_CONFIG}")
   zizmor ${mode[@]+"${mode[@]}"} "${WORKFLOWS}"
 }
 

@@ -14,6 +14,8 @@ set -o pipefail
 
 # shellcheck source=../lib/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 
 function main() {
   exec 5>&1
@@ -27,7 +29,7 @@ function main() {
 function log() {
   local msg
   msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_coverage.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/go_coverage.log' >&5
 }
 
 function validate_args() {
@@ -42,10 +44,10 @@ function run_coverage() {
   log "Generating coverage profile"
   : > "${outfile}"
   local pkgs coverpkg raw
-  # Coverage is measured for library packages (/pkg) only; program entry points are exercised via the
-  # built binary under BATS, so main() enclosing files are excluded both by scope and by file filter.
-  pkgs="$(go_pkgs | grep -v '/examples/')"
-  coverpkg="$(printf '%s\n' "${pkgs}" | grep '/pkg/' | tr '\n' ',' | sed 's/,$//')"
+  # config/go-test-exclude.local.txt drops packages from the run; config/go-coverpkg.local.txt narrows
+  # what counts as covered (regexes, one per line). Files named main.go never count.
+  pkgs="$(go_pkgs | filter_out "$(config_list go-test-exclude)")"
+  coverpkg="$(printf '%s\n' "${pkgs}" | keep_only "$(config_list go-coverpkg)" | paste -sd, -)"
   raw="${outfile}.raw"
   printf '%s\n' "${pkgs}" | xargs go test \
     -count=1 \
@@ -54,6 +56,15 @@ function run_coverage() {
     "-coverpkg=${coverpkg}"
   grep -v '/main\.go:' "${raw}" > "${outfile}"
   rm -f "${raw}"
+}
+
+# filter_out PATTERNS, keep_only PATTERNS: stdin lines without, or with, a match of a line of PATTERNS.
+function filter_out() {
+  if [ -z "${1}" ]; then cat; else grep -vEf <(printf '%s\n' "${1}") || true; fi
+}
+
+function keep_only() {
+  if [ -z "${1}" ]; then cat; else grep -Ef <(printf '%s\n' "${1}") || true; fi
 }
 
 function print_stats() {

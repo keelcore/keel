@@ -1,0 +1,2 @@
+# keel's release files in dist/: the binaries and their SBOMs.
+keel-*

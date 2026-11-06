@@ -15,26 +15,8 @@ WORKDIR /opt/keel
 # One cached layer per tool, each copying only its own setup script, so a changed script
 # rebuilds only its tool (and the ones after it). timeout turns a stalled download (go has
 # no download timeout) into a failed step; a step that fails moves to the end of this list.
-COPY scripts/ci/setup-gotestsum.sh /opt/keel/scripts/ci/
-RUN timeout 300 bash scripts/ci/setup-gotestsum.sh
-COPY scripts/ci/setup-actionlint.sh /opt/keel/scripts/ci/
-RUN timeout 300 bash scripts/ci/setup-actionlint.sh
 COPY scripts/ci/setup-pebble.sh /opt/keel/scripts/ci/
 RUN timeout 300 bash scripts/ci/setup-pebble.sh && go clean -modcache -cache
-COPY scripts/ci/setup-helm.sh /opt/keel/scripts/ci/
-RUN timeout 300 bash scripts/ci/setup-helm.sh
-COPY scripts/ci/setup-kubeconform.sh /opt/keel/scripts/ci/
-RUN timeout 300 bash scripts/ci/setup-kubeconform.sh
-COPY scripts/ci/setup-grype.sh /opt/keel/scripts/ci/
-RUN timeout 300 bash scripts/ci/setup-grype.sh
-COPY scripts/ci/setup-zizmor.sh /opt/keel/scripts/ci/
-RUN timeout 300 bash scripts/ci/setup-zizmor.sh
-COPY scripts/ci/setup-kubescape.sh /opt/keel/scripts/ci/
-RUN timeout 900 bash scripts/ci/setup-kubescape.sh
-COPY scripts/ci/setup-gosec.sh /opt/keel/scripts/ci/
-RUN timeout 300 bash scripts/ci/setup-gosec.sh
-COPY scripts/ci/setup-go-licenses.sh /opt/keel/scripts/ci/
-RUN timeout 300 bash scripts/ci/setup-go-licenses.sh && go clean -modcache -cache
 
 # Test-suite dependencies: nc (the remote-sink BATS) and pebble's module source in the module
 # cache (its test CA, read by the ACME end-to-end BATS) — the version setup-pebble.sh pins.

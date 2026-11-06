@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # metadata.sh
 # Generate the release metadata concurrently (scripts/lib/parallel.sh): one SBOM per release binary
-# (keel, its version, the Go modules compiled into it) and the OpenVEX document from govulncheck
+# (the project, its version, the Go modules compiled into it) and the OpenVEX document from govulncheck
 # reachability. Runs in the dev image (make release-metadata).
 #
 # Required environment variables:
@@ -19,6 +19,8 @@ set -o pipefail
 
 # shellcheck source=../lib/parallel.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parallel.sh"
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 
 function main() {
   exec 5>&1
@@ -29,7 +31,7 @@ function main() {
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_release_metadata.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/release_metadata.log' >&5
 }
 
 function validate_args() {
@@ -44,8 +46,8 @@ function validate_args() {
 function generate() {
   case "${1}" in
     sbom)
-      bash scripts/release/sbom.sh --out-dir dist --name keel --version "${TAG}" --license Apache-2.0 \
-        dist/keel-*-linux-*
+      bash scripts/release/sbom.sh --out-dir dist --name "$(project_name)" --version "${TAG}" \
+        --license Apache-2.0 "dist/$(project_name)"-*-linux-*
       ;;
     vex) bash scripts/release/vex.sh --out-dir dist ;;
   esac

@@ -16,6 +16,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
+
 readonly SUMS_FILE='dist/SHA256SUMS'
 
 function main() {
@@ -31,7 +34,7 @@ function main() {
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_checksums.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/release_checksums.log' >&5
 }
 
 function validate_args() { :; }
@@ -63,16 +66,11 @@ function generate_checksums() {
   # Start with an empty file.
   : > "${SUMS_FILE}"
 
-  for artifact in dist/keel-*; do
-    # Skip existing signature bundles and the sums file itself.
-    [[ "${artifact}" == *.bundle ]] && continue
-    [[ "${artifact}" == *.sig ]]    && continue
-    [ -f "${artifact}" ]            || continue
-
+  while IFS= read -r artifact; do
     sha256_generate "${artifact}" >> "${SUMS_FILE}"
     log "  ${artifact}"
     found=1
-  done
+  done < <(release_files)
 
   if [ "${found}" -eq 0 ]; then
     log "ERROR: no artifacts found in dist/"

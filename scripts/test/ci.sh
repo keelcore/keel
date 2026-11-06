@@ -18,6 +18,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  if [ -z "$(source_files '*go.mod')" ]; then
+    log 'ℹ️  No Go module; nothing to test'
+    return 0
+  fi
   log "Initializing test suite"
   ensure_gotestsum
   run_unit_tests
@@ -29,7 +33,7 @@ function main() {
 function log() {
   local msg
   msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_test.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/go_test.log' >&5
 }
 
 function validate_args() {

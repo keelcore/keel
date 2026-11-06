@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# helm-validate.sh
-# Render the Keel Helm chart and validate rendered objects against the
-# Kubernetes JSON schema (minimum supported version).  No live cluster
-# required — kubeconform downloads schemas from the public schema registry.
-# Runnable locally and in CI identically.
+# scripts/lint/helm-validate.sh
+# Every repo-owned chart, rendered, against a Kubernetes API schema. Version: config/kubeconform.txt,
+# or config/kubeconform.local.txt.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -15,57 +13,63 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly CHART_DIR='helm/keel'
-# Minimum Kubernetes version whose API schema the chart must satisfy.
-readonly KUBE_MIN_VERSION='1.28.0'
+# shellcheck source=../lib/paths.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  require_helm
-  require_kubeconform
-  log "Validating rendered template against Kubernetes ${KUBE_MIN_VERSION} schema"
-  run_validate
-  log "Helm schema validation passed"
+  local -a args=()
+  local line chart version found=0
+  version="$(config_replace kubeconform)"
+  while IFS= read -r line; do args+=("${line}"); done < <(helm_args)
+  while IFS= read -r chart; do
+    [ -n "${chart}" ] || continue
+    found=1
+    require_tool helm
+    require_tool kubeconform
+    log "🔍 ${chart} against Kubernetes ${version}"
+    helm template validate "${chart}" ${args[@]+"${args[@]}"} \
+      | kubeconform -kubernetes-version "${version}" -strict -summary -output pretty
+  done < <(chart_dirs)
+  if [ "${found}" -eq 0 ]; then
+    log 'ℹ️  No chart; nothing to validate'
+    return 0
+  fi
+  log '✅ Helm schema validation passed'
+}
+
+# chart_dirs: the directory of each repo-owned chart.
+function chart_dirs() {
+  local chart
+  while IFS= read -r chart; do
+    [ -z "${chart}" ] || dirname "${chart}"
+  done < <(source_files '*Chart.yaml')
+}
+
+# helm_args: config/helm-args.local.txt, one argument per line.
+function helm_args() {
+  config_replace helm-args
+}
+
+function require_tool() {
+  command -v "${1}" > /dev/null 2>&1 && return 0
+  log "❌ ${1} not found; the tool image carries it (make setup-${1})"
+  exit 1
 }
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_lint_helm_validate.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/lint_helm_validate.log' >&5
 }
 
 function validate_args() {
   if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
-    log '❌ Error: Unexpected arg'
+    log '❌ Error: Unexpected argument'
     exit 1
   fi
-}
-
-function require_helm() {
-  if ! command -v helm >/dev/null 2>&1; then
-    log "ERROR: helm not found in PATH"
-    log "  Install via: scripts/ci/setup-helm.sh"
-    exit 1
-  fi
-}
-
-function require_kubeconform() {
-  if ! command -v kubeconform >/dev/null 2>&1; then
-    log "ERROR: kubeconform not found in PATH"
-    log "  Install via: scripts/ci/setup-kubeconform.sh"
-    exit 1
-  fi
-}
-
-function run_validate() {
-  helm template keel-test "${CHART_DIR}" \
-    --set 'mode=sidecar' \
-    --set 'sidecar.app.image=placeholder' \
-    | kubeconform \
-        -kubernetes-version "${KUBE_MIN_VERSION}" \
-        -strict \
-        -summary \
-        -output pretty
 }
 
 main "${@:-}"

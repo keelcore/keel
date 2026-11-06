@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/lint/licenses.sh
-# License gate: every Go module linked into keel must carry a license on ALLOWED_LICENSES.
-# Install with: make setup-go-licenses
+# Dependency licenses in every repo-owned Go module. Allow list: config/go-licenses.txt, adjusted by
+# config/go-licenses.local.txt.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -13,19 +13,40 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly ALLOWED_LICENSES='Apache-2.0,BSD-2-Clause,BSD-3-Clause,MIT,ISC'
+# shellcheck source=../lib/paths.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  log "🔍 go-licenses check (allowed: ${ALLOWED_LICENSES})"
-  go-licenses check ./... --allowed_licenses="${ALLOWED_LICENSES}"
+  local allowed mod found=0
+  allowed="$(config_list go-licenses | paste -sd, -)"
+  while IFS= read -r mod; do
+    [ -n "${mod}" ] || continue
+    found=1
+    log "🔍 go-licenses in $(dirname "${mod}") (allowed: ${allowed})"
+    check_module "$(dirname "${mod}")" "${allowed}"
+  done < <(source_files '*go.mod')
+  if [ "${found}" -eq 0 ]; then
+    log 'ℹ️  No Go module; nothing to check'
+    return 0
+  fi
   log '✅ All module licenses allowed'
+}
+
+# check_module DIR ALLOWED: the module's dependencies; its own packages carry the repository's license.
+function check_module() {
+  local -r dir="${1}" allowed="${2}"
+  local self
+  self="$(awk '$1 == "module" { print $2; exit }' "${dir}/go.mod")"
+  (cd "${dir}" && go-licenses check ./... --allowed_licenses="${allowed}" --ignore="${self}")
 }
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_lint_licenses.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/lint_licenses.log' >&5
 }
 
 function validate_args() {

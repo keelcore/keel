@@ -17,7 +17,8 @@ setup() {
     "${WORK}/dist" "${WORK}/bin" "${STATE}/started"
   cp "${REPO_ROOT}"/scripts/release/*.sh "${WORK}/scripts/release/"
   cp "${REPO_ROOT}"/scripts/build/ci_*.sh "${WORK}/scripts/build/"
-  cp "${REPO_ROOT}/scripts/lib/parallel.sh" "${WORK}/scripts/lib/"
+  cp "${REPO_ROOT}"/scripts/lib/*.sh "${WORK}/scripts/lib/"
+  printf 'module github.com/keelcore/keel\n' > "${WORK}/go.mod"
   stub_tools
   : > "${STATE}/calls"
   export PATH="${WORK}/bin:${PATH}"
@@ -117,151 +118,6 @@ RUN
 
 calls() { grep -E "${1}" "${STATE}/calls"; }
 call_count() { grep -cE "${1}" "${STATE}/calls" || true; }
-
-# --- docker.sh ---------------------------------------------------------------------------------
-
-@test "docker.sh: all six images build concurrently" {
-  export DOCKER_BUILD_BARRIER=6
-  run ./scripts/release/docker.sh
-  [ "${status}" -eq 0 ]
-}
-
-@test "docker.sh: each index holds its amd64 and arm64 images, in that order" {
-  run ./scripts/release/docker.sh
-  [ "${status}" -eq 0 ]
-  calls 'imagetools create --tag ghcr.io/keelcore/keel:v1.2.3 ghcr.io/keelcore/keel@sha256:v1.2.3-amd64 ghcr.io/keelcore/keel@sha256:v1.2.3-arm64$'
-  calls 'imagetools create --tag ghcr.io/keelcore/keel:v1.2.3-min ghcr.io/keelcore/keel@sha256:v1.2.3-min-amd64 ghcr.io/keelcore/keel@sha256:v1.2.3-min-arm64$'
-  calls 'imagetools create --tag ghcr.io/keelcore/keel:v1.2.3-fips ghcr.io/keelcore/keel@sha256:v1.2.3-fips-amd64 ghcr.io/keelcore/keel@sha256:v1.2.3-fips-arm64$'
-}
-
-@test "docker.sh: records each flavor's index digest for the workflow" {
-  run ./scripts/release/docker.sh
-  [ "${status}" -eq 0 ]
-  grep -qx 'max_digest=sha256:max' "${GITHUB_OUTPUT}"
-  grep -qx 'min_digest=sha256:min' "${GITHUB_OUTPUT}"
-  grep -qx 'fips_digest=sha256:fips' "${GITHUB_OUTPUT}"
-}
-
-@test "docker.sh: each image is signed and attested, by digest" {
-  run ./scripts/release/docker.sh
-  [ "${status}" -eq 0 ]
-  [ "$(call_count 'cosign\.sh sign --yes ')" -eq 9 ]
-  [ "$(call_count 'cosign\.sh attest --yes --predicate .*spdx\.json')" -eq 6 ]
-  [ "$(call_count 'cosign\.sh attest --yes --predicate .*openvex')" -eq 3 ]
-}
-
-@test "docker.sh: the grype database is fetched once, before any scan, and scans leave it alone" {
-  run ./scripts/release/docker.sh
-  [ "${status}" -eq 0 ]
-  [ "$(call_count 'grype db update')" -eq 1 ]
-  local update first_scan
-  update="$(grep -n 'grype db update' "${STATE}/calls" | head -1 | cut -d: -f1)"
-  first_scan="$(grep -n 'grype sbom:' "${STATE}/calls" | head -1 | cut -d: -f1)"
-  [ "${update}" -lt "${first_scan}" ]
-  [ "$(call_count 'GRYPE_DB_AUTO_UPDATE=false grype sbom:')" -eq 6 ]
-}
-
-@test "docker.sh: a scan finding fails the release before that image is pushed" {
-  export FAIL_ON='grype sbom:dist/sbom-min-arm64'
-  run ./scripts/release/docker.sh
-  [ "${status}" -ne 0 ]
-  [ "$(call_count 'docker push .*-min-arm64$')" -eq 0 ]
-  [ "$(call_count 'imagetools create --tag ghcr.io/keelcore/keel:v1.2.3-min ')" -eq 0 ]
-}
-
-@test "docker.sh: a failed push fails the release" {
-  export FAIL_ON='docker push .*-fips-amd64$'
-  run ./scripts/release/docker.sh
-  [ "${status}" -ne 0 ]
-  [ "$(call_count 'imagetools create --tag ghcr.io/keelcore/keel:v1.2.3-fips ')" -eq 0 ]
-}
-
-@test "docker.sh: a failure in max leaves the aliases where they were" {
-  export FAIL_ON='grype sbom:dist/sbom-max-amd64'
-  run ./scripts/release/docker.sh
-  [ "${status}" -ne 0 ]
-  [ "$(call_count 'imagetools create --tag ghcr.io/keelcore/keel:(v1|v1\.2|latest) ')" -eq 0 ]
-}
-
-@test "docker.sh: aliases move after the max index is signed" {
-  run ./scripts/release/docker.sh
-  [ "${status}" -eq 0 ]
-  local signed alias
-  signed="$(grep -n 'cosign\.sh sign --yes ghcr.io/keelcore/keel@sha256:max$' "${STATE}/calls" | head -1 | cut -d: -f1)"
-  alias="$(grep -n 'imagetools create --tag ghcr.io/keelcore/keel:latest' "${STATE}/calls" | head -1 | cut -d: -f1)"
-  [ -n "${signed}" ]
-  [ "${signed}" -lt "${alias}" ]
-}
-
-# --- verify-release.sh -------------------------------------------------------------------------
-
-verify_env() {
-  export MAX_DIGEST=sha256:max MIN_DIGEST=sha256:min FIPS_DIGEST=sha256:fips
-}
-
-@test "verify-release.sh: the three indexes verify concurrently" {
-  verify_env
-  export VERIFY_BARRIER=3
-  run bash scripts/release/verify-release.sh
-  [ "${status}" -eq 0 ]
-}
-
-@test "verify-release.sh: the blobs verify concurrently" {
-  verify_env
-  export BLOB_BARRIER=7
-  run bash scripts/release/verify-release.sh
-  [ "${status}" -eq 0 ]
-}
-
-@test "verify-release.sh: checks every index, arch image, alias, blob and the chart" {
-  verify_env
-  run bash scripts/release/verify-release.sh
-  [ "${status}" -eq 0 ]
-  [[ "${output}" == *'Release v1.2.3 verified'* ]]
-  [ "$(call_count 'cosign\.sh verify-attestation .*--type openvex ')" -eq 3 ]
-  [ "$(call_count 'gh attestation verify oci://')" -eq 3 ]
-  [ "$(call_count 'cosign\.sh verify-attestation .*spdx\.dev')" -eq 6 ]
-  [ "$(call_count 'cosign\.sh verify-blob ')" -eq 7 ]
-  [ "$(call_count 'gh attestation verify dist/')" -eq 6 ]
-  [ "$(call_count 'imagetools inspect ghcr.io/keelcore/keel:(v1|v1\.2|latest) ')" -eq 3 ]
-  [ "$(call_count 'cosign\.sh verify .*charts/keel:1\.2\.3$')" -eq 1 ]
-}
-
-@test "verify-release.sh: gh attestation verify never runs concurrently: its cache is not safe for that" {
-  verify_env
-  cat > "${WORK}/bin/gh" <<'GH'
-#!/usr/bin/env bash
-source "${WORK}/bin/stub-lib"
-record "gh $*"
-if ! mkdir "${STATE}/gh-running" 2> /dev/null; then
-  printf 'overlap\n' >> "${STATE}/gh-overlaps"
-fi
-sleep 0.2
-rmdir "${STATE}/gh-running" 2> /dev/null || true
-GH
-  run bash scripts/release/verify-release.sh
-  [ "${status}" -eq 0 ]
-  [ "$(call_count '^gh attestation verify')" -eq 9 ]
-  [ ! -f "${STATE}/gh-overlaps" ]
-}
-
-@test "verify-release.sh: one failed check fails the whole verification" {
-  verify_env
-  local check
-  for check in 'cosign\.sh verify .*@sha256:fips$' 'gh attestation verify dist/keel-min-linux-arm64 ' \
-    'cosign\.sh verify .*charts/keel' 'imagetools inspect ghcr.io/keelcore/keel:latest '; do
-    export FAIL_ON="${check}"
-    run bash scripts/release/verify-release.sh
-    [ "${status}" -ne 0 ] || { printf 'passed with %s failing\n' "${check}" >&3; false; }
-    [[ "${output}" != *'Release v1.2.3 verified'* ]]
-  done
-}
-
-@test "verify-release.sh: an alias on the wrong digest fails" {
-  export MAX_DIGEST=sha256:other MIN_DIGEST=sha256:min FIPS_DIGEST=sha256:fips
-  run bash scripts/release/verify-release.sh
-  [ "${status}" -ne 0 ]
-}
 
 # --- build-binaries.sh -------------------------------------------------------------------------
 
@@ -383,74 +239,6 @@ VEX
   [ "${status}" -ne 0 ]
 }
 
-# --- upload.sh ---------------------------------------------------------------------------------
-
-stub_release_gh() {
-  cat > "${WORK}/bin/gh" <<'GH'
-#!/usr/bin/env bash
-source "${WORK}/bin/stub-lib"
-record "gh $*"
-maybe_fail "gh $*"
-if [ -n "${UPLOAD_BARRIER:-}" ] && [ "${2:-}" = upload ]; then
-  barrier "$(basename "${4}")" "${UPLOAD_BARRIER}"
-fi
-GH
-  export RELEASE_TAG=v1.2.3
-}
-
-@test "upload.sh: assets upload concurrently, one call per asset" {
-  stub_release_gh
-  export UPLOAD_BARRIER=8
-  run bash scripts/release/upload.sh
-  [ "${status}" -eq 0 ]
-  [ "$(call_count '^gh release upload v1\.2\.3 [^ ]+ --clobber$')" -ge 8 ]
-}
-
-@test "upload.sh: a failed asset fails the step" {
-  stub_release_gh
-  export FAIL_ON='gh release upload v1\.2\.3 dist/SHA256SUMS '
-  run bash scripts/release/upload.sh
-  [ "${status}" -ne 0 ]
-}
-
-@test "upload.sh: PROVENANCE_BUNDLE may name the directory an artifact downloaded into" {
-  stub_release_gh
-  mkdir provenance
-  printf '{"dsseEnvelope":{"payload":"x"}}\n' > provenance/whatever.jsonl
-  export PROVENANCE_BUNDLE=provenance
-  run bash scripts/release/upload.sh
-  [ "${status}" -eq 0 ]
-  grep -q '"payload":"x"' dist/keel.intoto.jsonl
-}
-
-@test "upload.sh --publish: the image SBOMs attach concurrently, and publishing comes last" {
-  stub_release_gh
-  local flavor arch
-  for flavor in max min fips; do
-    for arch in amd64 arm64; do
-      printf '{}' > "dist/sbom-${flavor}-${arch}.spdx.json"
-    done
-  done
-  export UPLOAD_BARRIER=6
-  run bash scripts/release/upload.sh --publish
-  [ "${status}" -eq 0 ]
-  tail -1 "${STATE}/calls" | grep -q 'gh release edit v1\.2\.3 --draft=false --latest'
-}
-
-@test "upload.sh --publish: a failed SBOM upload leaves the release a draft" {
-  stub_release_gh
-  local flavor arch
-  for flavor in max min fips; do
-    for arch in amd64 arm64; do
-      printf '{}' > "dist/sbom-${flavor}-${arch}.spdx.json"
-    done
-  done
-  export FAIL_ON='gh release upload v1\.2\.3 dist/sbom-min-arm64'
-  run bash scripts/release/upload.sh --publish
-  [ "${status}" -ne 0 ]
-  [ "$(call_count 'gh release edit')" -eq 0 ]
-}
-
 # --- release.yml -------------------------------------------------------------------------------
 
 # job_block JOB: the workflow's lines for one job.
@@ -543,7 +331,7 @@ job_permissions() {
 @test "release.yml: artifacts that lose their mode are made executable before the images use them" {
   local chmod_line docker_line
   chmod_line="$(job_block images | grep -n 'make dist-chmod' | cut -d: -f1)"
-  docker_line="$(job_block images | grep -n 'make release-docker' | cut -d: -f1)"
+  docker_line="$(job_block images | grep -n 'make release-images' | cut -d: -f1)"
   [ -n "${chmod_line}" ]
   [ "${chmod_line}" -lt "${docker_line}" ]
 }

@@ -372,6 +372,22 @@ function check_runtime_installs() {
   return "${failed}"
 }
 
+# Rule 7: every repository carries a security policy, code owners and dependency updates
+# (templates/SECURITY.md, CODEOWNERS, dependabot.yml).
+function check_required_files() {
+  local failed=0 file
+  if [ ! -f "${REPO_ROOT}/SECURITY.md" ] && [ ! -f "${REPO_ROOT}/.github/SECURITY.md" ]; then
+    log '❌ Rule 7: missing SECURITY.md (template: templates/SECURITY.md)'
+    failed=1
+  fi
+  for file in .github/CODEOWNERS .github/dependabot.yml; do
+    [ -f "${REPO_ROOT}/${file}" ] && continue
+    log "❌ Rule 7: missing ${file} (template: templates/$(basename "${file}"))"
+    failed=1
+  done
+  return "${failed}"
+}
+
 # runtime_install_steps: "<workflow file>\t<job id>\t<step line>" for every setup step.
 function runtime_install_steps() {
   local f
@@ -399,6 +415,7 @@ function main() {
   check_universal_targets  || overall=1
   check_recipe_shape       || overall=1
   check_runtime_installs   || overall=1
+  check_required_files     || overall=1
 
   if [ "${overall}" -eq 0 ]; then
     log '✅ CI audit clean: all Makefile target invariants satisfied.'

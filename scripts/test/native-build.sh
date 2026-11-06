@@ -6,11 +6,8 @@
 #
 # Output, under target/native/<os>-<arch>/:
 #   tests/<pkg>.test[.exe] + tests.tsv   one Go test binary per package with tests
-#                                        (<package dir>\t<binary>; -race needs cgo, so
-#                                        the race detector runs on Linux only)
-#   bin/pebble[.exe]                     the pinned pebble, for the integrity suite
-#   bats/                                bats-core (bash), as installed in the dev image
-# and the keel binaries in dist/ (keel-min, keel-max) for <os>/<arch>.
+#   bats/                                the bats the tool image carries
+# plus whatever scripts/test/native-build.local.sh OS ARCH OUT EXT builds for this platform.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -25,6 +22,8 @@ set -o pipefail
 # shellcheck source=../lib/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 
+readonly LOCAL_HOOK='scripts/test/native-build.local.sh'
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
@@ -35,15 +34,15 @@ function main() {
   rm -rf "${out}"
   mkdir -p "${out}/tests" "${out}/bin"
   build_tests "${os}" "${arch}" "${out}" "${ext}"
-  build_keel "${os}" "${arch}" "${ext}"
-  build_pebble "${os}" "${arch}" "${out}" "${ext}"
   copy_bats "${out}"
+  # What else the project builds for this platform.
+  [ ! -f "${LOCAL_HOOK}" ] || bash "${LOCAL_HOOK}" "${os}" "${arch}" "${out}" "${ext}"
   log "✅ native build for ${os}/${arch}: ${out}"
 }
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_native_build.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/native_build.log' >&5
 }
 
 function validate_args() {
@@ -71,27 +70,6 @@ function build_tests() {
     printf '%s\t%s\n' "${dir}" "${bin}" >> "${out}/tests.tsv"
   done < <(go_pkgs)
   log "✅ $(wc -l < "${out}/tests.tsv" | tr -d ' ') test binaries for ${os}/${arch}"
-}
-
-function build_keel() {
-  local -r os="${1}" arch="${2}" ext="${3}"
-  local variant
-  GOOS="${os}" GOARCH="${arch}" bash scripts/build/ci_min.sh
-  GOOS="${os}" GOARCH="${arch}" bash scripts/build/ci_max_no_fips.sh
-  if [ -n "${ext}" ]; then
-    for variant in keel-min keel-max; do
-      mv "dist/${variant}" "dist/${variant}${ext}"
-    done
-  fi
-}
-
-# build_pebble OS ARCH OUT EXT: the pebble version setup-pebble.sh pins, cross-built.
-function build_pebble() {
-  local -r os="${1}" arch="${2}" out="${3}" ext="${4}"
-  local module
-  module="$(sed -nE "s/^readonly PEBBLE_MODULE='([^']+)'\$/\\1/p" scripts/ci/setup-pebble.sh)"
-  GOOS="${os}" GOARCH="${arch}" CGO_ENABLED=0 go install "${module}"
-  cp "$(go env GOPATH)/bin/${os}_${arch}/pebble${ext}" "${out}/bin/pebble${ext}"
 }
 
 function copy_bats() {

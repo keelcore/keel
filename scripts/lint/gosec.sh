@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 # scripts/lint/gosec.sh
-# Go security linter (SAST). Fails on any finding. Install with: make setup-gosec
-#
-# Excluded rules:
-#   G304 (file inclusion via variable) — every os.ReadFile path in keel comes from
-#        operator configuration (keel.yaml, TLS and key files), never from request input.
+# Go SAST: gosec in every repo-owned Go module. Excluded rules: config/gosec.local.txt.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -16,19 +12,35 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly EXCLUDED_RULES='G304'
+# shellcheck source=../lib/paths.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  log "🔍 Running gosec (excluding ${EXCLUDED_RULES})"
-  gosec -quiet -exclude="${EXCLUDED_RULES}" -exclude-dir=vendor ./...
+  local -a exclude=()
+  local rules
+  rules="$(config_list gosec | paste -sd, -)"
+  [ -z "${rules}" ] || exclude=("-exclude=${rules}")
+  local mod found=0
+  while IFS= read -r mod; do
+    [ -n "${mod}" ] || continue
+    found=1
+    log "🔍 gosec in $(dirname "${mod}")${rules:+ (excluding ${rules})}"
+    (cd "$(dirname "${mod}")" && gosec -quiet ${exclude[@]+"${exclude[@]}"} -exclude-dir=vendor ./...)
+  done < <(source_files '*go.mod')
+  if [ "${found}" -eq 0 ]; then
+    log 'ℹ️  No Go module; nothing to check'
+    return 0
+  fi
   log '✅ gosec clean'
 }
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_lint_gosec.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/lint_gosec.log' >&5
 }
 
 function validate_args() {

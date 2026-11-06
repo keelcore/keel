@@ -1,0 +1,2 @@
+library	--set mode=library	C-0012 C-0061 C-0076 C-0211 C-0236 C-0237 C-0258
+sidecar	-f tests/fixtures/helm-policy/sidecar-values.yaml	C-0012 C-0061 C-0076 C-0211 C-0236 C-0237 C-0258 C-0018 C-0056

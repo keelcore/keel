@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # helm-push.sh
-# Package the Keel Helm chart and push it to GHCR as an OCI artifact.
+# Package the repository's Helm chart and push it to GHCR as an OCI artifact.
 # Signs the pushed chart digest with cosign keyless signing. Runs in the dev
 # image (make release-helm-push), which carries helm and cosign.
 #
@@ -9,7 +9,7 @@
 #   GITHUB_ACTOR   — registry username (github.actor in Actions)
 #
 # OCI target:
-#   oci://ghcr.io/keelcore/charts/keel:<version>
+#   oci://ghcr.io/<owner>/charts/<chart name>:<version>
 #
 # The chart version stored in Chart.yaml is overridden at package time
 # with the semver tag so chart version == app version always.
@@ -24,14 +24,29 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
+
 readonly REGISTRY='ghcr.io'
-readonly CHART_REPO="oci://${REGISTRY}/keelcore/charts"
-readonly CHART_DIR='helm/keel'
+OWNER="$(release_repo)"
+OWNER="${OWNER%%/*}"
+readonly OWNER
+readonly CHART_REPO="oci://${REGISTRY}/${OWNER}/charts"
+CHART_FILE="$(chart_file)"
+readonly CHART_FILE
+CHART_DIR="$(dirname "${CHART_FILE:-.}")"
+readonly CHART_DIR
+CHART_NAME="$(chart_name)"
+readonly CHART_NAME
 readonly DIST='dist'
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  if [ -z "${CHART_NAME}" ]; then
+    log 'ℹ️  No chart; nothing to publish'
+    return 0
+  fi
   local tag
   tag="$(resolve_tag)"
   # Strip leading 'v' — Helm semver does not include the 'v' prefix.
@@ -42,15 +57,15 @@ function main() {
   require_cosign
   registry_login
   package_chart "${version}"
-  local pkg="dist/keel-${version}.tgz"
+  local pkg="dist/${CHART_NAME}-${version}.tgz"
   push_chart "${pkg}" "${version}"
   sign_chart "${version}"
-  log "Helm chart published and signed: ${CHART_REPO}/keel:${version}"
+  log "Helm chart published and signed: ${CHART_REPO}/${CHART_NAME}:${version}"
 }
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_helm_push.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/helm_push.log' >&5
 }
 
 function validate_args() { :; }
@@ -116,7 +131,7 @@ function push_chart() {
 
 function sign_chart() {
   local -r version="${1}"
-  local -r ref="${REGISTRY}/keelcore/charts/keel:${version}"
+  local -r ref="${REGISTRY}/${OWNER}/charts/${CHART_NAME}:${version}"
   log "  Signing ${ref} (cosign keyless)"
   bash scripts/release/cosign.sh sign --yes "${ref}"
 }

@@ -46,7 +46,7 @@ function main() {
 
 function log() {
   local -r msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_setup_gosec.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/setup_gosec.log' >&5
 }
 
 function validate_args() {
