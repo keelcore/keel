@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # setup-kind.sh
-# Install kind and create a single-node cluster for kubectl dry-run validation.
-# Idempotent: no-op if the pinned kind version is already installed and the
-# cluster already exists.
+# Install the pinned kind in the dev image (Linux, amd64 or arm64), verified against
+# the release's published SHA-256. Idempotent: no-op if that version is installed.
+# Clusters are created by scripts/k8s/setup-k8s-kind.sh (make setup-k8s-kind).
 #
-# Pinned version: v0.31.0
-# Update KIND_VERSION and KIND_SHA256 together when bumping.
+# Update KIND_VERSION and both KIND_SHA256_* together when bumping.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -18,18 +17,29 @@ set -o errexit
 set -o pipefail
 
 readonly KIND_VERSION='0.31.0'
-readonly KIND_SHA256='eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa'
-readonly KIND_URL="https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-amd64"
+# Published as kind-linux-<arch>.sha256sum in the release.
+readonly KIND_SHA256_AMD64='eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa'
+readonly KIND_SHA256_ARM64='8e1014e87c34901cc422a1445866835d1e666f2a61301c27e722bdeab5a1f7e4'
 readonly KIND_INSTALL_PATH='/usr/local/bin/kind'
-readonly CLUSTER_NAME='keel-lint'
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  require_linux
-  ensure_kind
-  ensure_cluster
-  log "kind cluster '${CLUSTER_NAME}' is ready"
+  if is_pinned_version_installed; then
+    log "kind v${KIND_VERSION} already installed"
+    return 0
+  fi
+  case "$(uname -s)" in
+    Linux)
+      log "Installing kind v${KIND_VERSION} (Linux)"
+      install_linux
+      ;;
+    *)
+      log '❌ kind installs in the dev image (Linux); run its targets through make'
+      exit 1
+      ;;
+  esac
+  log "kind installed: $(kind version)"
 }
 
 function log() {
@@ -37,24 +47,15 @@ function log() {
   printf '%s\n' "${msg}" | tee -a '/tmp/keel_setup_kind.log' >&5
 }
 
-function validate_args() { :; }
-
-function require_linux() {
-  if [[ "$(uname -s)" != 'Linux' ]]; then
-    log "ERROR: setup-kind.sh only supports Linux CI runners"
+function validate_args() {
+  if [ "${#}" -gt 1 ] || [ -n "${1:-}" ]; then
+    log '❌ Error: Unexpected arg'
     exit 1
   fi
 }
 
-function ensure_kind() {
-  if is_pinned_version_installed; then
-    log "kind v${KIND_VERSION} already installed"
-    return 0
-  fi
-  log "Installing kind v${KIND_VERSION}"
-  download_and_verify
-  install_kind
-  log "kind v${KIND_VERSION} installed at ${KIND_INSTALL_PATH}"
+function as_root() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
 }
 
 function is_pinned_version_installed() {
@@ -62,28 +63,24 @@ function is_pinned_version_installed() {
     kind version 2>/dev/null | grep -qF "v${KIND_VERSION}"
 }
 
-function download_and_verify() {
+function install_linux() {
+  local arch sum
+  arch="$(uname -m)"
+  case "${arch}" in
+    x86_64)  arch='amd64'; sum="${KIND_SHA256_AMD64}" ;;
+    aarch64) arch='arm64'; sum="${KIND_SHA256_ARM64}" ;;
+    *)
+      log "ERROR: unsupported arch: ${arch}"
+      exit 1
+      ;;
+  esac
+  local -r url="https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-${arch}"
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${KIND_URL}" -o "${tmp}/kind-linux-amd64"
-  printf '%s  %s/kind-linux-amd64\n' "${KIND_SHA256}" "${tmp}" \
-    | sha256sum --check --quiet
-  mv "${tmp}/kind-linux-amd64" /tmp/kind-staged
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 "${url}" -o "${tmp}/kind"
+  printf '%s  %s\n' "${sum}" "${tmp}/kind" | sha256sum --check --quiet
+  as_root install -m 0755 "${tmp}/kind" "${KIND_INSTALL_PATH}"
   rm -rf "${tmp}"
-}
-
-function install_kind() {
-  sudo mv /tmp/kind-staged "${KIND_INSTALL_PATH}"
-  sudo chmod +x "${KIND_INSTALL_PATH}"
-}
-
-function ensure_cluster() {
-  if kind get clusters 2>/dev/null | grep -qF "${CLUSTER_NAME}"; then
-    log "kind cluster '${CLUSTER_NAME}' already exists"
-    return 0
-  fi
-  log "Creating kind cluster '${CLUSTER_NAME}'"
-  kind create cluster --name "${CLUSTER_NAME}" --wait '60s'
 }
 
 main "${@:-}"

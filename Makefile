@@ -215,8 +215,8 @@ setup-pebble:
 	bash scripts/dev/run.sh bash scripts/ci/setup-pebble.sh
 
 setup-kind:
-	@echo "🔧 Installing kind and creating cluster..."
-	./scripts/ci/setup-kind.sh
+	@echo "🔧 Installing kind..."
+	bash scripts/dev/run.sh bash scripts/ci/setup-kind.sh
 
 ## CI Gate Targets
 test-smoke-windows:
@@ -383,7 +383,7 @@ help-local:
 	@echo "Setup (CI tooling):"
 	@echo "  setup-bats        Install bats-core"
 	@echo "  setup-pebble      Install pebble ACME test server"
-	@echo "  setup-kind        Install kind and create cluster"
+	@echo "  setup-kind        Install kind (in the dev image)"
 	@echo "  setup-markdownlint Install markdownlint-cli"
 	@echo "  setup-staticcheck Install staticcheck linter"
 	@echo "  setup-syft        Install syft SBOM tool"

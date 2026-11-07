@@ -70,6 +70,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- `make setup-kind` installs kind in the dev image, for amd64 and arm64, so `make update-pins` verifies a kind bump on
+  every host; clusters stay with `make setup-k8s-kind`.
+- The README's CI rule line wraps within the 120-character limit, so `make lint-markdown` passes.
 - The container scripts check a cluster node with `container inspect`; `container ls` no longer lists nodes.
 - Workflow lint accepts the `ubuntu-26.04` runner (`.github/actionlint.yaml`).
 - `make report-size` exits 0 once its report is printed.

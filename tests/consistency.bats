@@ -573,3 +573,13 @@ GO
   grep -qF 'run.sh" --fetch-image' scripts/dev/build-image.local.sh
   [ -z "$(grep -vE '^#' scripts/dev/build-image.local.sh | grep -E 'push')" ]
 }
+
+@test "make setup-kind: installs kind in the dev image, for amd64 and arm64, and creates no cluster" {
+  run make -n --no-print-directory setup-kind
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *'bash scripts/dev/run.sh bash scripts/ci/setup-kind.sh'* ]] || false
+  grep -qE "^readonly KIND_SHA256_AMD64='[0-9a-f]{64}'" scripts/ci/setup-kind.sh
+  grep -qE "^readonly KIND_SHA256_ARM64='[0-9a-f]{64}'" scripts/ci/setup-kind.sh
+  run grep -nE 'kind create cluster|^[[:space:]]*sudo ' scripts/ci/setup-kind.sh
+  [ "${status}" -eq 1 ] || { echo "${output}"; return 1; }
+}
