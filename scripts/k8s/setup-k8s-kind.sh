@@ -15,8 +15,8 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly KIND_VERSION='0.31.0'
-readonly KIND_SHA256='eb244cbafcc157dff60cf68693c14c9a75c4e6e6fedaf9cd71c58117cb93e3fa'
+readonly KIND_VERSION='0.33.0'
+readonly KIND_SHA256='aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d'
 readonly KIND_URL="https://github.com/kubernetes-sigs/kind/releases/download/v${KIND_VERSION}/kind-linux-amd64"
 readonly KIND_INSTALL_PATH='/usr/local/bin/kind'
 readonly CLUSTER_NAME='keel-ci'
