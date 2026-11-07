@@ -583,3 +583,48 @@ GO
   run grep -nE 'kind create cluster|^[[:space:]]*sudo ' scripts/ci/setup-kind.sh
   [ "${status}" -eq 1 ] || { echo "${output}"; return 1; }
 }
+
+# gosec_stub: a fake gosec that logs its arguments and prints GOSEC_ISSUES (gosec's JSON issue list).
+gosec_stub() {
+  mkdir -p "${BATS_TEST_TMPDIR}/bin"
+  cat > "${BATS_TEST_TMPDIR}/bin/gosec" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${BATS_TEST_TMPDIR}/gosec.log"
+printf '{"Issues": %s}\n' "\${GOSEC_ISSUES:-[]}"
+STUB
+  chmod +x "${BATS_TEST_TMPDIR}/bin/gosec"
+}
+
+# site_issues: one gosec issue per entry of config/gosec-sites.local.txt, at the line its code is on.
+site_issues() {
+  local rule path code why line
+  while IFS=$'\t' read -r rule path code why; do
+    line="$(grep -nF -- "${code}" "${path}" | head -1 | cut -d: -f1)"
+    jq -nc --arg r "${rule}" --arg f "${REPO_ROOT}/${path}" --arg l "${line}" '{rule_id: $r, file: $f, line: $l, details: "x"}'
+  done < <(grep -vE '^[[:space:]]*(#|$)' config/gosec-sites.local.txt) | jq -sc .
+}
+
+@test "make lint-gosec-local: gosec skips every submodule folder, starting with .standards" {
+  run make -n --no-print-directory lint-gosec-local
+  [[ "${output}" == *'bash scripts/dev/run.sh bash scripts/lint/lint-gosec.local.sh'* ]] || false
+  gosec_stub
+  GOSEC_ISSUES="$(site_issues)" PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run bash scripts/lint/lint-gosec.local.sh
+  [ "${status}" -eq 0 ] || { echo "${output}"; return 1; }
+  grep -q -- '-exclude-dir=.standards' "${BATS_TEST_TMPDIR}/gosec.log"
+}
+
+@test "lint-gosec.local.sh: a listed site passes; the same rule anywhere else in the file fails" {
+  gosec_stub
+  local issues
+  issues="$(site_issues | jq -c --arg f "${REPO_ROOT}/pkg/core/mw/oidc.go" '. + [{rule_id: "G407", file: $f, line: "1", details: "x"}]')"
+  GOSEC_ISSUES="${issues}" PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run bash scripts/lint/lint-gosec.local.sh
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *'G407 pkg/core/mw/oidc.go:1'* ]] || false
+}
+
+@test "lint-gosec.local.sh: a listed site gosec no longer reports fails, naming the entry" {
+  gosec_stub
+  GOSEC_ISSUES="$(site_issues | jq -c '.[1:]')" PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run bash scripts/lint/lint-gosec.local.sh
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *'stale site'*'G407'*'pkg/core/mw/oidc.go'* ]] || false
+}

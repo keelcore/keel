@@ -81,6 +81,7 @@ export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGES
 .PHONY: update-pins-local
 .PHONY: publish-release-images-local
 .PHONY: build-native-local
+.PHONY: lint-gosec-local
 .PHONY: test-native-integrity-local
 .PHONY: build-dev-image
 .PHONY: publish-dev-image-local
@@ -313,6 +314,11 @@ build-native-local:
 test-native-integrity-local:
 	@echo "🧪 Running the integrity suite against dist/..."
 	bash scripts/test/test-native-integrity.local.sh
+
+## keel's gosec: skips submodule folders (.standards first) and accepts reviewed sites (config/gosec-sites.local.txt).
+lint-gosec-local:
+	@echo "🔍 Running gosec on keel's own code..."
+	bash scripts/dev/run.sh bash scripts/lint/lint-gosec.local.sh
 
 ## Pin hook (WHAT=pins|holds) — also called by canonical update-pins.sh (`make update-pins`)
 update-pins-local:

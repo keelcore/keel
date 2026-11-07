@@ -142,6 +142,9 @@ func (s *Server) applyTracing(cfg config.Config) {
 		s.logger.Warn("tracing_init_failed", map[string]any{"err": err.Error()})
 		return
 	}
+	if exp != nil {
+		exp.SetLogger(s.logger)
+	}
 	s.expPtr.Store(exp)
 }
 

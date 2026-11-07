@@ -93,7 +93,9 @@ func doProbe(client *http.Client, url string, h *upstreamHealth, log *logging.Lo
 		}
 		return
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil && log != nil {
+		log.Warn("upstream_health_probe_close_failed", map[string]any{"err": err.Error()})
+	}
 	healthy := resp.StatusCode >= 200 && resp.StatusCode < 300
 	h.ok.Store(healthy)
 	if !healthy && log != nil {

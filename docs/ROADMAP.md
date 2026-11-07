@@ -73,42 +73,6 @@ GOFIPS140=v1.0.0 go build \
 
 ---
 
-### OIDC / OAuth2 Proxying
-
-**What it is:** Full OIDC redirect flow support — Okta, Azure AD, Google, Keycloak — so Keel can act as an
-authentication proxy for services that do not implement authn themselves.
-
-**Why it matters:** Currently, Keel's authn layer validates JWT bearer tokens. This requires the client to
-already have a JWT — it does not handle the case where a human user needs to log in via a browser-based OIDC
-flow. OIDC proxying would allow Keel to:
-
-1. Detect unauthenticated browser requests.
-2. Redirect to the OIDC provider's authorization endpoint.
-3. Handle the callback, exchange the code for tokens.
-4. Set a session cookie.
-5. Forward subsequent requests with the validated identity.
-
-This fills the gap between Keel's current service-to-service authn (JWT) and user-facing web application
-authn (OIDC).
-
----
-
-### Immutable Audit Logging
-
-**What it is:** A dedicated log stream for security events (authentication successes/failures, 403 responses,
-config reloads, TLS errors) written to an append-only, tamper-evident log.
-
-**Why it matters:** Access logs capture all requests. Audit logs capture security-relevant events at a higher
-signal-to-noise ratio, formatted for ingestion by SIEM systems (Splunk, QRadar, Microsoft Sentinel). The
-"immutable" property (append-only, optionally with cryptographic chaining) provides forensic integrity — an
-attacker who compromises the system cannot easily erase evidence of the intrusion from the audit log.
-
-**Implementation:** A separate log writer (not the access log) that emits to a dedicated file,
-syslog/journald, or remote endpoint, with each entry containing: event type, principal ID, source IP,
-outcome, timestamp, and an optional chain hash linking to the previous entry.
-
----
-
 ### WASM Middleware Extension Points
 
 **What it is:** Extension points that allow loading WebAssembly (WASM) modules as middleware handlers.
@@ -132,55 +96,6 @@ current and reflects actual usage in the ecosystem.
 **Why it matters:** As the project grows and downstream users build on Keel, the trademark policy needs to
 evolve. What constitutes "permitted use" and "restricted use" should reflect real-world patterns, not
 assumptions made at project inception.
-
----
-
-### Comprehensive TLS Cipher and Curve Hardening
-
-**What it is:** A full audit and hardening pass ensuring every outbound TLS connection Keel makes — not just
-its server-side listener — applies the same cipher-suite and key-exchange policy enforced by
-`pkg/core/tls.BuildTLSConfig`.
-
-**Why it matters:** The current `BuildTLSConfig` policy (`tlspolicy/base_fips.go` / `tlspolicy/base.go`) is applied
-to the server-side TLS listener. Outbound connections — ACME CA endpoint (`httpClientWithCA`), remote log sink,
-ext-authz transport, and future OTLP exporter — each construct their own `tls.Config{}` and do not go
-through that policy. This means:
-
-1. In a FIPS build (`GOFIPS140=v1.0.0`) running in FIPS 140 mode, all crypto is enforced at the runtime level
-   regardless of `tls.Config` content — so the gap is closed implicitly but not explicitly.
-2. Without the FIPS toolchain (e.g. the `fips` build tag used as a policy signal), outbound connections may
-   negotiate X25519 key exchange or ChaCha20-Poly1305, which are not approved under FIPS 140-2/3.
-3. As new transports are added (OTLP, ext-authz gRPC, future federation), the policy must not be
-   re-invented per-call-site.
-
-**What "comprehensive" means:**
-
-- Audit every `tls.Config{...}` construction in the codebase; replace raw construction with a call to (or
-  extension of) `BuildTLSConfig`.
-- For outbound clients: derive a `*tls.Config` from `BuildTLSConfig`, then layer caller-specific fields on
-  top (e.g. `RootCAs` for private CAs, `ServerName` for SNI overrides).
-- Enumerate cipher suites **explicitly** in `tlspolicy/base_fips.go` rather than relying solely on the Go
-  Cryptographic Module's runtime enforcement — defence-in-depth; catches misconfiguration before it reaches the crypto layer.
-- Add a unit test that constructs every outbound HTTP/gRPC client in the codebase and asserts
-  `MinVersion >= TLS 1.2`, no RC4/DES/3DES in `CipherSuites`, and — under the `fips` tag — no X25519 in
-  `CurvePreferences`.
-
-**Concrete gap as of 2026-03-12:**
-
-| Call site | File | Gap |
-| --- | --- | --- |
-| `httpClientWithCA` | `pkg/core/acme/manager.go` | Raw `&tls.Config{RootCAs: pool}` — no MinVersion, no curve policy |
-| Remote log HTTP sink | `pkg/core/server.go` | Uses `http.DefaultTransport` — no TLS policy |
-| ext-authz HTTP transport | `pkg/core/mw/ext_authz.go` | Default `http.Client` — no TLS policy |
-| OTLP/HTTP exporter | `pkg/core/tracing/provider.go` | `http.Client` with no TLS policy |
-
-**Acceptance criteria:**
-
-- `go vet ./...` and `staticcheck ./...` continue to pass.
-- All call sites above go through `BuildTLSConfig` (or a validated wrapper).
-- `tlspolicy/base_fips.go` enumerates `CipherSuites` explicitly.
-- New unit test `TestOutboundTLSPolicy` passes under both `fips` and non-`fips` build tags.
-- BATS: integrity test confirms ACME client successfully connects to pebble with FIPS-policy TLS settings.
 
 ---
 

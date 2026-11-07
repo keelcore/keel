@@ -131,17 +131,7 @@ func NewWithHooks(cfg config.Config, hooks Hooks, sign ...func(*http.Request) er
 		// The size cap is enforced up front on a declared Content-Length (clean
 		// 502) and otherwise while streaming: past the cap the copy fails and the
 		// proxy aborts the client connection (headers are already sent).
-		ModifyResponse: func(resp *http.Response) error {
-			if maxResp <= 0 {
-				return nil
-			}
-			if resp.ContentLength > maxResp {
-				resp.Body.Close()
-				return errResponseTooLarge
-			}
-			resp.Body = &limitBody{rc: resp.Body, remaining: maxResp}
-			return nil
-		},
+		ModifyResponse: capResponse(maxResp),
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, handlerErr error) {
 			switch {
 			case errors.Is(handlerErr, errCircuitOpen):
@@ -312,4 +302,23 @@ func upstreamBase(upstreamURL string) string {
 		return "http://localhost"
 	}
 	return upstreamURL
+}
+
+// capResponse enforces max_response_body_bytes: a declared Content-Length past the cap is refused
+// (502), and any other body is cut off at the cap while streaming. A failed close of a refused body
+// is reported with the refusal.
+func capResponse(maxResp int64) func(*http.Response) error {
+	return func(resp *http.Response) error {
+		if maxResp <= 0 {
+			return nil
+		}
+		if resp.ContentLength > maxResp {
+			if err := resp.Body.Close(); err != nil {
+				return errors.Join(errResponseTooLarge, err)
+			}
+			return errResponseTooLarge
+		}
+		resp.Body = &limitBody{rc: resp.Body, remaining: maxResp}
+		return nil
+	}
 }

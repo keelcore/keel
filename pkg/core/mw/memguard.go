@@ -71,7 +71,7 @@ func (g *MemoryGuard) sample(minHeadroom int64, log *logging.Logger) {
 	}
 	var ms runtime.MemStats
 	readMemStats(&ms)
-	headroom := limit - int64(ms.Sys-ms.HeapReleased)
+	headroom := limit - heldBytes(&ms)
 	switch {
 	case !g.Low() && headroom < minHeadroom:
 		g.low.Store(true)
@@ -80,4 +80,13 @@ func (g *MemoryGuard) sample(minHeadroom int64, log *logging.Logger) {
 		g.low.Store(false)
 		log.Info("memory_headroom_recovered", map[string]any{"headroom": headroom, "floor": minHeadroom, "limit": limit})
 	}
+}
+
+// heldBytes is the memory Go holds from the OS (Sys−HeapReleased), capped at math.MaxInt64.
+func heldBytes(ms *runtime.MemStats) int64 {
+	held := ms.Sys - ms.HeapReleased
+	if held > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(held)
 }

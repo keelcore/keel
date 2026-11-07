@@ -38,6 +38,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- `docs/ROADMAP.md` lists planned work only: OIDC browser login, the audit log and the shared outbound TLS policy
+  are in this release.
 - **Breaking:** make targets are verb-first (standards), for example `make build-min`, `make test-container-stack`,
   `make generate-certs`; the old names are removed. Each keel script is named after its target, for example
   `scripts/build/build-min.sh` and `scripts/container/test-container-stack.sh`.
@@ -70,6 +72,14 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- A response body that fails to close is reported: the upstream health probe logs
+  `upstream_health_probe_close_failed`, the OTLP exporter logs `otlp_export_close_failed`, and an oversized upstream
+  response returns the close error with its 502.
+- The memory guard counts memory held beyond `math.MaxInt64` as the most there can be, instead of wrapping negative.
+- CI's gosec job runs `make lint-gosec-local` (`scripts/lint/lint-gosec.local.sh`): gosec skips every submodule
+  folder, `.standards` first, and accepts the 11 gosec 2.30.0 findings reviewed as false positives one site at a time
+  (`config/gosec-sites.local.txt`, each with its reason). Any other finding fails, and so does a listed site gosec no
+  longer reports.
 - `make setup-kind` installs kind in the dev image, for amd64 and arm64, so `make update-pins` verifies a kind bump on
   every host; clusters stay with `make setup-k8s-kind`.
 - The README's CI rule line wraps within the 120-character limit, so `make lint-markdown` passes.

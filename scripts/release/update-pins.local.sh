@@ -90,7 +90,7 @@ function verify() {
   local -r kind="${1}" name="${2}" platform="${4}"
   case "${kind}:${name}" in
     gomod:*) printf 'build-min build-max test' ;;
-    tool:GOSEC) printf 'setup-gosec lint-gosec' ;;
+    tool:GOSEC) printf 'setup-gosec lint-gosec-local' ;;
     gotool:*/govulncheck) printf 'setup-govulncheck lint-vuln' ;;
     tool:ACTIONLINT) printf 'setup-actionlint lint-workflows' ;;
     gotool:*/go-licenses*) printf 'setup-go-licenses lint-licenses' ;;

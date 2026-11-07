@@ -157,7 +157,7 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: gosec
-        run: make lint-gosec
+        run: make lint-gosec-local
 
   fuzz:
     name: Fuzz

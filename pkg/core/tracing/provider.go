@@ -15,9 +15,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/tlspolicy"
 )
 
@@ -56,6 +58,7 @@ type Exporter struct {
 	ch     chan Span
 	done   chan struct{}
 	wg     sync.WaitGroup
+	log    atomic.Pointer[logging.Logger] // otlp_export_close_failed events; nil: none
 }
 
 // Setup creates an Exporter from cfg and starts its background flush goroutine.
@@ -82,6 +85,11 @@ func Setup(cfg config.OTLPConfig) (*Exporter, error) {
 	e.wg.Add(1)
 	go e.run()
 	return e, nil
+}
+
+// SetLogger sets where the exporter logs failures it cannot return to a caller.
+func (e *Exporter) SetLogger(log *logging.Logger) {
+	e.log.Store(log)
 }
 
 // Submit enqueues s for export. Non-blocking: drops the span if the channel
@@ -155,7 +163,11 @@ func (e *Exporter) send(spans []Span) {
 	if err != nil {
 		return
 	}
-	resp.Body.Close()
+	if err := resp.Body.Close(); err != nil {
+		if log := e.log.Load(); log != nil {
+			log.Warn("otlp_export_close_failed", map[string]any{"err": err.Error()})
+		}
+	}
 }
 
 // --- OTLP JSON types (opentelemetry-proto JSON encoding) ---
