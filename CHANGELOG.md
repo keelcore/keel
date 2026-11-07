@@ -36,6 +36,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- The macOS CI job installs nothing: the integrity suite bounds its process runs in bash, so `make setup-bats-local` and
+  `coreutils` are gone.
 - `.standards` moves to v0.10.13: its tool image now carries govulncheck.
 - The image release, chart push, upload and self-verification are canonical too; `make release-docker` is now
   `make release-images`. Signatures still carry this repository's identity.

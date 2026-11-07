@@ -78,7 +78,6 @@ export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGES
 .PHONY: bats-example
 .PHONY: ci-build-example
 .PHONY: clean-local
-.PHONY: setup-bats-local
 .PHONY: create-release-local
 .PHONY: update-pins-local
 .PHONY: release-images-local
@@ -297,11 +296,6 @@ roadmap-issues:
 clean-local:
 	@echo "🧹 Removing keel build artifacts (dist/, target/)..."
 	bash scripts/clean.local.sh
-
-## BATS tool extras (timeout) — also delegated to by canonical setup-bats.sh (`make setup-bats`)
-setup-bats-local:
-	@echo "⏱️  Installing keel BATS extras (timeout)..."
-	bash scripts/ci/setup-bats.local.sh
 
 ## Schema-diff bump hook (PREV_TAG=vX.Y.Z) — also called by canonical create-release.sh (`make create-release`)
 create-release-local:

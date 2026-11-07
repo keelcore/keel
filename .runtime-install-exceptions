@@ -1,4 +1,3 @@
 # Workflow jobs that install tools on the runner (audit Rule 6). Every other job takes its tools
 # from the pinned tool image. One job per line: <workflow>:<job>  <reason>.
-.github/workflows/ci.yml:integrity-macos  native macOS BATS run; macOS runners have no container runtime
 .github/workflows/ci.yml:k8s  helm drives the kind cluster on the runner

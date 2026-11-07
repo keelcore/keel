@@ -31,3 +31,26 @@ wait_for_keel_listener() {
   local -r timeout="${3:-10}"
   wait_for_log "${log}" "\"addr\":\"[^\"]*:${port}\".*\"msg\":\"listener_up\"" "${timeout}"
 }
+
+# run_bounded SECONDS CMD...: run CMD, stopping it at the limit. CMD's status, or 124 if it hit the
+# limit. The watchdog holds none of the caller's output, so `run` returns as soon as CMD ends.
+run_bounded() {
+  local -r limit="${1}"
+  shift
+  local flag
+  flag="$(mktemp)"
+  rm -f "${flag}"
+  "$@" &
+  local -r pid="${!}"
+  ( sleep "${limit}"; : > "${flag}"; kill "${pid}" 2> /dev/null ) > /dev/null 2>&1 &
+  local -r watchdog="${!}"
+  local status=0
+  wait "${pid}" || status="${?}"
+  kill "${watchdog}" 2> /dev/null || true
+  wait "${watchdog}" 2> /dev/null || true
+  if [ -e "${flag}" ]; then
+    rm -f "${flag}"
+    return 124
+  fi
+  return "${status}"
+}

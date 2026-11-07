@@ -794,7 +794,7 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 
   # Second instance cannot bind either port; every listener is attempted, both
   # failures are reported, and it exits on its own (124 = still running).
-  run timeout 10 env KEEL_CONFIG="${cfg}" keel-min
+  run run_bounded 10 env KEEL_CONFIG="${cfg}" keel-min
 
   kill -TERM "${holder}" 2>/dev/null || true
   wait "${holder}" 2>/dev/null || true

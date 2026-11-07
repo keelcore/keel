@@ -433,3 +433,24 @@ STUB
   done < <(awk '/^```sh$/ { on = 1; next } /^```$/ { on = 0 } on' "${REPO_ROOT}"/docs/runbooks/*.md)
   [ -z "${bad}" ] || { echo "not exercised: ${bad}"; false; }
 }
+
+# ---------------------------------------------------------------------------
+# run_bounded: tests/helpers/wait.bash, a time limit with no timeout(1), which macOS does not ship.
+# ---------------------------------------------------------------------------
+
+@test "run_bounded: passes through the command's status and output, without waiting for the limit" {
+  load helpers/wait
+  local -r start="${SECONDS}"
+  run run_bounded 20 bash -c 'printf out; exit 3'
+  [ "${status}" -eq 3 ]
+  [ "${output}" = 'out' ]
+  [ $(( SECONDS - start )) -lt 10 ]
+}
+
+@test "run_bounded: stops a command that overruns, with status 124" {
+  load helpers/wait
+  local -r start="${SECONDS}"
+  run run_bounded 1 sleep 30
+  [ "${status}" -eq 124 ]
+  [ $(( SECONDS - start )) -lt 10 ]
+}
