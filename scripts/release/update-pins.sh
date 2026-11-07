@@ -41,8 +41,6 @@
 #              pyproject build-system requirement
 #   npmlock    exact dependencies of a package.json beside its package-lock.json
 #   runner     workflow `runs-on:` / matrix `os:` image labels (newer images report-only)
-#   devimage   containers/NAME/image.ref: the pinned build context vs the tree's (a hold until the
-#              new context is published; apply pins it by digest)
 #   unpinned   inputs that float: @latest, apk/apt packages without a version,
 #              Homebrew installs, FROM / image: references without a digest,
 #              `*-latest` runners, npx and pip installs without a version or
@@ -51,8 +49,11 @@
 #
 # Eligibility of a candidate: not a prerelease; published at least 14 days ago
 # (COOLDOWN_DAYS), or 2 days for a Go toolchain patch release in the same minor
-# (GO_PATCH_COOLDOWN_DAYS). A newer major version is reported as `major`
-# (report-only); the newest eligible release in the current major is the candidate.
+# (GO_PATCH_COOLDOWN_DAYS). A newer major version (the first number: 0.y.z updates stay in major 0)
+# is reported as `major` (report-only); the newest eligible release in the current major is the
+# candidate. GitHub Actions (actions and runner images) move to a new major like any other update:
+# CI proves them, and wait-for-ci.sh keeps a red commit from being published. --major NAME (repeatable)
+# lets any other named pin move to its newest eligible release of any major.
 #
 # Status: current | stale (eligible candidate exists) | major | cooldown (newer
 # release still inside the cooldown) | unpinned | unresolved | hold.
@@ -75,9 +76,10 @@
 # Env: UPDATE_PINS_NOW (epoch seconds; default: now), UPDATE_PINS_FIXTURES (dir;
 # every remote read comes from it — tests), UPDATE_PINS_PLATFORM (default:
 # uname -s), UPDATE_PINS_LOGDIR (per-pin verification logs; default: next to the
-# throwaway worktree), GITHUB_TOKEN (else `gh auth token`).
+# throwaway worktree), UPDATE_PINS_PROGRESS_SECONDS (progress interval; default: 30),
+# GITHUB_TOKEN (else `gh auth token`).
 #
-# Usage: update-pins.sh [--apply | --discover-only | --from-pins-doc FILE] [--tsv FILE] [--report FILE]
+# Usage: update-pins.sh [--apply | --discover-only | --from-pins-doc FILE] [--major NAME] [--tsv FILE] [--report FILE]
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -97,6 +99,12 @@ readonly SEMVER_RE='^v?[0-9]+(\.[0-9]+)*$'
 
 NOW=0
 HOLDS=''
+PROGRESS_SECONDS="${UPDATE_PINS_PROGRESS_SECONDS:-30}"
+MAJOR_PINS=''
+ANY_MAJOR=''
+CHECKSUM_PIN=''
+PROGRESS_DIR=''
+PROGRESS_PID=''
 ROOT=''
 MODE='verify'
 APPLY=''
@@ -111,6 +119,8 @@ TOOLS=''
 
 # shellcheck source=../lib/paths.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+# shellcheck source=../lib/progress.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/progress.sh"
 
 function main() {
   exec 5>&1
@@ -138,6 +148,7 @@ function main() {
   load_hook
   local resolved
   resolved="$(dependabot_union "$(resolve_all "$(group "$(discover)")")")"
+  check_major_pins "${resolved}"
   report "${resolved}"
   [ -z "${TSV_OUT}" ] || write_tsv "${resolved}" > "${TSV_OUT}"
   [ -z "${PINS_MD}" ] || write_pins_md "${resolved}" > "${PINS_MD}"
@@ -181,13 +192,13 @@ function pins_doc_rows() {
 # Kind / Pin / Pinned columns of FILE; no network. Exit 1 listing each difference.
 function check_pins_doc() {
   local -r doc="${1}"
-  [ -f "${doc}" ] || { log "❌ ${doc} not found (make pins-doc)"; exit 1; }
+  [ -f "${doc}" ] || { log "❌ ${doc} not found (make generate-pins-doc)"; exit 1; }
   local want have diff
   want="$(group "$(discover)" | awk -F'\t' -v OFS='\t' '{ print $1, $2, $4 }' | sort -u)"
   have="$(awk -F' \\| ' '/^\| [a-z]+ \| `/ { k = $1; sub(/^\| /, "", k); n = $2; p = $3; gsub(/`/, "", n); gsub(/`/, "", p); print k "\t" n "\t" p }' "${doc}" | sort -u)"
   diff="$(diff <(printf '%s\n' "${have}") <(printf '%s\n' "${want}") | grep -E '^[<>] ' || true)"
   if [ -n "${diff}" ]; then
-    log "❌ ${doc} does not match the pins in the tree (make pins-doc, then commit it with the pins):"
+    log "❌ ${doc} does not match the pins in the tree (make generate-pins-doc, then commit it with the pins):"
     printf '%s\n' "${diff}" | sed -e "s|^< |  only in ${doc}: |" -e 's|^> |  only in the tree: |' >&5
     exit 1
   fi
@@ -218,6 +229,10 @@ function validate_args() {
       '') ;;
       --discover-only) MODE='discover' ;;
       --apply) APPLY=1 ;;
+      --major)
+        [ -n "${2:-}" ] || { log '❌ Error: --major needs a pin name'; exit 1; }
+        MAJOR_PINS+="${2}"$'\n'
+        shift ;;
       --tsv)
         [ -n "${2:-}" ] || { log '❌ Error: --tsv needs a file'; exit 1; }
         TSV_OUT="${2}"
@@ -285,7 +300,6 @@ function discover_generic() {
   discover_python
   discover_pypi
   discover_npmlock
-  discover_devimages
   discover_unpinned
 }
 
@@ -442,46 +456,6 @@ function discover_node() {
   done < <(files_of '.nvmrc' '*/.nvmrc')
 }
 
-# Tool images (containers/NAME/image.ref, scripts/lib/dev-image.sh): the pinned build context
-# against the tree's. A changed context (a tool pin bumped in a Containerfile, a new base) is a
-# hold until the image is published (dev-image.yml, after the commit), then stale until pinned.
-function discover_devimages() {
-  [ -f scripts/lib/dev-image.sh ] || return 0
-  local cf name ref pinned tree
-  for cf in containers/*/Containerfile; do
-    [ -f "${cf}" ] || continue
-    name="$(basename "$(dirname "${cf}")")"
-    ref="containers/${name}/image.ref"
-    [ -s "${ref}" ] || continue
-    pinned="$(sed -nE 's/.*:(ctx-[0-9a-f]+)@sha256:.*/\1/p' "${ref}" | head -1)"
-    tree="ctx-$(devimage_context "${name}")" || continue
-    record devimage "${name}" "${ref}:1" "${pinned:-none}" "${tree}"
-  done
-}
-
-# devimage_context NAME: the tree's build-context hash for containers/NAME (its .standards base as
-# pinned there, for an image that builds on it).
-function devimage_context() {
-  (
-    # shellcheck source=../lib/dev-image.sh
-    source scripts/lib/dev-image.sh
-    local base=''
-    if dev_has_base . "${1}"; then
-      base="$(dev_pinned_ref .standards dev "$(dev_context_hash .standards dev)")" || base=''
-    fi
-    dev_context_hash . "${1}" "${base}"
-  )
-}
-
-# devimage_repository NAME: where containers/NAME is published.
-function devimage_repository() {
-  (
-    # shellcheck source=../lib/dev-image.sh
-    source scripts/lib/dev-image.sh
-    dev_repository . "${1}"
-  )
-}
-
 # Workflow runner labels (`runs-on:` or a matrix `os:`) that name an exact image.
 function discover_runners() {
   local line label
@@ -539,7 +513,7 @@ function discover_npmlock() {
 }
 
 # digest_pinned_filter: drop file:line:text matches from a Containerfile whose image is
-# pinned by digest (containers/NAME/image.ref) — packages it installs at build time are
+# named by its build context (containers/NAME/image.ref) — packages it installs at build time are
 # fixed by that digest.
 function digest_pinned_filter() {
   local line file
@@ -571,7 +545,7 @@ function discover_unpinned() {
     [ -n "${line}" ] || continue
     record unpinned "brew:$(sed -E "s/.*brew install[[:space:]]+([^;|&\"')]+).*/\1/" <<< "${line}" | xargs | tr ' ' ',')" \
       "$(cut -d: -f1-2 <<< "${line}")" 'no version' 'floats (Homebrew)'
-  done < <(files_of '*.sh' | grep_files 'brew install [a-z]' | grep -v "log '\|printf ")
+  done < <(files_of '*.sh' | grep_files 'brew install [a-z]' | grep -vE "log ['\"]|printf ")
   while IFS= read -r line; do
     [ -n "${line}" ] || continue
     record unpinned "$(awk '{print $2}' <<< "${line#*:*:}")" "$(cut -d: -f1-2 <<< "${line}")" 'no digest' 'floats'
@@ -656,19 +630,21 @@ function github_releases() {
   fi
   local query body
   query="$(jq -n --arg o "${repo%%/*}" --arg n "${repo#*/}" --argjson c "${count}" '{
-    query: "query($o: String!, $n: String!, $c: Int!) { repository(owner: $o, name: $n) { releases(first: $c, orderBy: {field: CREATED_AT, direction: DESC}) { nodes { tagName publishedAt isDraft isPrerelease } } } }",
+    query: "query($o: String!, $n: String!, $c: Int!) { repository(owner: $o, name: $n) { releases(first: $c, orderBy: {field: CREATED_AT, direction: DESC}) { nodes { tagName publishedAt isDraft isPrerelease releaseAssets(first: 100) { nodes { digest } } } } } }",
     variables: {o: $o, n: $n, c: $c}}')"
   body="$(curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 --max-time 60 -X POST \
     -H "Authorization: Bearer $(github_token)" -d "${query}" https://api.github.com/graphql)" || return 1
   jq -e '[.data.repository.releases.nodes[] | {tag_name: .tagName, published_at: .publishedAt,
-           draft: .isDraft, prerelease: .isPrerelease}]' <<< "${body}"
+           draft: .isDraft, prerelease: .isPrerelease, assets: .releaseAssets.nodes}]' <<< "${body}"
 }
 
 # versions_github O/R: "<tag>\t<epoch>" for every published, non-draft release.
 function versions_github() {
   local body
   body="$(github_releases "${1}")" || { failed_lookup; return 0; }
-  jq -r '.[] | select(.draft | not) | select(.prerelease | not)
+  # A pin holding checksums moves only to a release that publishes digests for them.
+  jq -r --arg digests "${CHECKSUM_PIN}" '.[] | select(.draft | not) | select(.prerelease | not)
+         | select($digests == "" or ((.assets // []) | length) == 0 or any(.assets[]; .digest != null))
          | "\(.tag_name)\t\(.published_at | sub("\\.[0-9]+"; "") | fromdateiso8601)"' <<< "${body}" 2>/dev/null \
     || failed_lookup
 }
@@ -776,7 +752,7 @@ function latest_first() {
   if [ "${v#v}" = "${current#v}" ] || ! newer "${v}" "${current}"; then
     return 0
   fi
-  if [ $(( (NOW - t) / DAY )) -ge "${COOLDOWN_DAYS}" ] && [ "$(major_of "${v}")" = "$(major_of "${current}")" ]; then
+  if [ $(( (NOW - t) / DAY )) -ge "${COOLDOWN_DAYS}" ] && same_line "${v}" "${current}"; then
     return 0
   fi
   recent_versions "${system}" "${name}"
@@ -924,17 +900,17 @@ function newer() {
   [ "${a}" != "${b}" ] && [ "$(printf '%s\n%s\n' "${a}" "${b}" | sort -V | tail -1)" = "${a}" ]
 }
 
-# major_of VERSION: the compatibility line — the major, or "0.<minor>" for 0.x
-# releases (semver: before 1.0 a minor bump may break).
+# major_of VERSION: the major (semver.org): the first number, so 0.y.z updates stay in major 0.
 function major_of() {
   local v="${1#v}"
   v="${v#go}"
-  if [ "${v%%.*}" = '0' ]; then
-    local rest="${v#0.}"
-    printf '0.%s' "${rest%%.*}"
-  else
-    printf '%s' "${v%%.*}"
-  fi
+  printf '%s' "${v%%.*}"
+}
+
+# same_line VERSION CURRENT: VERSION is a candidate for CURRENT: the same major, or any major for
+# a pin named by --major.
+function same_line() {
+  [ -n "${ANY_MAJOR}" ] || [ "$(major_of "${1}")" = "$(major_of "${2}")" ]
 }
 
 # choose CURRENT COOLDOWN_DAYS: reads "<version>\t<epoch>" lines; prints
@@ -947,7 +923,7 @@ function choose() {
     [ -n "${v}" ] && [ -n "${t}" ] || continue
     [[ "${v}" =~ ${SEMVER_RE} || "${v}" =~ ^go[0-9.]+$ ]] || continue
     newer "${v}" "${current}" || continue
-    if [ "$(major_of "${v}")" != "$(major_of "${current}")" ]; then
+    if ! same_line "${v}" "${current}"; then
       { [ -z "${major}" ] || newer "${v}" "${major}"; } && major="${v}"
       continue
     fi
@@ -963,6 +939,7 @@ function choose() {
   fi
   local note=''
   [ -n "${major}" ] && note="major ${major} available (report-only)"
+  [ -z "${ANY_MAJOR}" ] || [ -z "${fresh}" ] || note="${fresh} is inside the cooldown"
   if [ -n "${best}" ]; then
     age=$(( (NOW - best_t) / DAY ))
     printf 'stale\t%s\t%sd\t%s\n' "${best}" "${age}" "${note}"
@@ -1014,8 +991,6 @@ function resolve() {
       resolve_runner "${current}" ;;
     image)
       resolve_image "${name}" "${current}" ;;
-    devimage)
-      resolve_devimage "${name}" "${current}" "${source}" ;;
     unpinned)
       printf 'unpinned\t-\t-\t%s\n' "${source}" ;;
     *)
@@ -1046,7 +1021,7 @@ function resolve_python() {
 }
 
 # resolve_runner LABEL: a newer image of the same family and shape (the labels
-# actions/runner-images lists) is report-only — an OS upgrade is never drop-in.
+# actions/runner-images lists), for CI to prove.
 function resolve_runner() {
   local -r current="${1}"
   local body labels shape label best=''
@@ -1063,7 +1038,7 @@ function resolve_runner() {
     newer "$(runner_version "${label}")" "$(runner_version "${best:-${current}}")" && best="${label}"
   done <<< "${labels}"
   if [ -n "${best}" ]; then
-    printf 'major\t%s\t-\tnewer image %s (report-only)\n' "${best}" "${best}"
+    printf 'stale\t%s\t-\tCI verifies it\n' "${best}"
   else
     printf 'current\t-\t-\t\n'
   fi
@@ -1072,20 +1047,6 @@ function resolve_runner() {
 # runner_version LABEL: the OS version in a runner label (ubuntu-24.04 → 24.04).
 function runner_version() {
   sed -E 's/^[a-z]+-([0-9]+(\.[0-9]+)?).*/\1/' <<< "${1}"
-}
-
-# resolve_devimage NAME PINNED TREE: current when the tree's build context is the pinned one; stale
-# toward the tree's context once it is published (apply pins it by digest); until then a hold:
-# run.sh builds that context locally.
-function resolve_devimage() {
-  local -r name="${1}" pinned="${2}" tree="${3}"
-  if [ "${pinned}" = "${tree}" ]; then
-    printf 'current\t-\t-\t\n'
-  elif image_digest "$(devimage_repository "${name}"):${tree}" > /dev/null; then
-    printf 'stale\t%s\t-\tpublished; apply pins it by digest\n' "${tree}"
-  else
-    printf 'hold\t%s\t-\tnot published yet; run.sh builds it locally\n' "${tree}"
-  fi
 }
 
 function resolve_image() {
@@ -1240,10 +1201,52 @@ function resolve_all() {
   rm -rf "${tmp}"
 }
 
+# named_major NAME: NAME was given to --major.
+function named_major() {
+  grep -qxF -- "${1}" <<< "${MAJOR_PINS}"
+}
+
+# check_major_pins RESOLVED: every --major name is a pin with a newer major to move to; anything
+# else stops the run before verification.
+function check_major_pins() {
+  local name row current status cand note
+  while IFS= read -r name; do
+    [ -n "${name}" ] || continue
+    row="$(awk -F'\t' -v n="${name}" '$2 == n { print; exit }' <<< "${1}")"
+    if [ -z "${row}" ]; then
+      log "❌ --major ${name}: not a pin"
+      exit 1
+    fi
+    IFS=$'\t' read -r _ _ _ current _ status cand _ note _ <<< "${row}"
+    case "${status}" in
+      hold)
+        log "❌ --major ${name}: held: ${note}"
+        exit 1 ;;
+      cooldown) ;;
+      stale)
+        if [ "$(major_of "${cand}")" = "$(major_of "${current}")" ] && [[ "${note}" != *'inside the cooldown'* ]]; then
+          log "❌ --major ${name}: no newer major than ${current}"
+          exit 1
+        fi ;;
+      *)
+        log "❌ --major ${name}: no newer major than ${current}"
+        exit 1 ;;
+    esac
+  done <<< "${MAJOR_PINS}"
+}
+
 # resolve_row ROW: one discovered pin with its status, candidate, age and note.
 function resolve_row() {
   local kind name loc current source locs status cand age note reason
   IFS=$'\t' read -r kind name loc current source locs <<< "${1}"
+  CHECKSUM_PIN=''
+  [ "${kind}" != 'tool' ] || ! grep -qE '[A-Z0-9_]*SHA256[A-Z0-9_]*=' "${loc%%:*}" 2> /dev/null || CHECKSUM_PIN=1
+  ANY_MAJOR=''
+  case "${kind}" in
+    # GitHub Actions: CI proves them, and a red commit is never published (wait-for-ci.sh).
+    action | runner) ANY_MAJOR=1 ;;
+    *) ! named_major "${name}" || ANY_MAJOR=1 ;;
+  esac
   if reason="$(held "${name}")" || reason="$(canonical_owner "${locs:-${loc}}")"; then
     status='hold'
     cand='-'
@@ -1293,7 +1296,7 @@ function status_rank() {
 function write_pins_md() {
   printf '# Current pins\n\n'
   printf 'Every pinned external input of this repository, the newest eligible candidate, and what still floats.\n'
-  printf 'Generated by `make pins-doc` (`scripts/release/update-pins.sh`); regenerate it, never edit it.\n\n'
+  printf 'Generated by `make generate-pins-doc` (`scripts/release/update-pins.sh`); regenerate it, never edit it.\n\n'
   printf '| Kind | Pin | Pinned | Status | Candidate | Pinned in |\n| --- | --- | --- | --- | --- | --- |\n'
   local kind name loc current source status cand rest
   while IFS=$'\t' read -r kind name loc current source status cand rest; do
@@ -1343,6 +1346,8 @@ function verify_all() {
   mkdir -p "${resdir}"
   local results='' kind name loc current source status cand age note locs origin logf i=0
   local -a queued=()
+  start_progress
+  fetch_pin_images "${stale}"
   while IFS=$'\t' read -r -u 3 kind name loc current source status cand age note locs origin; do
     i=$(( i + 1 ))
     logf="${LOGDIR}/$(printf '%02d' "${i}")-${kind}-$(printf '%s' "${name}" | tr -c 'A-Za-z0-9._-' '_').log"
@@ -1371,6 +1376,7 @@ function verify_all() {
   rm -rf "${resdir}"
   local combined
   combined="$(combined_run "${results}")"
+  stop_progress
   verify_report "${results}" "${combined}"
   if [ -n "${APPLY}" ]; then
     apply_passing "${results}" "${combined}"
@@ -1443,14 +1449,138 @@ function add_worktree() {
 
 # verify_in_own_worktree RESULT_FILE KIND NAME CURRENT CAND SOURCE LOCS LOG: verify_pin in a
 # worktree of its own (removed afterwards); writes the result row to RESULT_FILE.
+# fetch_pin_images STALE: every image the pins' checks will run in, on this machine before any check
+# starts: each pin names its image from a worktree with the pin applied, the names are made unique,
+# and those are fetched in parallel. A failed fetch is reported; that pin's check then fails or
+# fetches for itself.
+function fetch_pin_images() {
+  [ -f scripts/dev/run.sh ] || return 0
+  local -r jobs="${UPDATE_PINS_JOBS:-4}" dir="${WT}.images"
+  mkdir -p "${dir}"
+  local kind name loc current source status cand age note locs origin i=0
+  while IFS=$'\t' read -r -u 3 kind name loc current source status cand age note locs origin; do
+    i=$(( i + 1 ))
+    while [ "$(jobs -rp | wc -l)" -ge "${jobs}" ]; do sleep 1; done
+    name_pin_image "${dir}/$(printf '%03d' "${i}")" "${kind}" "${name}" "${current}" "${cand}" "${source}" "${locs}" &
+  done 3<<< "${1}"
+  wait
+  local ref wt n=0 unique
+  unique="$(cat "${dir}"/* 2> /dev/null | sort -t $'\t' -k1,1 -u)"
+  if [ -n "${unique}" ]; then
+    log "📥 fetching $(wc -l <<< "${unique}" | tr -d ' ') image(s) for ${i} pin(s)"
+    while IFS=$'\t' read -r -u 3 ref wt; do
+      n=$(( n + 1 ))
+      while [ "$(jobs -rp | wc -l)" -ge "${jobs}" ]; do sleep 1; done
+      fetch_one_image "${ref}" "${wt}" "${LOGDIR}/fetch-$(printf '%02d' "${n}").log" &
+    done 3<<< "${unique}"
+    wait
+  fi
+  while IFS=$'\t' read -r -u 3 ref wt; do
+    [ -z "${wt}" ] || { git -C "${ROOT}" worktree remove --force "${wt}" > /dev/null 2>&1 || true; rm -rf "${wt}.tools"; }
+  done 3< <(cat "${dir}"/* 2> /dev/null)
+  rm -rf "${dir}"
+}
+
+# name_pin_image OUT KIND NAME CURRENT CAND SOURCE LOCS: writes "<image>\t<worktree>" for this pin,
+# keeping the worktree for the fetch: a local build needs its context. A pin with no local check
+# writes nothing.
+function name_pin_image() {
+  local -r out="${1}"
+  shift
+  (
+    add_worktree
+    local ref=''
+    if apply_pin "${WT}" "$@" > /dev/null 2>&1 && [ "$(verify_targets "${1}" "${2}" "${6}")" != 'verify-on-ci' ]; then
+      ref="$(cd "${WT}" && bash scripts/dev/run.sh --image-ref 2> /dev/null)" || ref=''
+    fi
+    if [ -n "${ref}" ]; then
+      printf '%s\t%s\n' "${ref}" "${WT}" > "${out}"
+    else
+      git -C "${ROOT}" worktree remove --force "${WT}" > /dev/null 2>&1 || true
+      rm -rf "${TOOLS}"
+    fi
+  )
+}
+
+# fetch_one_image REF WORKTREE LOG: REF on this machine, reported as it finishes.
+function fetch_one_image() {
+  local -r ref="${1}" wt="${2}" logf="${3}"
+  local -r started="$(date -u +%s)"
+  progress_add "image ${ref}" "${logf}" "${started}"
+  if (cd "${wt}" && bash scripts/dev/run.sh --fetch-image < /dev/null) >> "${logf}" 2>&1; then
+    report_finished "image ${ref}" 'fetched' "${started}"
+  else
+    report_finished "image ${ref}" 'fail' "${started}"
+  fi
+  progress_done "${logf}"
+}
+
+# start_progress: until stop_progress, print every running pin's state on the console, so a long
+# verification is never silent. Each verification's output stays in its own log. Disowned, so the
+# driver's `wait` and job count see only verifications; it ends by itself if the driver is gone.
+function start_progress() {
+  PROGRESS_DIR="${WT}.running"
+  mkdir -p "${PROGRESS_DIR}"
+  (
+    while kill -0 "$$" 2> /dev/null; do
+      # Holds no copy of the console: the run ends without waiting for this sleep.
+      sleep "${PROGRESS_SECONDS}" 5>&-
+      print_progress
+    done
+  ) > /dev/null 2>&1 &
+  PROGRESS_PID="${!}"
+  disown "${PROGRESS_PID}"
+}
+
+function stop_progress() {
+  kill "${PROGRESS_PID}" 2> /dev/null || true
+  rm -rf "${PROGRESS_DIR}"
+}
+
+# progress_add LABEL LOG STARTED: a running verification, whose state print_progress reports.
+function progress_add() {
+  printf '%s\t%s\t%s\n' "${1}" "${2}" "${3}" > "${PROGRESS_DIR}/$(basename "${2}")"
+}
+
+function progress_done() {
+  rm -f "${PROGRESS_DIR}/$(basename "${1}")"
+}
+
+# print_progress: one line per running verification: elapsed time, the latest image build step, if
+# any, and the latest line of its log.
+function print_progress() {
+  local entry label logf started
+  for entry in "${PROGRESS_DIR}"/*; do
+    [ -f "${entry}" ] || continue
+    IFS=$'\t' read -r label logf started < "${entry}" || continue
+    log "⏳ $(elapsed_since "${started}") ${label}: $(progress_latest "${logf}")"
+  done
+}
+
+# report_finished LABEL RESULT STARTED: a verification's outcome, as it finishes.
+function report_finished() {
+  local mark='✅'
+  [ "${2}" != 'fail' ] || mark='❌'
+  log "${mark} ${1} ${2} $(elapsed_since "${3}")"
+}
+
+# elapsed_since EPOCH: the time since EPOCH, as 12m05s.
+function elapsed_since() {
+  elapsed_mmss "$(( $(date -u +%s) - ${1} ))"
+}
+
 function verify_in_own_worktree() {
   local -r resfile="${1}"
   shift
   (
     trap 'git -C "${ROOT}" worktree remove --force "${WT}" > /dev/null 2>&1; rm -rf "${TOOLS}"' EXIT
     add_worktree
-    local result
+    local result started
+    started="$(date -u +%s)"
+    progress_add "${1} ${2}" "${7}" "${started}"
     result="$(verify_pin "$@")" || result="$(printf 'fail\tverification error')"
+    progress_done "${7}"
+    report_finished "${1} ${2}" "${result%%$'\t'*}" "${started}"
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${1}" "${2}" "${3}" "${4}" "${5}" "${6}" "${result}" "${7}" \
       > "${resfile}"
   )
@@ -1458,6 +1588,7 @@ function verify_in_own_worktree() {
 
 function cleanup_worktree() {
   [ -n "${WT}" ] || return 0
+  [ -z "${PROGRESS_PID}" ] || stop_progress
   if [ -f "${ROOT}/${LOCAL_HOOK}" ]; then
     (cd "${ROOT}" && bash "${LOCAL_HOOK}" cleanup "${PLATFORM}") > /dev/null 2>&1 || true
   fi
@@ -1509,9 +1640,10 @@ function combined_run() {
     return
   fi
   local -r clog="${LOGDIR}/combined.log"
+  progress_add 'combined' "${clog}" "$(date -u +%s)"
   while IFS=$'\t' read -r -u 3 kind name current cand source locs result detail logf; do
     apply_pin "${WT}" "${kind}" "${name}" "${current}" "${cand}" "${source}" "${locs}" >> "${clog}" 2>&1 \
-      || { printf 'fail\tapply of %s failed (log: %s)\n' "${name}" "${clog}"; rollback_worktree; return; }
+      || { printf 'fail\tapply of %s failed (log: %s)\n' "${name}" "${clog}"; progress_done "${clog}"; rollback_worktree; return; }
   done 3<<< "${passing}"
   targets="$(combined_targets)"
   if run_targets "${targets}" >> "${clog}" 2>&1; then
@@ -1519,6 +1651,7 @@ function combined_run() {
   else
     printf 'fail\tmake %s (log: %s)\n' "${targets}" "${clog}"
   fi
+  progress_done "${clog}"
   rollback_worktree
 }
 
@@ -1542,8 +1675,6 @@ function verify_targets() {
       if has_target lint-workflows; then printf 'lint-workflows'; else printf 'audit'; fi ;;
     gomod)
       printf 'test' ;;
-    devimage)
-      printf 'audit' ;;
     # Tool installs run in the tool image (Linux) on every host.
     gotool | npm | tool)
       if [ -n "${setup}" ]; then printf '%s' "${setup}"; else combined_targets; fi ;;
@@ -1553,7 +1684,7 @@ function verify_targets() {
     node | npmlock)
       printf 'lint' ;;
     python | pypi)
-      if has_target release-pypi; then printf 'release-pypi'; else combined_targets; fi ;;
+      if has_target publish-pypi; then printf 'publish-pypi'; else combined_targets; fi ;;
     # Runner images exist only on GitHub-hosted runners: the one kind left to CI.
     runner)
       printf 'verify-on-ci' ;;
@@ -1569,7 +1700,7 @@ function verify_on_ci_reason() {
     tool) printf 'no setup target installs this tool' ;;
     toolchain) printf 'the toolchain switch is exercised on the CI runner' ;;
     image) printf 'image builds run in the CI stacks' ;;
-    python | pypi) printf 'no release-pypi target builds the package' ;;
+    python | pypi) printf 'no publish-pypi target builds the package' ;;
     runner) printf 'runner images exist only on GitHub-hosted runners' ;;
     *) printf 'no local verification for this kind' ;;
   esac
@@ -1616,7 +1747,6 @@ function apply_pin() {
   case "${kind}" in
     action) apply_action "${root}" "${name}" "${current}" "${cand}" "${source#github:}" ;;
     image) replace_all "${root}" "${name}@${current}" "${name}@${cand}" ;;
-    devimage) (cd "${root}" && bash scripts/dev/publish.sh ref) ;;
     tool) replace_at "${root}" "${locs}" "${current}" "${new}" && refresh_checksums "${root}" "${locs}" "${source#github:}" "${current}" "${cand}" \
       && refresh_commits "${root}" "${locs}" "${source#github:}" "${cand}" ;;
     gotool | toolchain | npm | python | runner) replace_at "${root}" "${locs}" "${current}" "${new}" ;;
@@ -1683,29 +1813,56 @@ function apply_action() {
     || { printf 'no %s pin at %s was rewritten\n' "${ref}" "${current}"; return 1; }
 }
 
+# asset_for_checksum VAR ASSETS: the one Linux archive for VAR's architecture (..._AMD64, ..._ARM64) among
+# ASSETS ("<name>\t<digest>"), that publishes a digest.
+function asset_for_checksum() {
+  local -r var="${1}" assets="${2}"
+  local arch names
+  case "${var}" in
+    *AMD64*) arch='(amd64|x86_64)' ;;
+    *ARM64*) arch='(arm64|aarch64)' ;;
+    *) return 1 ;;
+  esac
+  names="$(awk -F'\t' '$2 ~ /^sha256:/ { print $1 }' <<< "${assets}" | grep -E "linux.*${arch}|${arch}.*linux" \
+    | grep -vE '\.(sig|sigstore|pem|asc|sbom|json|txt|sha256)$' || true)"
+  [ -n "${names}" ] && [ "$(wc -l <<< "${names}" | tr -d ' ')" -eq 1 ] || return 1
+  printf '%s' "${names}"
+}
+
 # refresh_checksums ROOT LOCS REPO CURRENT CAND: every committed SHA-256 in the
 # pin's files is mapped to the release asset it verifies (by the digest GitHub
 # publishes for each asset), and replaced by the digest of the same asset in the
 # CAND release. No binary is downloaded.
 function refresh_checksums() {
   local -r root="${1}" locs="${2}" repo="${3}" current="${4}" cand="${5}"
-  local old_assets new_assets loc file hex asset new_asset new_hex all=()
+  local old_assets new_assets loc file line var hex asset new_asset new_hex all=()
   old_assets="$(release_assets "${repo}" "${current}")" || { printf 'no release %s for %s\n' "${current}" "${repo}"; return 1; }
   new_assets="$(release_assets "${repo}" "${cand}")" || { printf 'no release %s for %s\n' "${cand}" "${repo}"; return 1; }
   IFS=',' read -r -a all <<< "${locs}"
   for loc in "${all[@]}"; do
     file="${loc%%:*}"
-    while IFS= read -r hex; do
-      [ -n "${hex}" ] || continue
+    while IFS= read -r line; do
+      [ -n "${line}" ] || continue
+      var="${line%%=*}"
+      hex="${line: -64}"
       asset="$(awk -F'\t' -v h="sha256:${hex}" '$2 == h { print $1; exit }' <<< "${old_assets}")"
-      [ -n "${asset}" ] || { printf '%s: %s matches no asset of %s %s\n' "${file}" "${hex}" "${repo}" "${current}"; return 1; }
-      new_asset="${asset//${current#v}/${cand#v}}"
+      if [ -n "${asset}" ]; then
+        new_asset="${asset//${current#v}/${cand#v}}"
+      elif grep -q 'sha256:' <<< "${old_assets}"; then
+        printf '%s: %s matches no asset of %s %s\n' "${file}" "${hex}" "${repo}" "${current}"
+        return 1
+      else
+        # The old release publishes no digests: find the asset by the checksum's architecture.
+        new_asset="$(asset_for_checksum "${var}" "${new_assets}")" \
+          || { printf '%s: no single asset of %s %s for %s\n' "${file}" "${repo}" "${cand}" "${var}"; return 1; }
+        asset="${var}"
+      fi
       new_hex="$(awk -F'\t' -v a="${new_asset}" '$1 == a { sub(/^sha256:/, "", $2); print $2; exit }' <<< "${new_assets}")"
       [[ "${new_hex}" =~ ^[0-9a-f]{64}$ ]] \
         || { printf '%s: no published digest for %s in %s %s\n' "${file}" "${new_asset}" "${repo}" "${cand}"; return 1; }
       OLD="${hex}" NEW="${new_hex}" perl -pi -e 's/\Q$ENV{OLD}\E/$ENV{NEW}/g' "${root}/${file}"
       printf '%s: %s → %s (%s)\n' "${file}" "${asset}" "${new_asset}" "${new_hex}"
-    done < <(grep -oE '[A-Z0-9_]*SHA256[A-Z0-9_]*=["'"'"']?[0-9a-f]{64}' "${root}/${file}" | grep -oE '[0-9a-f]{64}$' | sort -u)
+    done < <(grep -oE '[A-Z0-9_]*SHA256[A-Z0-9_]*=["'"'"']?[0-9a-f]{64}' "${root}/${file}" | sort -u)
   done
 }
 
@@ -1803,13 +1960,14 @@ function apply_gomod() {
 # only when the combined run passed.
 function apply_passing() {
   local -r results="${1}" combined="${2}"
-  if [ "${combined%%$'\t'*}" != 'pass' ]; then
+  if [ "${combined%%$'\t'*}" = 'fail' ]; then
     log '⛔ --apply: nothing written — the combined run did not pass'
     return
   fi
   local kind name current cand source locs result detail logf
   while IFS=$'\t' read -r -u 3 kind name current cand source locs result detail logf; do
-    [ "${result}" = 'pass' ] || continue
+    # A pin left to CI (a runner image) is written: CI verifies it, and a red commit is never published.
+    [ "${result}" = 'pass' ] || [ "${result}" = 'verify-on-ci' ] || continue
     if apply_pin "${ROOT}" "${kind}" "${name}" "${current}" "${cand}" "${source}" "${locs}" >> "${LOGDIR}/apply.log" 2>&1; then
       log "✍️  applied ${kind} ${name} ${current} → ${cand}"
     else

@@ -16,7 +16,7 @@ setup() {
   mkdir -p "${WORK}/scripts/release" "${WORK}/scripts/lib" "${WORK}/scripts/dev" "${WORK}/scripts/build" \
     "${WORK}/dist" "${WORK}/bin" "${STATE}/started"
   cp "${REPO_ROOT}"/scripts/release/*.sh "${WORK}/scripts/release/"
-  cp "${REPO_ROOT}"/scripts/build/ci_*.sh "${WORK}/scripts/build/"
+  cp "${REPO_ROOT}"/scripts/build/build-m*.sh "${WORK}/scripts/build/"
   cp "${REPO_ROOT}"/scripts/lib/*.sh "${WORK}/scripts/lib/"
   printf 'module github.com/keelcore/keel\n' > "${WORK}/go.mod"
   stub_tools
@@ -111,9 +111,9 @@ if [ -n "${BLOB_BARRIER:-}" ] && [[ "$*" =~ verify-blob ]]; then
   barrier "blob-${*##*/}" "${BLOB_BARRIER}"
 fi
 RUN
-  printf '#!/usr/bin/env bash\n' > "${WORK}/scripts/build/certs-image.sh"
+  printf '#!/usr/bin/env bash\n' > "${WORK}/scripts/build/build-certs-image.sh"
   chmod +x "${WORK}/bin/git" "${WORK}/bin/docker" "${WORK}/bin/gh" "${WORK}/scripts/dev/run.sh" \
-    "${WORK}/scripts/build/certs-image.sh" "${WORK}/scripts/release/docker.sh"
+    "${WORK}/scripts/build/build-certs-image.sh" "${WORK}/scripts/release/publish-release-images.sh"
 }
 
 calls() { grep -E "${1}" "${STATE}/calls"; }
@@ -191,17 +191,17 @@ GO
   [ "${status}" -ne 0 ]
 }
 
-# --- metadata.sh -------------------------------------------------------------------------------
+# --- generate-release-metadata.sh -------------------------------------------------------------------------------
 
 stub_metadata() {
-  cat > "${WORK}/scripts/release/sbom.sh" <<'SBOM'
+  cat > "${WORK}/scripts/release/generate-sbom.sh" <<'SBOM'
 #!/usr/bin/env bash
 source "${WORK}/bin/stub-lib"
 record "sbom $*"
 maybe_fail "sbom $*"
 [ -z "${METADATA_BARRIER:-}" ] || barrier sbom "${METADATA_BARRIER}"
 SBOM
-  cat > "${WORK}/scripts/release/vex.sh" <<'VEX'
+  cat > "${WORK}/scripts/release/generate-vex.sh" <<'VEX'
 #!/usr/bin/env bash
 source "${WORK}/bin/stub-lib"
 record "vex $*"
@@ -213,18 +213,18 @@ VEX
   export TAG=v1.2.3
 }
 
-@test "metadata.sh: the SBOMs and OpenVEX generate concurrently" {
+@test "generate-release-metadata.sh: the SBOMs and OpenVEX generate concurrently" {
   stub_metadata
   export METADATA_BARRIER=2
-  run bash scripts/release/metadata.sh
+  run bash scripts/release/generate-release-metadata.sh
   [ "${status}" -eq 0 ]
 }
 
-@test "metadata.sh: the SBOMs cover the six binaries and nothing else" {
+@test "generate-release-metadata.sh: the SBOMs cover the six binaries and nothing else" {
   stub_metadata
   rm -f dist/*.bundle
   printf '{}' > dist/keel.openvex.json
-  run bash scripts/release/metadata.sh
+  run bash scripts/release/generate-release-metadata.sh
   [ "${status}" -eq 0 ]
   calls '^sbom --out-dir dist --name keel --version v1\.2\.3 --license Apache-2\.0 dist/keel-'
   [ "$(calls '^sbom ' | tr ' ' '\n' | grep -c '^dist/keel-')" -eq 6 ]
@@ -232,10 +232,10 @@ VEX
   calls '^vex --out-dir dist$'
 }
 
-@test "metadata.sh: one failure fails the step" {
+@test "generate-release-metadata.sh: one failure fails the step" {
   stub_metadata
   export FAIL_ON='vex '
-  run bash scripts/release/metadata.sh
+  run bash scripts/release/generate-release-metadata.sh
   [ "${status}" -ne 0 ]
 }
 
@@ -312,26 +312,26 @@ job_permissions() {
 
 @test "release.yml: image provenance logs in to the registry before pushing the attestation" {
   local login attest
-  login="$(job_block image-provenance | grep -n 'make release-ghcr-login' | cut -d: -f1)"
+  login="$(job_block image-provenance | grep -n 'make login-ghcr' | cut -d: -f1)"
   attest="$(job_block image-provenance | grep -n 'attest-build-provenance' | cut -d: -f1)"
   [ -n "${login}" ]
   [ "${login}" -lt "${attest}" ]
   job_block image-provenance | grep -q 'GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}'
 }
 
-@test "ghcr-login.sh: logs in with the job's token and fails without one" {
-  run env -u GITHUB_TOKEN bash scripts/release/ghcr-login.sh
+@test "login-ghcr.sh: logs in with the job's token and fails without one" {
+  run env -u GITHUB_TOKEN bash scripts/release/login-ghcr.sh
   [ "${status}" -ne 0 ]
   export GITHUB_TOKEN=token GITHUB_ACTOR=actor
-  run bash scripts/release/ghcr-login.sh
+  run bash scripts/release/login-ghcr.sh
   [ "${status}" -eq 0 ]
   calls '^docker login ghcr\.io --username actor --password-stdin$'
 }
 
 @test "release.yml: artifacts that lose their mode are made executable before the images use them" {
   local chmod_line docker_line
-  chmod_line="$(job_block images | grep -n 'make dist-chmod' | cut -d: -f1)"
-  docker_line="$(job_block images | grep -n 'make release-images' | cut -d: -f1)"
+  chmod_line="$(job_block images | grep -n 'make set-dist-permissions' | cut -d: -f1)"
+  docker_line="$(job_block images | grep -n 'make publish-release-images' | cut -d: -f1)"
   [ -n "${chmod_line}" ]
   [ "${chmod_line}" -lt "${docker_line}" ]
 }

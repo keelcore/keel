@@ -48,7 +48,7 @@ function install_gitleaks() {
     return 0
   fi
   if [[ "$(uname -s)" != 'Linux' ]]; then
-    log '❌ gitleaks installs in the dev image (Linux); run: make ci-secret-scan'
+    log '❌ gitleaks installs in the dev image (Linux); run: make check-secrets'
     exit 1
   fi
   require_image_build
@@ -61,7 +61,7 @@ function install_gitleaks() {
   tarball="gitleaks_${GITLEAKS_VERSION}_linux_${arch}.tar.gz"
   tmp="$(mktemp -d)"
   log "⚓ Installing gitleaks ${GITLEAKS_VERSION} (${arch})..."
-  curl -fsSL "${GITLEAKS_RELEASES}/v${GITLEAKS_VERSION}/${tarball}" -o "${tmp}/${tarball}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 "${GITLEAKS_RELEASES}/v${GITLEAKS_VERSION}/${tarball}" -o "${tmp}/${tarball}"
   printf '%s  %s/%s\n' "${sha}" "${tmp}" "${tarball}" | sha256sum --check --quiet
   tar -xz -C "${tmp}" -f "${tmp}/${tarball}" gitleaks
   as_root install -m 0755 "${tmp}/gitleaks" "${GITLEAKS_INSTALL_PATH}"

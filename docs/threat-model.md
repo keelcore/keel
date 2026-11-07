@@ -31,7 +31,7 @@ client or credential). The release how-to in [release-policy.md](release-policy.
 | LOG-2 | Remote log sink | Repudiation: forged log lines or dropped logs | Low | Medium | Control characters escaped, one line per entry; drops counted (`keel_log_drops_total`) | Whole-file rewrite on one host, without `audit.remote_sink` |
 | FIPS-1 | FIPS monitor | Tampering: running outside FIPS mode unnoticed | Low | High | Startup gate and background monitor; `keel_fips_active`, `/version` | Module validation scope is the toolchain's |
 | REL-1 | Release pipeline | Tampering: compromised dependency or action | Low | High | Actions pinned by SHA; vendored Go modules; `update-pins` verification; govulncheck, Grype, gosec, CodeQL, Scorecard | A compromise upstream of a pinned, reviewed version |
-| REL-2 | Release pipeline | Spoofing: forged release artifact | Low | High | Keyless signing, SLSA provenance, SBOMs, checksums; self-verification before publish (`make release-verify`) | Trust in GitHub OIDC and Sigstore |
+| REL-2 | Release pipeline | Spoofing: forged release artifact | Low | High | Keyless signing, SLSA provenance, SBOMs, checksums; self-verification before publish (`make verify-release`) | Trust in GitHub OIDC and Sigstore |
 | REL-3 | Release pipeline | Tampering: unauthorized change reaches `main` or a tag | Low | High | Rulesets as code, signed commits and tags, required checks (`docs/governance.md`) | Admin bypass, recorded per the bypass policy |
 | REL-4 | Release pipeline | Tampering: a compromised tool image | Low | High | Tool images pinned by digest, built by CI and signed keyless, built from pinned inputs | Trust in the `.standards` base image |
 

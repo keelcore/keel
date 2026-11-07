@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # setup-kubescape.sh
-# Install kubescape for the Helm chart policy scan (scripts/lint/helm-policy.sh).
+# Install kubescape for the Helm chart policy scan (scripts/lint/lint-helm-policy.sh).
 # Linux (built into the dev image): pinned v4.0.16 release asset, SHA256-verified before install.
-# macOS: Homebrew.
 # No-op if kubescape is already present.
 #
 # Pinned version: v4.0.16
@@ -42,12 +41,8 @@ function main() {
       log "Installing kubescape v${KUBESCAPE_VERSION} (Linux)"
       install_linux
       ;;
-    Darwin)
-      log "Installing kubescape via Homebrew"
-      install_macos
-      ;;
     *)
-      log "ERROR: setup-kubescape.sh does not support OS: $(uname -s)"
+      log '❌ kubescape installs in the dev image (Linux); run its targets through make'
       exit 1
       ;;
   esac
@@ -73,7 +68,7 @@ function as_root() {
 function install_linux() {
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${KUBESCAPE_URL}" -o "${tmp}/${KUBESCAPE_ASSET}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 "${KUBESCAPE_URL}" -o "${tmp}/${KUBESCAPE_ASSET}"
   printf '%s  %s/%s\n' "${KUBESCAPE_SHA256}" "${tmp}" "${KUBESCAPE_ASSET}" | sha256sum --check --quiet
   stage_binary "${tmp}"
   as_root install -m 0755 "${tmp}/kubescape.staged" "${KUBESCAPE_INSTALL_PATH}"
@@ -84,10 +79,6 @@ function install_linux() {
 function stage_binary() {
   local -r tmp="${1}"
   mv "${tmp}/${KUBESCAPE_ASSET}" "${tmp}/kubescape.staged"
-}
-
-function install_macos() {
-  brew install kubescape
 }
 
 main "${@:-}"

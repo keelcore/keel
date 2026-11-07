@@ -12,6 +12,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Added
 
+- `make build-dev-image` (`scripts/dev/build-image.local.sh`): keel's dev image for this tree on this machine, pulled
+  when published, else built locally; never pushed.
 - `sidecar.retry.honor_retry_after` (default `false`): a 503 or 429 from the upstream carrying `Retry-After` is
   retried once after the stated delay, for an idempotent request whose body can be sent again, within the upstream
   response deadline; counted in `keel_upstream_retry_after_total`.
@@ -21,7 +23,7 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   code; plain HTTP on the HTTPS port, and requests below `security.min_http_version`, get a 301 to the notice page
   `/.well-known/keel/upgrade` with an RFC 9457 problem body.
 - Docs: `docs/architecture.md`, `docs/threat-model.md`, `docs/dependencies.md`, and branch protection as code
-  (`.github/rulesets/`, `make rulesets-check`, `make rulesets-apply`).
+  (`.github/rulesets/`, `make check-rulesets`, `make apply-rulesets`).
 - `security.min_http_version` (`1.1` default, `2`, `3`), `security.alt_svc_max_age`, `tls.notice.base_url`,
   `tls.notice.help_url`, `tls.notice.contact`, `tls.client_cert_notice`.
 - `logging.file` with `logging.rotation.{max_size_mb,max_age_days,max_backups,compress}`: a file sink rotated by size, age
@@ -36,13 +38,21 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- **Breaking:** make targets are verb-first (standards), for example `make build-min`, `make test-container-stack`,
+  `make generate-certs`; the old names are removed. Each keel script is named after its target, for example
+  `scripts/build/build-min.sh` and `scripts/container/test-container-stack.sh`.
 - The macOS CI job installs nothing: the integrity suite bounds its process runs in bash, so `make setup-bats-local` and
   `coreutils` are gone.
-- `.standards` moves to v0.10.13: its tool image now carries govulncheck.
+- `.standards` moves to v0.10.21: verb-first script names, and the dev image pin is `ctx-<hash>`, with no digest.
+- `make setup-container` installs Apple container 1.7 with `make setup-apple-container` (its signed package, not
+  Homebrew) and creates the cluster with `--shared-image-store`: nodes pull `keel:test` from the local image store. An
+  existing cluster is recreated with `make teardown-container` and `make setup-container`.
+- The release starts with `make wait-for-ci`: it waits for the CI runs on the tagged commit and stops if any is red.
 - The image release, chart push, upload and self-verification are canonical too; `make release-docker` is now
-  `make release-images`. Signatures still carry this repository's identity.
+  `make publish-release-images`. Signatures still carry this repository's identity.
 - Workflow, gosec, license, Helm, VEX, fuzz, unit-test, checksum and native targets are canonical (`.standards`); keel keeps
-  its settings in `config/` and its native steps in `scripts/test/native-*.local.sh`. `make release-rename` is removed.
+  its settings in `config/` and its native steps in `scripts/test/build-native.local.sh` and
+  `scripts/test/test-native-integrity.local.sh`. `make release-rename` is removed.
 - `make lint-fmt` and `make lint-md` are removed: use `make format` and `make lint-markdown`.
 - CodeQL and Scorecard, govulncheck (`make lint-vuln`), `run_parallel` and concurrent `sign.sh`, `run.sh` and `update-pins`
   move to `.standards`; keel carries the canonical copies. CodeQL now finds its languages from the tracked files.
@@ -60,6 +70,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- The container scripts check a cluster node with `container inspect`; `container ls` no longer lists nodes.
+- Workflow lint accepts the `ubuntu-26.04` runner (`.github/actionlint.yaml`).
+- `make report-size` exits 0 once its report is printed.
 - Log and audit rotation on Windows tries the rename again when a scanner has the file open for a moment.
 - keel's tool image publishes on the `.standards` image of its context, without waiting for a pin (`.standards` v0.10.19).
 - The release's self-verification runs `gh attestation verify` one at a time; concurrent runs failed to initialize.

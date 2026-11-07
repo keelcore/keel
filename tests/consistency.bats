@@ -4,7 +4,7 @@
 # and config-reference.md are globally consistent with each other.
 #
 # Run locally: bats tests/consistency.bats
-# Run in CI:   included in the lint job via scripts/lint/go.sh or a dedicated step.
+# Run in CI:   included in the lint job via scripts/lint/lint-go.sh or a dedicated step.
 #
 # Failure modes caught:
 #   1. A yaml tag added to config.go but not rendered in the Helm configmap.
@@ -151,13 +151,13 @@ setup_file() {
 }
 
 # ---------------------------------------------------------------------------
-@test "gen-schema.sh produces valid YAML with json-schema.org 2019-09 header" {
+@test "generate-schema.sh produces valid YAML with json-schema.org 2019-09 header" {
   local tmpdir
   tmpdir="$(mktemp -d)"
   local out="${tmpdir}/schema.yaml"
 
-  # Run gen-schema.sh, capture output to a temp file.
-  (cd "${REPO_ROOT}" && bash scripts/release/gen-schema.sh)
+  # Run generate-schema.sh, capture output to a temp file.
+  (cd "${REPO_ROOT}" && bash scripts/release/generate-schema.sh)
 
   # Verify the committed file now contains the expected $schema keyword.
   grep -q 'https://json-schema.org/draft/2019-09/schema' "${SCHEMA_FILE}"
@@ -253,7 +253,7 @@ k8s_services() {
 }
 
 # ---------------------------------------------------------------------------
-# Branch protection as code: scripts/admin/rulesets.sh and .github/rulesets/*.json
+# Branch protection as code: scripts/admin/apply-rulesets.sh and .github/rulesets/*.json
 # ---------------------------------------------------------------------------
 
 # rulesets_fixture CONTEXT: a repository whose committed main ruleset requires CONTEXT, a
@@ -274,7 +274,7 @@ rulesets_fixture() {
 }
 
 rulesets() {
-  run bash "${REPO_ROOT}/scripts/admin/rulesets.sh" "$@"
+  run bash "${REPO_ROOT}/scripts/admin/apply-rulesets.sh" "$@"
 }
 
 @test "rulesets check: live matching the committed JSON passes, whatever its key order or metadata" {
@@ -453,4 +453,123 @@ STUB
   run run_bounded 1 sleep 30
   [ "${status}" -eq 124 ]
   [ $(( SECONDS - start )) -lt 10 ]
+}
+
+@test "Makefile: keel's old target names are gone" {
+  while read -r old new; do
+    run make -n --no-print-directory "${old}"
+    [ "${status}" -ne 0 ] || { echo "${old} still exists"; return 1; }
+    [[ "${output}" == *'No rule to make target'* ]]
+  done <<'RENAMED'
+all build-all
+bats-example test-example-artifact
+bats-integrity test-integrity-artifact
+certs-image build-certs-image
+ci-build-example build-example
+ci-smoke-windows test-smoke-windows
+container-deploy deploy-container
+container-host-network setup-container-host-network
+container-setup setup-container
+container-stack-test test-container-stack
+container-stack-test-keep test-container-stack-keep
+container-teardown teardown-container
+container-test test-container
+coverage-report report-coverage
+dev-image-publish-local publish-dev-image-local
+fresh-repo create-fresh-repo
+gen-certs generate-certs
+gen-schema generate-schema
+k8s-cluster-test test-k8s-cluster
+k8s-helm-deploy deploy-k8s-helm
+k8s-kind-load load-k8s-kind
+k8s-kind-setup setup-k8s-kind
+k8s-kind-teardown teardown-k8s-kind
+k8s-stack-down teardown-k8s-stack
+k8s-stack-up deploy-k8s-stack
+keel-schema-regen generate-schema-staged
+max build-max
+max-no-fips build-max-no-fips
+min build-min
+native-build-local build-native-local
+native-integrity-local test-native-integrity-local
+release-binaries build-release-binaries
+release-ci run-release-ci
+release-images-local publish-release-images-local
+roadmap-issues create-roadmap-issues
+rulesets-apply apply-rulesets
+rulesets-check check-rulesets
+size-report report-size
+RENAMED
+}
+
+# container_stubs: a fake container CLI that logs every call and reports NODE_STATE from inspect, and a
+# fake make and brew that log their calls.
+container_stubs() {
+  mkdir -p "${BATS_TEST_TMPDIR}/bin"
+  cat > "${BATS_TEST_TMPDIR}/bin/container" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${BATS_TEST_TMPDIR}/container.log"
+case "\${1}" in
+  inspect) [ -n "\${NODE_STATE:-}" ] || exit 1; printf '[{"status":{"state":"%s"}}]\n' "\${NODE_STATE}" ;;
+esac
+exit 0
+STUB
+  local tool
+  for tool in make brew; do
+    printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/%s.log"\n' "${BATS_TEST_TMPDIR}" "${tool}" \
+      > "${BATS_TEST_TMPDIR}/bin/${tool}"
+  done
+  chmod +x "${BATS_TEST_TMPDIR}/bin/"*
+}
+
+@test "container scripts: none calls cluster load-image or finds a node with container ls" {
+  run grep -nE 'cluster load-image|container (ls|list)( |$)' "${REPO_ROOT}"/scripts/container/*.sh
+  [ "${status}" -eq 1 ] || { echo "${output}"; return 1; }
+}
+
+@test "setup.sh: installs container with make setup-apple-container; the cluster shares the image store" {
+  container_stubs
+  PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run bash "${REPO_ROOT}/scripts/container/setup.sh"
+  [ "${status}" -eq 0 ] || { echo "${output}"; return 1; }
+  grep -q 'setup-apple-container' "${BATS_TEST_TMPDIR}/make.log"
+  [ ! -e "${BATS_TEST_TMPDIR}/brew.log" ]
+  grep -qE '^cluster create .*--shared-image-store' "${BATS_TEST_TMPDIR}/container.log"
+}
+
+@test "deploy.sh: a node is running when container inspect says so; a stopped one names setup.sh" {
+  container_stubs
+  NODE_STATE=running PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run bash "${REPO_ROOT}/scripts/container/deploy.sh"
+  [ "${status}" -eq 0 ] || { echo "${output}"; return 1; }
+  grep -q '^inspect keel-k8s' "${BATS_TEST_TMPDIR}/container.log"
+  NODE_STATE=stopped PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run bash "${REPO_ROOT}/scripts/container/deploy.sh"
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"'keel-k8s' is not running. Run: scripts/container/setup.sh"* ]]
+}
+
+@test "report-size.sh: finishes cleanly and removes its symbol table" {
+  local -r script="${REPO_ROOT}/scripts/build/report-size.sh"
+  local -r work="${BATS_TEST_TMPDIR}/work"
+  mkdir -p "${work}/bin"
+  cat > "${work}/bin/go" <<'GO'
+#!/usr/bin/env bash
+case "${1}" in
+  build) touch 'dist/keel-max-debug' ;;
+  tool) printf '1000 64 T main.main\n' ;;
+esac
+GO
+  chmod +x "${work}/bin/go"
+  local before
+  before="$(ls /tmp/keel_nm_* 2>/dev/null || true)"
+  cd "${work}"
+  PATH="${work}/bin:${PATH}" run bash "${script}"
+  [ "${status}" -eq 0 ]
+  [ "$(ls /tmp/keel_nm_* 2>/dev/null || true)" = "${before}" ]
+}
+
+@test "make build-dev-image: puts keel's dev image on this machine, pulled or built, never pushed" {
+  run make -n build-dev-image
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *'bash scripts/dev/build-image.local.sh'* ]]
+  grep -qF 'run.sh" --fetch-image' scripts/dev/build-image.local.sh
+  [ -z "$(grep -vE '^#' scripts/dev/build-image.local.sh | grep -E 'push')" ]
 }

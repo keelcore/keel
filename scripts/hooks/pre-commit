@@ -3,4 +3,4 @@
 # The versioned pre-commit hook. `make install-hooks` sets `core.hooksPath scripts/hooks`, a path
 # git resolves from the root of whichever working tree commits: a clone, each worktree and a
 # submodule checkout all run this file from their own tree, with no per-checkout install.
-exec bash "$(git rev-parse --show-toplevel)/scripts/git_precommit.sh" "$@"
+exec bash "$(git rev-parse --show-toplevel)/scripts/run-pre-commit.sh" "$@"

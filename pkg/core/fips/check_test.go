@@ -41,7 +41,7 @@ func TestFIPSCheck_EnvCannotFakeFIPS(t *testing.T) {
 }
 
 // Unstubbed, Check agrees with the real crypto module in this test binary
-// (inactive in a plain test run; active under make max's GODEBUG=fips140=only).
+// (inactive in a plain test run; active under make build-max's GODEBUG=fips140=only).
 func TestFIPSCheck_MatchesCryptoModule(t *testing.T) {
 	if err := Check(); (err == nil) != fips140.Enabled() {
 		t.Errorf("Check() = %v but fips140.Enabled() = %v", err, fips140.Enabled())

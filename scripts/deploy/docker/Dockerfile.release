@@ -1,6 +1,6 @@
 # scripts/deploy/docker/Dockerfile.release
 # Packages a pre-built keel binary into a minimal scratch image.
-# Used by scripts/release/docker.sh; the binary is copied into the
+# Used by scripts/release/publish-release-images.sh; the binary is copied into the
 # context before invoking docker build.
 #
 # Build arg:
@@ -8,7 +8,7 @@
 #              The binary is always supplied externally as ./keel in the context.
 
 ARG FLAVOR=max
-# CA source: keel-certs (Dockerfile.certs; build it first with make certs-image).
+# CA source: keel-certs (Dockerfile.certs; build it first with make build-certs-image).
 ARG CERTS_IMAGE=keel-certs:latest
 # Platform-neutral files only: pin to the build platform so a linux/arm64 build
 # uses the locally built keel-certs image instead of resolving an arm64 variant.

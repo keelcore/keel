@@ -25,7 +25,7 @@ function main() {
     return 0
   fi
   log 'pkg/config/*.go changed — regenerating schema.yaml'
-  bash scripts/release/gen-schema.sh
+  bash scripts/release/generate-schema.sh
   if ! git diff --quiet pkg/config/schema.yaml; then
     git add pkg/config/schema.yaml
     log '✅ schema.yaml updated and staged'

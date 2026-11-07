@@ -67,7 +67,7 @@ function install_shellcheck() {
   tarball="shellcheck-v${SHELLCHECK_VERSION}.linux.${arch}.tar.xz"
   tmp="$(mktemp -d)"
   log "⚓ Installing shellcheck ${SHELLCHECK_VERSION} (${arch})..."
-  curl -fsSL "${SHELLCHECK_RELEASES}/v${SHELLCHECK_VERSION}/${tarball}" -o "${tmp}/${tarball}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 "${SHELLCHECK_RELEASES}/v${SHELLCHECK_VERSION}/${tarball}" -o "${tmp}/${tarball}"
   printf '%s  %s/%s\n' "${sha}" "${tmp}" "${tarball}" | sha256sum --check --quiet
   tar -xJ -C "${tmp}" -f "${tmp}/${tarball}"
   as_root install -m 0755 "${tmp}/shellcheck-v${SHELLCHECK_VERSION}/shellcheck" "${SHELLCHECK_INSTALL_PATH}"

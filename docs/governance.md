@@ -155,9 +155,9 @@ submodule. Local edits to `.standards/` are silently discarded on the next `git 
 ## Branch Protection
 
 `main` and release tags are protected by repository rulesets. The committed JSON in `.github/rulesets/` is the source
-of truth: `make rulesets-check` compares it with the live rulesets and checks that every required check names a job in
+of truth: `make check-rulesets` compares it with the live rulesets and checks that every required check names a job in
 `.github/workflows/`, and it runs in the CI Audit job, so drift or a renamed job fails CI. A maintainer publishes a
-change with `make rulesets-apply` (needs `GH_TOKEN` with admin rights).
+change with `make apply-rulesets` (needs `GH_TOKEN` with admin rights).
 
 **`main` (`.github/rulesets/main.json`):** pull requests with 1 approval and code-owner review, stale approvals
 dismissed on push, review threads resolved, signed commits, no force-push, no deletion. Required checks:

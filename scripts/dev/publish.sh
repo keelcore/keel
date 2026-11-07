@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/dev/publish.sh
 # Publish the repository's tool images (containers/*/Containerfile) to the
-# registry, tagged by build context, and pin them by digest.
+# registry, tagged by build context.
 #
 # Usage:
 #   publish.sh push ARCH   (CI, docker) build each image natively for ARCH (amd64 | arm64)
@@ -10,11 +10,8 @@
 #   publish.sh merge       (CI, docker) join the per-arch images into the multi-arch
 #                          <repository>:ctx-<hash> index and sign it keyless (cosign, in
 #                          the dev image)
-#   publish.sh ref         write containers/NAME/image.ref: the published
-#                          ctx-<hash> index of the current build context, by digest
 #   publish.sh local       (macOS, Apple container) build every unpublished image for
-#                          linux/amd64 and linux/arm64, push it, and write image.ref — so
-#                          the commit already pins it; the dev-image workflow signs it
+#                          linux/amd64 and linux/arm64 and push it; the dev-image workflow signs it
 #
 # Env: GITHUB_TOKEN and GITHUB_ACTOR (registry login for push and merge; GitHub Actions sets
 # GITHUB_ACTOR).
@@ -45,7 +42,6 @@ function main() {
   case "${1}" in
     push) registry_login; for_each_image push_image "${2}" ;;
     merge) registry_login; for_each_image merge_image ;;
-    ref) for_each_image write_ref ;;
     local)
       # Credentials follow the container system's lifecycle: one login (one gh credential read)
       # when `container` holds none for the registry, never a logout; later runs reuse it.
@@ -68,9 +64,9 @@ function log() {
 
 function validate_args() {
   case "${1:-}:${2:-}" in
-    push:amd64 | push:arm64 | merge: | ref: | local:) ;;
+    push:amd64 | push:arm64 | merge: | local:) ;;
     *)
-      log '❌ Usage: publish.sh push amd64|arm64 | merge | ref | local'
+      log '❌ Usage: publish.sh push amd64|arm64 | merge | local'
       exit 1
       ;;
   esac
@@ -107,7 +103,7 @@ function for_each_image() {
 function standards_ref() {
   local hash
   hash="$(dev_context_hash .standards dev)"
-  dev_resolve_ref .standards dev "${hash}" \
+  dev_published_ref "$(dev_repository .standards dev)" "${hash}" \
     || { log "❌ the .standards tool image ctx-${hash} is not published yet"; exit 1; }
 }
 
@@ -140,7 +136,7 @@ function merge_image() {
   local digest
   digest="$(docker buildx imagetools inspect "${tag}" --format '{{json .Manifest}}' | jq -r '.digest')"
   [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || { log "❌ no digest for ${tag}"; exit 1; }
-  KEELCORE_DEV_ENV='GITHUB_ACTOR' bash scripts/dev/run.sh bash scripts/dev/sign-image.sh "${tag%:*}@${digest}"
+  KEELCORE_DEV_ENV='GITHUB_ACTOR' bash scripts/dev/run.sh bash scripts/dev/sign-dev-image.sh "${tag%:*}@${digest}"
   log "✅ ${tag}@${digest}"
   [ -z "${GITHUB_STEP_SUMMARY:-}" ] || printf '`%s`: `%s@%s`\n' "$(dev_ref_file "${name}")" "${tag}" "${digest}" \
     >> "${GITHUB_STEP_SUMMARY}"
@@ -158,17 +154,17 @@ function local_login() {
   export GITHUB_TOKEN
   local token user
   token="${GITHUB_TOKEN}"
-  user="$(curl -fsSL -H "Authorization: Bearer ${token}" https://api.github.com/user | jq -r .login)"
+  user="$(curl -fsSL --connect-timeout 30 --speed-limit 1024 --speed-time 60 -H "Authorization: Bearer ${token}" https://api.github.com/user | jq -r .login)"
   printf '%s' "${token}" | container registry login "${host}" -u "${user}" --password-stdin
 }
 
 # local_image NAME HASH BASE: (macOS) build the multi-arch ctx-HASH index with Apple `container`
-# (amd64 under Rosetta), push it, and pin it in image.ref, unless it is already published. The
+# (amd64 under Rosetta) and push it, unless it is already published. The
 # dev-image workflow signs it after the commit.
 function local_image() {
   local -r name="${1}" hash="${2}" base="${3}"
   local -r tag="$(dev_repository . "${name}"):ctx-${hash}"
-  if remote_digest "${tag}" > /dev/null; then
+  if dev_published_ref "${tag%:*}" "${hash}" > /dev/null; then
     log "✅ ${tag} already published"
   else
     local -a args=(build --platform linux/amd64 --platform linux/arm64 -f "$(dev_containerfile "${name}")" -t "${tag}")
@@ -180,37 +176,6 @@ function local_image() {
     container "${args[@]}" .
     container image push "${tag}"
   fi
-  write_ref "${name}" "${hash}"
-}
-
-# remote_digest REPOSITORY:TAG: the registry's digest for the tag (registry metadata only;
-# GITHUB_TOKEN when set, for a private package).
-function remote_digest() {
-  local -r ref="${1}"
-  local -r repository="${ref%:*}" tag="${ref##*:}"
-  local -r host="${repository%%/*}" path="${repository#*/}"
-  local -a auth=()
-  [ -z "${GITHUB_TOKEN:-}" ] || auth=(-u "token:${GITHUB_TOKEN}")
-  local token digest
-  token="$(curl -fsSL ${auth[@]+"${auth[@]}"} "https://${host}/token?scope=repository:${path}:pull" | jq -r '.token')" || return 1
-  digest="$(curl -fsSI -H "Authorization: Bearer ${token}" \
-    -H 'Accept: application/vnd.oci.image.index.v1+json' \
-    -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
-    "https://${host}/v2/${path}/manifests/${tag}" \
-    | tr -d '\r' | awk -F': ' 'tolower($1) == "docker-content-digest" { print $2 }')" || return 1
-  [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
-  printf '%s' "${digest}"
-}
-
-# write_ref NAME HASH: pin the published ctx-HASH index by digest (registry metadata only).
-function write_ref() {
-  local -r name="${1}" hash="${2}"
-  local -r repository="$(dev_repository . "${name}")"
-  local digest
-  digest="$(remote_digest "${repository}:ctx-${hash}")" \
-    || { log "❌ ${repository}:ctx-${hash} is not published yet (make dev-image-publish)"; exit 1; }
-  printf '%s:ctx-%s@%s\n' "${repository}" "${hash}" "${digest}" > "$(dev_ref_file "${name}")"
-  log "✅ $(dev_ref_file "${name}"): ${repository}:ctx-${hash}@${digest}"
 }
 
 main "${@:-}"

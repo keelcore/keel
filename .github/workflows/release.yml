@@ -15,10 +15,31 @@ permissions:
 env:
   TZ: UTC
 
-# build → approve → sign-blobs, attest-blobs, images, helm (side by side)
-#                 → upload (blobs), image-provenance (one per flavor)
-#                 → verify → publish
+# ci-passed → build → approve → sign-blobs, attest-blobs, images, helm (side by side)
+#                             → upload (blobs), image-provenance (one per flavor)
+#                             → verify → publish
 jobs:
+
+  # ---------------------------------------------------------------------------
+  # CI passed — waits for every earlier workflow run on this commit to finish, and fails if any is
+  # red, so a red commit is never published.
+  # ---------------------------------------------------------------------------
+  ci-passed:
+    name: CI passed on this commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - run: make wait-for-ci
+        env:
+          GH_TOKEN: ${{ github.token }}
 
   # ---------------------------------------------------------------------------
   # Build — produce linux/amd64 and linux/arm64 release artifacts for Docker image delivery.
@@ -28,6 +49,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build:
     name: Build Release Artifacts
+    needs: ci-passed
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -45,7 +67,7 @@ jobs:
       # Each flavor for each architecture, concurrently. docker.sh pairs each flavor's amd64 and
       # arm64 binaries into one multi-arch image index.
       - name: Build release binaries
-        run: make release-binaries
+        run: make build-release-binaries
       # One SBOM per release binary (keel, its version, the Go modules compiled into it); docker.sh
       # adds one per image. OpenVEX from govulncheck reachability, generated from the code being
       # released; docker.sh attests it to every image index. TAG reaches the run line from the
@@ -53,11 +75,11 @@ jobs:
       - name: Generate SBOMs and OpenVEX
         env:
           TAG: ${{ github.ref_name }}
-        run: make release-metadata
+        run: make generate-release-metadata
       - name: Validate OpenVEX
         run: make lint-vex
       - name: Generate checksums
-        run: make release-checksums
+        run: make generate-release-checksums
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: release-artifacts
@@ -87,7 +109,7 @@ jobs:
           name: release-artifacts
           path: dist/
       - name: Verify artifact checksums
-        run: make release-checksums-verify
+        run: make verify-release-checksums
 
   # ---------------------------------------------------------------------------
   # Sign — sign each artifact (cosign keyless, GitHub OIDC).
@@ -110,10 +132,10 @@ jobs:
           name: release-artifacts
           path: dist/
       - name: Sign artifacts
-        run: make release-sign ARGS="--sums-dir dist dist/keel-*"
+        run: make sign-release ARGS="--sums-dir dist dist/keel-*"
       # Signing runs in the dev image (root on a Linux runner); hand dist/ back to the runner user.
       - name: Hand dist back to the runner
-        run: make dist-chmod
+        run: make set-dist-permissions
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: signed-blobs
@@ -181,13 +203,13 @@ jobs:
           path: dist/
       # Artifacts lose their mode in transit: the images need executable binaries.
       - name: Make the binaries executable
-        run: make dist-chmod
+        run: make set-dist-permissions
       - name: Build, scan, push and sign container images
         id: images
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
-        run: make release-images
+        run: make publish-release-images
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: image-sboms
@@ -218,7 +240,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
-        run: make release-helm-push
+        run: make push-helm-chart
 
   # ---------------------------------------------------------------------------
   # Upload — attach the artifacts, their signatures and provenance to the draft release.
@@ -254,7 +276,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
           PROVENANCE_BUNDLE: provenance
-        run: make release-upload
+        run: make upload-release
 
   # ---------------------------------------------------------------------------
   # Image provenance — SLSA provenance per image digest, pushed to GHCR next to each image.
@@ -283,7 +305,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
-        run: make release-ghcr-login
+        run: make login-ghcr
       - name: Image provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0
         with:
@@ -326,7 +348,7 @@ jobs:
           MAX_DIGEST: ${{ needs.images.outputs.max_digest }}
           MIN_DIGEST: ${{ needs.images.outputs.min_digest }}
           FIPS_DIGEST: ${{ needs.images.outputs.fips_digest }}
-        run: make release-verify
+        run: make verify-release
 
   # ---------------------------------------------------------------------------
   # Publish — immutable releases: every asset is attached to the draft first; publishing locks it.
@@ -351,4 +373,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
-        run: make release-upload ARGS="--publish"
+        run: make upload-release ARGS="--publish"

@@ -22,12 +22,12 @@ function main() {
 }
 
 function install_precommit() {
-  if [ ! -f scripts/git_precommit.sh ]; then
-    log 'ℹ️  scripts/git_precommit.sh not present; nothing to install'
+  if [ ! -f scripts/run-pre-commit.sh ]; then
+    log 'ℹ️  scripts/run-pre-commit.sh not present; nothing to install'
     return 0
   fi
   git config core.hooksPath scripts/hooks
-  log '✅ hooks installed: core.hooksPath = scripts/hooks (scripts/hooks/pre-commit runs scripts/git_precommit.sh)'
+  log '✅ hooks installed: core.hooksPath = scripts/hooks (scripts/hooks/pre-commit runs scripts/run-pre-commit.sh)'
 }
 
 function log() {

@@ -4,7 +4,7 @@
 # unchanged: upstream <- keel -> prometheus / otel-collector -> jaeger.
 #
 # Fixture files arrive as the `keel-fixtures` Secret and `otel-config` /
-# `prometheus-config` ConfigMaps, created by scripts/k8s/stack-test.sh.
+# `prometheus-config` ConfigMaps, created by scripts/k8s/deploy-k8s-stack.sh.
 # Every port the compose tests use is a hostPort: bound on all node interfaces
 # and wired node -> pod by the CNI portmap plugin (iptables), no proxies.
 

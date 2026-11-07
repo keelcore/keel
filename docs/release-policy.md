@@ -54,9 +54,9 @@ whenever any `pkg/config/*.go` file is part of a commit — no manual step requi
 To regenerate it outside of a commit (e.g. to inspect the current output):
 
 ```bash
-./scripts/release/gen-schema.sh
+./scripts/release/generate-schema.sh
 # or
-make gen-schema
+make generate-schema
 ```
 
 The consistency test suite enforces that `schema.yaml` is never stale — a
@@ -69,9 +69,9 @@ mismatch between the committed file and the reflection output fails CI.
 | Script or target | Purpose |
 | --- | --- |
 | `scripts/release/create-release.local.sh` | Keel's bump hook: schema field diff → bump level and tag subject |
-| `scripts/release/gen-schema.sh` | Regenerate `pkg/config/schema.yaml` after config changes |
+| `scripts/release/generate-schema.sh` | Regenerate `pkg/config/schema.yaml` after config changes |
 | `cmd/config-schema/main.go` | Go tool: reflection-walk of `config.Config` → dotted YAML paths |
-| `make gen-schema` | Alias for `gen-schema.sh` |
+| `make generate-schema` | Alias for `generate-schema.sh` |
 | `make create-release-local PREV_TAG=v0.9.13` | Run the hook alone against a previous tag |
 | `scripts/release/update-pins.local.sh` | Keel's pin hook (`make update-pins`): pins, holds, verification targets, appliers |
 | `make update-pins-local WHAT=pins` | Run the pin hook alone (`pins`, `holds`) |
@@ -87,10 +87,10 @@ The canonical `make update-pins` (`governance/ci.md` "Pin Refresh") runs before 
   against their GitHub releases and applied with the checksums those CDNs publish.
 - **Holds:** the locally built `keel:test` and `keel-mockupstream:test` images, the `example.invalid` Helm fixture
   image, the `REQUIRED_GO` toolchain-prefix check, and `KUBE_MIN` (the oldest Kubernetes API the chart supports).
-- **Verification:** Go modules run `make min max test`; each Go tool installs and runs its own lint target (gosec,
+- **Verification:** Go modules run `make build-min build-max test`; each Go tool installs and runs its own lint target (gosec,
   govulncheck, actionlint, go-licenses); toolbox tools rebuild a separate `keel-toolbox-pins` toolbox.
-- **Combined run:** `min max lint audit test`, then the integration stack: Apple `container`
-  (`container-setup container-stack-test`, in `keel-toolbox-pins`, which mounts the throwaway worktree) on macOS,
+- **Combined run:** `build-min build-max lint audit test`, then the integration stack: Apple `container`
+  (`setup-container test-container-stack`, in `keel-toolbox-pins`, which mounts the throwaway worktree) on macOS,
   Docker Compose (`test-compose`) on Linux. `keel-toolbox-pins` is removed when the run ends.
 
 ---

@@ -104,7 +104,7 @@ docs(config-reference): add ext_authz section
 ```
 
 The PR policy gate enforces the Conventional Commits format on both PR titles
-and individual commit messages. Run `scripts/ci/pr-policy.sh` locally before
+and individual commit messages. Run `scripts/ci/check-pr-policy.sh` locally before
 pushing to check.
 
 ### DCO sign-off
@@ -135,7 +135,7 @@ git push --force-with-lease
 ```
 
 The `dco` CI check runs on every PR and blocks merge if any commit is missing
-the trailer. Run `scripts/ci/dco-check.sh` locally (with `BASE_SHA` and
+the trailer. Run `scripts/ci/check-dco.sh` locally (with `BASE_SHA` and
 `HEAD_SHA` set) to pre-flight the check.
 
 ### Branch naming
@@ -158,7 +158,7 @@ Example: `feat/oidc-proxy`, `fix/tls-reload-race`, `docs/authz-examples`
 ```bash
 make test-unit
 # or directly:
-bash scripts/test/ci.sh
+bash scripts/test/test-unit-go.sh
 ```
 
 Unit tests run with `-race` and coverage. All new code must include tests. The
@@ -179,7 +179,7 @@ template, and `docs/config-reference.md` are globally consistent. It runs in CI.
 ```bash
 KEEL_COMPOSE_TESTS=1 make test-compose
 # or directly:
-KEEL_COMPOSE_TESTS=1 bash scripts/test/compose.sh
+KEEL_COMPOSE_TESTS=1 bash scripts/test/test-compose.sh
 ```
 
 Requires Docker Compose. Spins up the full stack including keel, upstream, Prometheus,
@@ -199,7 +199,7 @@ Validates the compiled binary directly — not a hypothetical output.
 ```bash
 make lint
 # or directly:
-bash scripts/lint/helm.sh
+bash scripts/lint/lint-helm.sh
 ```
 
 ---

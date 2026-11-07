@@ -2,7 +2,6 @@
 # setup-kubeconform.sh
 # Install kubeconform for offline Kubernetes schema validation.
 # Linux: download the release tarball and verify its committed SHA-256.
-# macOS: Homebrew.
 # No-op if kubeconform is already present.
 
 # bash configuration:
@@ -15,10 +14,10 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly KUBECONFORM_VERSION='v0.6.7'
+readonly KUBECONFORM_VERSION='v0.8.0'
 # Published in the release's CHECKSUMS file.
-readonly KUBECONFORM_SHA256_AMD64='95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73'
-readonly KUBECONFORM_SHA256_ARM64='dc82f79bb03c5479b1ae5fd4af221e4b5a3111f62bf01a2795d9c5c20fa96644'
+readonly KUBECONFORM_SHA256_AMD64='9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883'
+readonly KUBECONFORM_SHA256_ARM64='1f53fc8e81258197a35e8603054162a5af1de8c5af13746c71ab680d9534ed87'
 
 function main() {
   exec 5>&1
@@ -32,12 +31,8 @@ function main() {
       log "Installing kubeconform ${KUBECONFORM_VERSION} (Linux)"
       install_linux
       ;;
-    Darwin)
-      log "Installing kubeconform via Homebrew"
-      install_macos
-      ;;
     *)
-      log "ERROR: setup-kubeconform.sh does not support OS: $(uname -s)"
+      log '❌ kubeconform installs in the dev image (Linux); run its targets through make'
       exit 1
       ;;
   esac
@@ -74,15 +69,11 @@ function install_linux() {
   local -r url="https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-${arch}.tar.gz"
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${url}" -o "${tmp}/kubeconform.tar.gz"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 "${url}" -o "${tmp}/kubeconform.tar.gz"
   printf '%s  %s\n' "${sum}" "${tmp}/kubeconform.tar.gz" | sha256sum --check --quiet
   as_root tar -xzf "${tmp}/kubeconform.tar.gz" -C /usr/local/bin kubeconform
   as_root chmod +x /usr/local/bin/kubeconform
   rm -rf "${tmp}"
-}
-
-function install_macos() {
-  brew install kubeconform
 }
 
 main "${@:-}"

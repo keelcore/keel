@@ -3,9 +3,9 @@
 # keel hook for the canonical scripts/dev/publish.sh, which runs it as
 # `publish.local.sh MODE` after each mode. Project-owned, never canonical.
 #
-# Usage: publish.local.sh push|merge|ref|local   (make dev-image-publish-local WHAT=local)
+# Usage: publish.local.sh push|merge|ref|local   (make publish-dev-image-local WHAT=local)
 #
-# local (make dev-image-publish, the bootstrap from a dev workstation before the
+# local (make publish-dev-image, the bootstrap from a dev workstation before the
 # commit that pins the image is pushed): report each tool image's GHCR package —
 # public, and connected to this repository so its Actions can write it (the
 # dev-image workflow signs the image after the commit). GitHub has no API for

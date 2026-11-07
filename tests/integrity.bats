@@ -170,7 +170,7 @@ cert_dir() {
 @test "HTTPS listener: GET / returns 'keel: ok'" {
   local cert_dir
   cert_dir="$(cert_dir)"
-  [ -f "${cert_dir}/server.crt" ] || skip "TLS certs not found; run 'make gen-certs' first"
+  [ -f "${cert_dir}/server.crt" ] || skip "TLS certs not found; run 'make generate-certs' first"
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n' \
@@ -190,7 +190,7 @@ cert_dir() {
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   local cert_dir
   cert_dir="$(cert_dir)"
-  [ -f "${cert_dir}/server.crt" ] || skip "TLS certs not found; run 'make gen-certs' first"
+  [ -f "${cert_dir}/server.crt" ] || skip "TLS certs not found; run 'make generate-certs' first"
   local cfg pid bin max_ver min_ver
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  h3:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n' \
@@ -215,7 +215,7 @@ cert_dir() {
 @test "tls.client_ca_file: HTTPS rejects clients without a trusted certificate (inbound mTLS)" {
   local cert_dir
   cert_dir="$(cert_dir)"
-  [ -f "${cert_dir}/client.crt" ] || skip "TLS certs not found; run 'make gen-certs' first"
+  [ -f "${cert_dir}/client.crt" ] || skip "TLS certs not found; run 'make generate-certs' first"
   local cfg pid
   cfg="$(mktemp)"
   printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n  client_ca_file: %s\n' \
@@ -815,7 +815,7 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 # EXTRA_YAML appended; waits for both listeners. Sets PROTO_PID and PROTO_LOG.
 start_protocol_keel() {
   local -r bin="${1}" extra="${2}" certs="$(cert_dir)"
-  [ -f "${certs}/server.crt" ] || skip "TLS certs not found; run 'make gen-certs' first"
+  [ -f "${certs}/server.crt" ] || skip "TLS certs not found; run 'make generate-certs' first"
   PROTO_CFG="$(mktemp)"
   PROTO_LOG="${BATS_TEST_TMPDIR}/keel-proto.log"
   printf 'listeners:\n  http:\n    enabled: true\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\nlogging:\n  json: true\ntls:\n  cert_file: %s\n  key_file: %s\n%s' \
@@ -897,7 +897,7 @@ stop_protocol_keel() {
 @test "protocol: client_cert_notice answers a missing client certificate with KEEL-PROTO-005" {
   local certs
   certs="$(cert_dir)"
-  [ -f "${certs}/client.crt" ] || skip "TLS certs not found; run 'make gen-certs' first"
+  [ -f "${certs}/client.crt" ] || skip "TLS certs not found; run 'make generate-certs' first"
   start_protocol_keel keel-min "$(printf '  client_ca_file: %s\n  client_cert_notice: true\n' "${certs}/ca.crt")"
   local anon authed
   anon="$(curl -s -D - -o /dev/null --max-time 2 --cacert "${certs}/ca.crt" https://127.0.0.1:8443/)"

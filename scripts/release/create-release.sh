@@ -51,6 +51,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/tool-config.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
+
 declare -r LOG_FILE='/tmp/create_release.log'
 declare -r HOOK_REL='scripts/release/create-release.local.sh'
 declare -r DEMOTION_NOTE=' (pre-1.0 demotion)'
@@ -227,8 +230,7 @@ function check_clean_tree() {
 # check_pins DRY_RUN: read what was checked and committed (docs/current_pins.md), with no network
 # query, so nothing upstream changing between that check and this tag can block a commit that was
 # current; the next update-pins run reports it. Stale pins block the release unless
-# --allow-stale-pins gave a reason (a dry run only warns). A tool-image pin (devimage) never
-# blocks: run.sh builds an unpinned build context locally.
+# --allow-stale-pins gave a reason (a dry run only warns).
 function check_pins() {
   local -r dry_run="${1}"
   local -r driver="$(dirname "${BASH_SOURCE[0]}")/update-pins.sh"
@@ -241,7 +243,7 @@ function check_pins() {
     exit 1
   fi
   PINS_SUMMARY="$(printf '%s\n' "${report}" | sed -n 's/^update-pins (discovery) — //p' | head -1)"
-  PINS_STALE="$(awk -F'\t' -v OFS='\t' '$6 == "stale" && $1 != "devimage" { print $1, $2, $4, $7, $NF }' "${PINS_TSV}")"
+  PINS_STALE="$(awk -F'\t' -v OFS='\t' '$6 == "stale" { print $1, $2, $4, $7, $NF }' "${PINS_TSV}")"
   if [ -z "${PINS_STALE}" ]; then
     log "✅ Pins: ${PINS_SUMMARY}"
     return 0
@@ -571,6 +573,7 @@ function build_tag_message() {
     cat "${FINDINGS_FILE}"
   fi
   printf '\n'
+  [ -z "$(release_dev_image)" ] || printf 'Dev-Image: %s\n' "$(release_dev_image)"
   pin_trailers
   printf 'Generated-by: scripts/release/create-release.sh\n'
 }

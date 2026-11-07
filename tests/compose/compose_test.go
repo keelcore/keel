@@ -2,7 +2,7 @@
 // Integration tests that run against the live docker-compose.test.yaml topology.
 //
 // These tests are skipped when KEEL_COMPOSE_TESTS is unset.
-// Run via: scripts/test/compose.sh  OR
+// Run via: scripts/test/test-compose.sh  OR
 //
 //	KEEL_COMPOSE_TESTS=1 go test ./tests/compose/...
 package compose

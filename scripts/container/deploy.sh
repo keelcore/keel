@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # deploy.sh
-# P3.5 — Builds keel:test with Apple's `container` CLI, loads it into the
-# container cluster, and deploys it via Helm from keel-toolbox.
+# P3.5 — Builds keel:test with Apple's `container` CLI, which the cluster's nodes pull from
+# the local image store, and deploys it via Helm from keel-toolbox.
 # Requires: scripts/container/setup.sh must have been run first.
 
 # bash configuration:
@@ -27,7 +27,6 @@ function main() {
   require_running "${name}"
   require_running "${toolbox}"
   build_image
-  load_image "${name}"
   deploy_helm "${name}" "${toolbox}"
   log '🎉 Keel deployed successfully'
 }
@@ -47,7 +46,7 @@ function validate_args() {
 
 function require_running() {
   local -r id="${1}"
-  container ls | awk -v id="${id}" 'NR > 1 && $1 == id { found = 1 } END { exit !found }' || {
+  container inspect "${id}" 2> /dev/null | jq -e '.[0].status.state == "running"' > /dev/null || {
     log "❌ '${id}' is not running. Run: scripts/container/setup.sh"
     exit 1
   }
@@ -55,7 +54,7 @@ function require_running() {
 }
 
 function build_image() {
-  KEEL_IMAGE_TOOL=container bash "${REPO_ROOT}/scripts/build/certs-image.sh"
+  KEEL_IMAGE_TOOL=container bash "${REPO_ROOT}/scripts/build/build-certs-image.sh"
   log '🐳 Building keel:test image via Apple container...'
   container build -t 'keel:test' --build-arg 'FLAVOR=min' \
     -f "${REPO_ROOT}/scripts/deploy/docker/Dockerfile" \
@@ -63,18 +62,11 @@ function build_image() {
   log '✅ keel:test image built'
 }
 
-function load_image() {
-  local -r name="${1}"
-  log "📤 Loading keel:test into cluster '${name}'..."
-  container cluster load-image --name "${name}" 'keel:test'
-  log '✅ Image loaded'
-}
-
 function deploy_helm() {
   local -r name="${1}" toolbox="${2}"
-  log "⎈ Delegating to helm-deploy.sh in ${toolbox} (context: ${name})..."
+  log "⎈ Delegating to deploy-k8s-helm.sh in ${toolbox} (context: ${name})..."
   container exec -e "KEEL_K8S_CONTEXT=${name}" "${toolbox}" \
-    bash scripts/k8s/helm-deploy.sh
+    bash scripts/k8s/deploy-k8s-helm.sh
 }
 
 main "${@:-}"

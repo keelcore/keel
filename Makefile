@@ -23,194 +23,192 @@ include .standards/templates/Makefile.canonical
 export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 # Workflow step env that tool targets read reaches the dev image (scripts/dev/run.sh passes only
 # the variables KEELCORE_DEV_ENV names): GOOS/GOARCH for the release cross-builds, GH_TOKEN for
-# zizmor's online audits and gh attestation verify, the image index digests for release-verify.
+# zizmor's online audits and gh attestation verify, the image index digests for verify-release.
 export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGEST
 
-.PHONY: all
+.PHONY: build-all
 .PHONY: clean
-.PHONY: min
-.PHONY: max
-.PHONY: max-no-fips
+.PHONY: build-min
+.PHONY: build-max
+.PHONY: build-max-no-fips
 .PHONY: build
-.PHONY: integration-test
-.PHONY: unit-test
+.PHONY: test-integration
 .PHONY: test-consistency
 .PHONY: test-integrity
 .PHONY: test-compose
 .PHONY: test-k8s
-.PHONY: coverage
+.PHONY: test-coverage
 .PHONY: lint-go
 .PHONY: lint-newlines
-.PHONY: release-sbom
-.PHONY: release-sign
-.PHONY: release-binaries
-.PHONY: release-ci
-.PHONY: container-setup
-.PHONY: container-deploy
-.PHONY: container-test
-.PHONY: container-stack-test
-.PHONY: container-stack-test-keep
-.PHONY: container-teardown
-.PHONY: container-host-network
-.PHONY: certs-image
-.PHONY: gen-certs
-.PHONY: gen-schema
+.PHONY: generate-sbom
+.PHONY: sign-release
+.PHONY: build-release-binaries
+.PHONY: run-release-ci
+.PHONY: setup-container
+.PHONY: deploy-container
+.PHONY: test-container
+.PHONY: test-container-stack
+.PHONY: test-container-stack-keep
+.PHONY: teardown-container
+.PHONY: setup-container-host-network
+.PHONY: build-certs-image
+.PHONY: generate-certs
+.PHONY: generate-schema
 .PHONY: install-hooks
-.PHONY: fresh-repo
-.PHONY: rulesets-check
-.PHONY: rulesets-apply
+.PHONY: create-fresh-repo
+.PHONY: check-rulesets
+.PHONY: apply-rulesets
 .PHONY: help
 .PHONY: help-local
-.PHONY: pre-commit
-.PHONY: keel-schema-regen
+.PHONY: run-pre-commit
+.PHONY: generate-schema-staged
 .PHONY: setup-bats
 .PHONY: setup-pebble
 .PHONY: setup-kind
 .PHONY: setup-syft
 .PHONY: setup-markdownlint
 .PHONY: setup-ghcr
-.PHONY: ci-pr-policy
-.PHONY: ci-secret-scan
-.PHONY: ci-dco
-.PHONY: ci-coverage-delta
-.PHONY: ci-smoke-windows
-.PHONY: bats-integrity
-.PHONY: bats-example
-.PHONY: ci-build-example
+.PHONY: check-pr-policy
+.PHONY: check-secrets
+.PHONY: check-dco
+.PHONY: check-coverage-delta
+.PHONY: test-smoke-windows
+.PHONY: test-integrity-artifact
+.PHONY: test-example-artifact
+.PHONY: build-example
 .PHONY: clean-local
 .PHONY: create-release-local
 .PHONY: update-pins-local
-.PHONY: release-images-local
-.PHONY: native-build-local
-.PHONY: native-integrity-local
-.PHONY: dev-image-publish-local
-.PHONY: coverage-report
+.PHONY: publish-release-images-local
+.PHONY: build-native-local
+.PHONY: test-native-integrity-local
+.PHONY: build-dev-image
+.PHONY: publish-dev-image-local
+.PHONY: report-coverage
 .PHONY: audit
 .PHONY: check-legal-drift
-.PHONY: size-report
-.PHONY: roadmap-issues
-.PHONY: k8s-cluster-test
-.PHONY: k8s-helm-deploy
-.PHONY: k8s-stack-up
-.PHONY: k8s-stack-down
-.PHONY: k8s-kind-load
-.PHONY: k8s-kind-setup
-.PHONY: k8s-kind-teardown
+.PHONY: report-size
+.PHONY: create-roadmap-issues
+.PHONY: test-k8s-cluster
+.PHONY: deploy-k8s-helm
+.PHONY: deploy-k8s-stack
+.PHONY: teardown-k8s-stack
+.PHONY: load-k8s-kind
+.PHONY: setup-k8s-kind
+.PHONY: teardown-k8s-kind
 
 # Default target: build the shredded minimalist binary
-all: min
+build-all: build-min
 
 ## Build Targets
-min:
+build-min:
 	@echo "⚓ Building Shredded (BYOS)..."
-	bash scripts/dev/run.sh bash scripts/build/ci_min.sh
+	bash scripts/dev/run.sh bash scripts/build/build-min.sh
 
-max:
+build-max:
 	@echo "⚓ Building Rock-Hard (FIPS/Corporate)..."
-	bash scripts/dev/run.sh bash scripts/build/ci_max.sh
+	bash scripts/dev/run.sh bash scripts/build/build-max.sh
 
-max-no-fips:
+build-max-no-fips:
 	@echo "⚓ Building Ripped (Full Feature/No-FIPS)..."
-	bash scripts/dev/run.sh bash scripts/build/ci_max_no_fips.sh
+	bash scripts/dev/run.sh bash scripts/build/build-max-no-fips.sh
 
 test-consistency:
 	@echo "🧪 Running consistency suite..."
-	bash scripts/dev/run.sh --writable bash scripts/test/consistency.sh
+	bash scripts/dev/run.sh --writable bash scripts/test/test-consistency.sh
 
 test-integrity:
 	@echo "🧪 Running BATS integrity suite..."
-	bash scripts/dev/run.sh bash scripts/build/ci_test_binary.sh
+	bash scripts/dev/run.sh bash scripts/build/test-integrity.sh
 
 ## test-example chains the existing build + bats targets (no inline steps).
-test-example: ci-build-example bats-example
+test-example: build-example test-example-artifact
 	@echo "🧪 Running examples/myapp tests..."
 
 test-compose:
 	@echo "🐳 Running Docker Compose integration tests (P3)..."
-	./scripts/test/compose.sh
+	./scripts/test/test-compose.sh
 
 test-compose-keep:
 	@echo "🐳 Running Docker Compose integration tests (stack stays up)..."
-	./scripts/test/compose.sh --keep-up
+	./scripts/test/test-compose.sh --keep-up
 
 ## CI Kubernetes (kind)
 test-k8s:
 	@echo "⎈ Running kind k8s integration tests..."
-	./scripts/test/k8s.sh
+	./scripts/test/test-k8s.sh
 
 ## P3.5 Local k8s (Apple container) Targets
-container-setup:
+setup-container:
 	@echo "☸️  Starting local k8s cluster + keel-toolbox via Apple container..."
 	./scripts/container/setup.sh
 
-container-deploy:
+deploy-container:
 	@echo "⎈ Building and deploying Keel to Apple container k8s..."
 	./scripts/container/deploy.sh
 
-container-test:
+test-container:
 	@echo "🧪 Running k8s integration tests against Apple container cluster..."
 	./scripts/container/test.sh
 
-container-stack-test:
+test-container-stack:
 	@echo "🧪 Running compose integration tests on the Apple container k8s stack..."
-	./scripts/container/stack-test.sh
+	./scripts/container/test-container-stack.sh
 
-container-stack-test-keep:
+test-container-stack-keep:
 	@echo "🧪 Running stack tests (stack stays up)..."
-	./scripts/container/stack-test.sh --keep-up
+	./scripts/container/test-container-stack.sh --keep-up
 
-container-teardown:
+teardown-container:
 	@echo "🧹 Tearing down Apple container k8s environment..."
 	./scripts/container/teardown.sh
 
 ## Apple container host networking
-container-host-network:
+setup-container-host-network:
 	@echo "🛣️  Checking Apple container host networking..."
-	./scripts/container/host-network.sh
+	./scripts/container/setup-container-host-network.sh
 
 ## CA image: full Mozilla bundle; keel images copy an explicit root allowlist from it
-certs-image:
+build-certs-image:
 	@echo "🔐 Building keel-certs CA image..."
-	./scripts/build/certs-image.sh
+	./scripts/build/build-certs-image.sh
 
 ## Certificate Generation
-gen-certs:
+generate-certs:
 	@echo "🔑 Generating self-signed test certificates..."
-	bash scripts/dev/run.sh bash scripts/test/gen-certs.sh
+	bash scripts/dev/run.sh bash scripts/test/generate-certs.sh
 
-gen-schema:
+generate-schema:
 	@echo "📐 Regenerating config field schema..."
-	bash scripts/dev/run.sh --writable bash scripts/release/gen-schema.sh
+	bash scripts/dev/run.sh --writable bash scripts/release/generate-schema.sh
 
 ## Repo Setup Targets
 ## Pre-commit composition: keel's schema-regen runs before the canonical
 ## pre-commit checks (format + lint + governance-gate). Pure prerequisite
 ## aggregator on the canonical `pre-commit` target — same pattern as `help`.
 ## install-hooks is inherited from canonical; it installs a hook that runs
-## `make pre-commit`, so this prerequisite fires at commit time.
-pre-commit: keel-schema-regen
-keel-schema-regen:
+## `make run-pre-commit`, so this prerequisite fires at commit time.
+run-pre-commit: generate-schema-staged
+generate-schema-staged:
 	@echo "📐 Regenerating + staging config schema (keel-specific)..."
 	bash scripts/hooks/schema-regen.sh
 
-fresh-repo: install-hooks
-	bash scripts/fresh-repo.sh
+create-fresh-repo: install-hooks
+	bash scripts/create-fresh-repo.sh
 
 ## Branch protection as code (docs/governance.md): check is read-only; apply needs an admin GH_TOKEN.
-rulesets-check:
+check-rulesets:
 	@echo "🛡️  Checking rulesets against .github/rulesets..."
-	bash scripts/dev/run.sh bash scripts/admin/rulesets.sh check
+	bash scripts/dev/run.sh bash scripts/admin/apply-rulesets.sh check
 
-rulesets-apply:
+apply-rulesets:
 	@echo "🛡️  Applying .github/rulesets..."
-	bash scripts/dev/run.sh bash scripts/admin/rulesets.sh apply
+	bash scripts/dev/run.sh bash scripts/admin/apply-rulesets.sh apply
 
 ## Universal Canonical Targets (language-independent interface; mandated by CI standards)
-build: min
+build: build-min
 
-unit-test: test-unit
-
-integration-test: test-integrity test-consistency
+test-integration: test-integrity test-consistency
 
 setup-pebble:
 	@echo "🔧 Installing pebble..."
@@ -221,77 +219,77 @@ setup-kind:
 	./scripts/ci/setup-kind.sh
 
 ## CI Gate Targets
-ci-smoke-windows:
+test-smoke-windows:
 	@echo "🪟 Running Windows smoke test..."
-	./scripts/build/ci_smoke_windows.sh
+	./scripts/build/test-smoke-windows.sh
 
 ## BATS Runner Targets (artifact-based; distinct from test-integrity which builds first)
-bats-integrity:
+test-integrity-artifact:
 	@echo "🧪 Running BATS integrity suite against downloaded artifact..."
-	bash scripts/dev/run.sh bash scripts/test/bats-integrity.sh
+	bash scripts/dev/run.sh bash scripts/test/test-integrity-artifact.sh
 
-bats-example:
+test-example-artifact:
 	@echo "🧪 Running BATS example suite..."
-	bash scripts/dev/run.sh bash scripts/test/bats-example.sh
+	bash scripts/dev/run.sh bash scripts/test/test-example-artifact.sh
 
-ci-build-example:
+build-example:
 	@echo "🔨 Building examples/myapp (CI, no BATS)..."
-	bash scripts/dev/run.sh bash scripts/build/ci_example.sh
+	bash scripts/dev/run.sh bash scripts/build/build-example.sh
 
-## release-binaries: every flavor for every architecture, concurrently, under its release name.
-release-binaries:
+## build-release-binaries: every flavor for every architecture, concurrently, under its release name.
+build-release-binaries:
 	@echo "⚓ Building release binaries..."
 	bash scripts/dev/run.sh bash scripts/release/build-binaries.sh
 
 ## Kubernetes Helper Targets (internal; called by test-k8s)
-k8s-cluster-test:
+test-k8s-cluster:
 	@echo "⎈ Running k8s cluster tests..."
-	./scripts/k8s/cluster-test.sh
+	./scripts/k8s/test-k8s-cluster.sh
 
-k8s-helm-deploy:
+deploy-k8s-helm:
 	@echo "⎈ Deploying Helm chart to kind cluster..."
-	./scripts/k8s/helm-deploy.sh
+	./scripts/k8s/deploy-k8s-helm.sh
 
-k8s-stack-up:
+deploy-k8s-stack:
 	@echo "⎈ Deploying the compose-equivalent k8s stack..."
-	./scripts/k8s/stack.sh up
+	./scripts/k8s/deploy-k8s-stack.sh up
 
-k8s-stack-down:
+teardown-k8s-stack:
 	@echo "🧹 Removing the compose-equivalent k8s stack..."
-	./scripts/k8s/stack.sh down
+	./scripts/k8s/deploy-k8s-stack.sh down
 
-k8s-kind-load:
+load-k8s-kind:
 	@echo "⎈ Loading image into kind cluster..."
-	./scripts/k8s/kind-load.sh
+	./scripts/k8s/load-k8s-kind.sh
 
-k8s-kind-setup:
+setup-k8s-kind:
 	@echo "⎈ Setting up kind cluster..."
-	./scripts/k8s/kind-setup.sh
+	./scripts/k8s/setup-k8s-kind.sh
 
-k8s-kind-teardown:
+teardown-k8s-kind:
 	@echo "⎈ Tearing down kind cluster..."
-	./scripts/k8s/kind-teardown.sh
+	./scripts/k8s/teardown-k8s-kind.sh
 
 setup-ghcr:
 	@echo "🔧 Setting up GHCR credentials..."
 	./scripts/release/setup-ghcr.sh
 
 ## Additional Release Targets
-release-ci:
+run-release-ci:
 	@echo "🚀 Running release CI pipeline..."
-	./scripts/release/ci.sh
+	./scripts/release/run-release-ci.sh
 
 ## Additional Utility Targets
-size-report:
+report-size:
 	@echo "📏 Generating binary size report..."
-	bash scripts/dev/run.sh bash scripts/build/size-report.sh
+	bash scripts/dev/run.sh bash scripts/build/report-size.sh
 
-roadmap-issues:
+create-roadmap-issues:
 	@echo "🗺️  Syncing roadmap issues..."
-	./scripts/roadmap-issues.sh
+	./scripts/create-roadmap-issues.sh
 
 ## Utility Targets
-# Host uid:gid on Linux, where the dev image runs as root (dist-chmod hands dist/ back); empty elsewhere.
+# Host uid:gid on Linux, where the dev image runs as root (set-dist-permissions hands dist/ back); empty elsewhere.
 ## Local artifact cleanup — also delegated to by canonical clean.sh (`make clean`)
 clean-local:
 	@echo "🧹 Removing keel build artifacts (dist/, target/)..."
@@ -302,39 +300,43 @@ create-release-local:
 	@echo "📐 Computing bump level from the config schema diff..."
 	bash scripts/release/create-release.local.sh $(PREV_TAG)
 
-## The CA bundle image keel's images copy from: run by make release-images, and runnable alone.
-release-images-local:
+## The CA bundle image keel's images copy from: run by make publish-release-images, and runnable alone.
+publish-release-images-local:
 	@echo "🐳 Building the CA bundle image..."
-	bash scripts/release/docker.local.sh
+	bash scripts/release/publish-release-images.local.sh
 
 ## keel's part of the canonical native targets: run by them, and runnable alone.
-native-build-local:
+build-native-local:
 	@echo "🔨 Building keel and pebble for $(OS)/$(ARCH)..."
-	bash scripts/dev/run.sh bash scripts/test/native-build.local.sh $(OS) $(ARCH) target/native/$(OS)-$(ARCH) $(EXT)
+	bash scripts/dev/run.sh bash scripts/test/build-native.local.sh $(OS) $(ARCH) target/native/$(OS)-$(ARCH) $(EXT)
 
-native-integrity-local:
+test-native-integrity-local:
 	@echo "🧪 Running the integrity suite against dist/..."
-	bash scripts/test/native-integrity.local.sh
+	bash scripts/test/test-native-integrity.local.sh
 
 ## Pin hook (WHAT=pins|holds) — also called by canonical update-pins.sh (`make update-pins`)
 update-pins-local:
 	@echo "📌 keel pin hook: $(WHAT)"
 	bash scripts/release/update-pins.local.sh $(WHAT)
 
-dev-image-publish-local:
+build-dev-image:
+	@echo "🔨 Putting keel's dev image for this tree on this machine..."
+	bash scripts/dev/build-image.local.sh
+
+publish-dev-image-local:
 	@echo "📦 keel publish hook: $(WHAT)"
 	bash scripts/dev/publish.local.sh $(WHAT)
 
-## coverage-report: pretty-print the merged per-file LCOV (from `make coverage`)
+## report-coverage: pretty-print the merged per-file LCOV (from `make test-coverage`)
 ## as an ascending, colorized console table with coverage bars. Read-only view;
 ## does not run tests or alter the baseline.
-coverage-report:
-	bash scripts/dev/run.sh bash scripts/test/coverage-report.sh
+report-coverage:
+	bash scripts/dev/run.sh bash scripts/test/report-coverage.sh
 
 ## help composes keel's curated summary (help-local) with the canonical
 ## auto-generated target list. help-local is a pure prerequisite aggregator
 ## (no recipe on `help` itself), so Make runs help-local first, then the
-## canonical `help` recipe — no recipe-override, and governance-refresh treats
+## canonical `help` recipe — no recipe-override, and refresh-governance treats
 ## the aggregator as non-drifting.
 help: help-local
 
@@ -343,9 +345,9 @@ help-local:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Build:"
-	@echo "  min             Build the minimalist <3MB binary (Default)"
-	@echo "  max             Build the FIPS-compliant static binary"
-	@echo "  max-no-fips     Build the full-feature non-FIPS binary"
+	@echo "  build-min             Build the minimalist <3MB binary (Default)"
+	@echo "  build-max             Build the FIPS-compliant static binary"
+	@echo "  build-max-no-fips     Build the full-feature non-FIPS binary"
 	@echo ""
 	@echo "Test:"
 	@echo "  test             Run unit + consistency + BATS integrity tests"
@@ -354,26 +356,26 @@ help-local:
 	@echo "  test-compose     Docker Compose integration tests (P3)"
 	@echo "  test-compose-keep  Same but leave compose stack running"
 	@echo "  test-k8s         kind k8s integration tests (requires Docker)"
-	@echo "  coverage         Generate coverage report (total %%, uncovered, total lines)"
+	@echo "  test-coverage         Generate coverage report (total %%, uncovered, total lines)"
 	@echo ""
 	@echo "Local k8s (Apple container / P3.5):"
-	@echo "  container-setup           Start k8s cluster + keel-toolbox via Apple container"
-	@echo "  container-deploy          Build keel:test + helm install to the cluster"
-	@echo "  container-test            Run k8s integration tests"
-	@echo "  container-stack-test      Run compose suite on the k8s stack (hostPorts, in-node)"
-	@echo "  container-stack-test-keep Same but leave the stack running"
-	@echo "  container-teardown        Uninstall + delete toolbox and cluster"
-	@echo "  container-host-network    Check/enforce the host<->guest bridge route"
+	@echo "  setup-container           Start k8s cluster + keel-toolbox via Apple container"
+	@echo "  deploy-container          Build keel:test + helm install to the cluster"
+	@echo "  test-container            Run k8s integration tests"
+	@echo "  test-container-stack      Run compose suite on the k8s stack (hostPorts, in-node)"
+	@echo "  test-container-stack-keep Same but leave the stack running"
+	@echo "  teardown-container        Uninstall + delete toolbox and cluster"
+	@echo "  setup-container-host-network    Check/enforce the host<->guest bridge route"
 	@echo ""
 	@echo "Lint:"
 	@echo "  lint            gofmt check + go vet + staticcheck"
 	@echo "  lint-go         gofmt check + go vet + staticcheck"
 	@echo ""
 	@echo "Release:"
-	@echo "  release-sbom              Generate SBOM (requires syft)"
-	@echo "  release-sign              Sign artifacts (requires cosign)"
-	@echo "  release-binaries          Build every release binary, concurrently"
-	@echo "  gen-schema                Regenerate pkg/config/schema.yaml from config.Config"
+	@echo "  generate-sbom              Generate SBOM (requires syft)"
+	@echo "  sign-release              Sign artifacts (requires cosign)"
+	@echo "  build-release-binaries          Build every release binary, concurrently"
+	@echo "  generate-schema                Regenerate pkg/config/schema.yaml from config.Config"
 	@echo "  create-release            Compute and tag next semver release"
 	@echo "  create-release FORCE=v1.0.0  Force a specific version"
 	@echo "  create-release DRY_RUN=1  Compute and show the next tag; no tag, no push"
@@ -388,29 +390,28 @@ help-local:
 	@echo "  setup-cosign      Install cosign signing tool"
 	@echo ""
 	@echo "CI Gates:"
-	@echo "  ci-pr-policy      Run PR policy check"
-	@echo "  ci-secret-scan    Run secret scan"
-	@echo "  ci-dco            Run DCO sign-off check"
-	@echo "  ci-coverage-delta Check coverage delta vs base branch"
-	@echo "  ci-smoke-windows  Smoke test the Windows binary (built by native-build)"
-	@echo "  ci-build-example  Build examples/myapp only (no BATS)"
-	@echo "  bats-integrity    Run BATS integrity suite (artifact must exist)"
-	@echo "  bats-example      Run BATS example suite"
+	@echo "  check-pr-policy      Run PR policy check"
+	@echo "  check-secrets    Run secret scan"
+	@echo "  check-dco            Run DCO sign-off check"
+	@echo "  check-coverage-delta Check coverage delta vs base branch"
+	@echo "  test-smoke-windows  Smoke test the Windows binary (built by build-native)"
+	@echo "  build-example  Build examples/myapp only (no BATS)"
+	@echo "  test-integrity-artifact    Run BATS integrity suite (artifact must exist)"
+	@echo "  test-example-artifact      Run BATS example suite"
 	@echo ""
 	@echo "Repo Setup:"
-	@echo "  fresh-repo      First-time setup: download deps + install hooks"
+	@echo "  create-fresh-repo      First-time setup: download deps + install hooks"
 	@echo "  install-hooks   Install git hooks from scripts/hooks/"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  audit             Run CI/Makefile standards compliance audit"
-	@echo "  gen-certs         Generate self-signed TLS certs for testing"
+	@echo "  generate-certs         Generate self-signed TLS certs for testing"
 	@echo "  check-legal-drift Check legal file drift"
-	@echo "  size-report       Generate binary size report"
-	@echo "  roadmap-issues    Sync roadmap issues"
+	@echo "  report-size       Generate binary size report"
+	@echo "  create-roadmap-issues    Sync roadmap issues"
 	@echo "  lint-newlines     Check trailing newlines"
 	@echo "  clean             Remove build artifacts"
 	@echo ""
 	@echo "Universal targets (canonical; language-independent):"
-	@echo "  build             Alias for min (default artifact)"
-	@echo "  unit-test         Alias for test-unit"
-	@echo "  integration-test  Alias for test-integrity"
+	@echo "  build             Alias for build-min (default artifact)"
+	@echo "  test-integration  Runs test-integrity and test-consistency"

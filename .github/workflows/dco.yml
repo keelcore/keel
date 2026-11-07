@@ -21,7 +21,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # DCO — verifies every commit in the PR carries a Signed-off-by trailer
-  # (OSPS-LE-01.01). All check logic lives in scripts/ci/dco-check.sh.
+  # (OSPS-LE-01.01). All check logic lives in scripts/ci/check-dco.sh.
   # ---------------------------------------------------------------------------
   dco:
     name: DCO Sign-off
@@ -39,4 +39,4 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: make ci-dco
+        run: make check-dco

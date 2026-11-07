@@ -18,9 +18,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly GOSEC_VERSION='2.29.0'
-readonly GOSEC_SHA256_AMD64='6431b119741c1f4a50fdfcf94e782e16b9e642afc8c7fa9b5d39d48bf3003095'
-readonly GOSEC_SHA256_ARM64='c71244ec8d37488fd479d0d26990968fee03ece48b305d8224ac0c1ebd66e87c'
+readonly GOSEC_VERSION='2.30.0'
+readonly GOSEC_SHA256_AMD64='3fcce2c4e802ff4169217874602a7df355e9a37bcb6ffaa34b08f3d5f336cdfb'
+readonly GOSEC_SHA256_ARM64='0867994920453070a5d6a713e35921a3058473e5c3bf777fdd5a2d6f95313fda'
 if [ "$(uname -m)" = 'aarch64' ]; then
   readonly GOSEC_SHA256="${GOSEC_SHA256_ARM64}" GOSEC_ARCH='arm64'
 else
@@ -75,7 +75,7 @@ function require_linux() {
 function download_and_verify() {
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${GOSEC_URL}" -o "${tmp}/${GOSEC_TARBALL}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 "${GOSEC_URL}" -o "${tmp}/${GOSEC_TARBALL}"
   printf '%s  %s/%s\n' "${GOSEC_SHA256}" "${tmp}" "${GOSEC_TARBALL}" | sha256sum --check --quiet
   tar -xz -C "${tmp}" -f "${tmp}/${GOSEC_TARBALL}" gosec
   mv "${tmp}/gosec" /tmp/gosec-staged

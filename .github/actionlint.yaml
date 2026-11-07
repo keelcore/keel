@@ -1,0 +1,6 @@
+# .github/actionlint.yaml
+# Runner labels actionlint does not know yet. ubuntu-26.04 is a GitHub-hosted image newer than the
+# pinned actionlint's label list.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

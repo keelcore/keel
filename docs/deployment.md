@@ -209,7 +209,7 @@ image:
 | Flavor | Build tags | Binary size | Use when |
 | --- | --- | --- | --- |
 | `default` | none | ~5–10 MB | All features; standard production deployment |
-| `min` | `no_otel,no_statsd,no_remotelog,no_h3,no_pprof` (and more; see `scripts/build/ci_min.sh`) | ~8–8.6 MB | Minimal footprint where observability comes from the platform |
+| `min` | `no_otel,no_statsd,no_remotelog,no_h3,no_pprof` (and more; see `scripts/build/build-min.sh`) | ~8–8.6 MB | Minimal footprint where observability comes from the platform |
 | `fips` | Go Cryptographic Module (FIPS 140-3) build | ~6–10 MB | Compliance environments (FedRAMP, HIPAA, PCI) requiring FIPS 140-2/3 validated cryptography |
 | `custom` | user-defined | varies | When you build your own binary with custom tags and want to use the Keel chart |
 
@@ -673,7 +673,7 @@ Mac/Linux machine maps to port 8443 inside the Keel container.
 KEEL_COMPOSE_TESTS=1 go test ./tests/compose/...
 
 # Or use the script (also starts/stops Compose automatically)
-./scripts/test/compose.sh
+./scripts/test/test-compose.sh
 
 # Or use make
 make test-compose

@@ -15,7 +15,7 @@ var fipsEnabled = fips140.Enabled
 
 // Check verifies that FIPS 140 mode is actually active in this process, as
 // reported by crypto/fips140.Enabled — true for a binary built with GOFIPS140
-// (make max) or run with GODEBUG=fips140=on|only.
+// (make build-max) or run with GODEBUG=fips140=on|only.
 //
 // Environment variables are not consulted: GOFIPS140 only takes effect at build
 // time (GOFIPS140=off is non-empty yet disables FIPS), and GODEBUG is read at
@@ -27,6 +27,6 @@ func Check() error {
 		return nil
 	}
 	return errors.New(
-		"FIPS 140 mode is not active: build with GOFIPS140 (make max) or run with GODEBUG=fips140=on or fips140=only",
+		"FIPS 140 mode is not active: build with GOFIPS140 (make build-max) or run with GODEBUG=fips140=on or fips140=only",
 	)
 }

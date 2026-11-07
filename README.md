@@ -111,7 +111,7 @@ All major features are **built-in by default**. There is **no command-line featu
 All CI must use provided **POSIX bash scripts** to the maximum extent possible. CI config files must not contain long
 chains of inline `run:` lines.
 
-**Rule:** CI invokes comprehensive scripts from `./scripts/` (e.g., `./scripts/ci/build.sh`, `./scripts/test/ci.sh`, `./scripts/release.sh`).
+**Rule:** CI invokes comprehensive scripts from `./scripts/` (e.g., `./scripts/ci/build.sh`, `./scripts/test/test-unit-go.sh`, `./scripts/release.sh`).
 
 ### 3.2 Build-Time Opt-Out Flags
 

@@ -25,7 +25,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # PR Policy — required gate; runs before build and test jobs.
-  # All policy logic lives in scripts/ci/pr-policy.sh.
+  # All policy logic lives in scripts/ci/check-pr-policy.sh.
   # ---------------------------------------------------------------------------
   pr-policy:
     name: PR Policy
@@ -47,7 +47,7 @@ jobs:
           GITHUB_HEAD_REF: ${{ github.head_ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: make ci-pr-policy
+        run: make check-pr-policy
 
   # ---------------------------------------------------------------------------
   # CI Audit — required gate; verifies all run: steps are make <target>,
@@ -71,7 +71,7 @@ jobs:
       - name: Check rulesets against .github/rulesets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: make rulesets-check
+        run: make check-rulesets
 
   # ---------------------------------------------------------------------------
   # Secret Scan — required gate; runs on every push and PR.
@@ -89,7 +89,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
       - name: Scan for secrets
-        run: make ci-secret-scan
+        run: make check-secrets
 
   # ---------------------------------------------------------------------------
   # Consistency — verifies Go config struct, Helm values, configmap template,
@@ -263,9 +263,9 @@ jobs:
         env:
           OS: ${{ matrix.os }}
           ARCH: ${{ matrix.arch }}
-        run: make native-build
+        run: make build-native
       - name: Generate TLS certs
-        run: make gen-certs
+        run: make generate-certs
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: native-${{ matrix.platform }}
@@ -304,7 +304,7 @@ jobs:
         shell: bash
         env:
           DIR: ${{ matrix.dir }}
-        run: make native-run
+        run: make test-native
 
   # ---------------------------------------------------------------------------
   # Coverage Delta — PR-only gate. Measures coverage at the merge-target commit
@@ -328,7 +328,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           COVERAGE_THRESHOLD: '1.0'
-        run: make ci-coverage-delta
+        run: make check-coverage-delta
 
   # ---------------------------------------------------------------------------
   # Coverage No-Regression — per-file gate against the committed baseline at
@@ -349,10 +349,10 @@ jobs:
           submodules: recursive
       - name: Generate coverage LCOV
         shell: bash
-        run: make coverage
+        run: make test-coverage
       - name: Per-file no-regression gate
         shell: bash
-        run: make ci-coverage-no-regression
+        run: make check-coverage-regression
 
   # ---------------------------------------------------------------------------
   # Build — produce linux/amd64 binaries for Docker image delivery.
@@ -373,11 +373,11 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Build min
-        run: make min
+        run: make build-min
       - name: Build max (no FIPS)
-        run: make max-no-fips
+        run: make build-max-no-fips
       - name: Generate checksums
-        run: make release-checksums
+        run: make generate-release-checksums
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: dist-linux
@@ -403,7 +403,7 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Build FIPS + verify symbols
-        run: make max
+        run: make build-max
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: dist-fips
@@ -431,13 +431,13 @@ jobs:
           name: dist-linux
           path: dist/
       - name: Verify artifact checksums
-        run: make release-checksums-verify
+        run: make verify-release-checksums
       - name: Make binaries executable
-        run: make dist-chmod
+        run: make set-dist-permissions
       - name: Generate TLS certs
-        run: make gen-certs
+        run: make generate-certs
       - name: Run integrity suite
-        run: make bats-integrity
+        run: make test-integrity-artifact
 
   # ---------------------------------------------------------------------------
   # Integrity (macOS) — portability validation on darwin/arm64; confirms the
@@ -461,7 +461,7 @@ jobs:
       - name: Run integrity suite (darwin binaries from the dev image)
         env:
           DIR: target/native/darwin-arm64
-        run: make native-integrity
+        run: make test-native-integrity
 
   # ---------------------------------------------------------------------------
   # Example (BATS) — builds examples/myapp, generates TLS certs, runs myapp.bats.
@@ -479,11 +479,11 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Generate TLS certs
-        run: make gen-certs
+        run: make generate-certs
       - name: Build myapp
-        run: make ci-build-example
+        run: make build-example
       - name: Run example BATS suite
-        run: make bats-example
+        run: make test-example-artifact
 
   # ---------------------------------------------------------------------------
   # Windows Smoke — portability validation on windows/amd64; confirms the
@@ -536,7 +536,7 @@ jobs:
           name: dist-linux
           path: dist/
       - name: Make binaries executable
-        run: make dist-chmod
+        run: make set-dist-permissions
       - name: Run k8s integration tests
         run: make test-k8s
 
@@ -557,4 +557,4 @@ jobs:
           name: native-windows
       - name: Smoke test (windows binary from the dev image)
         shell: bash
-        run: make ci-smoke-windows
+        run: make test-smoke-windows

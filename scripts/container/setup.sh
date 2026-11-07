@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup.sh
 # P3.5 — Provisions the local k8s harness on Apple's `container` CLI:
-#   - a k8s cluster (`container cluster`, kind node image)
+#   - a k8s cluster (`container cluster`, kind node image) whose nodes pull from the local image store
 #   - keel-toolbox, the harness control plane on the container bridge network.
 # kubectl/helm/tests run inside keel-toolbox and reach the cluster
 # guest-to-guest; the host only drives the `container` CLI (vsock). Nothing
@@ -28,9 +28,7 @@ function main() {
   local -r name="${KEEL_CLUSTER_NAME:-keel-k8s}"
   local -r toolbox="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
   log '🔧 Setting up Keel local k8s environment via Apple container...'
-  check_brew
-  ensure_tool 'container'
-  start_container_system
+  install_container
   build_toolbox
   start_cluster "${name}"
   start_toolbox "${toolbox}"
@@ -52,26 +50,10 @@ function validate_args() {
   fi
 }
 
-function check_brew() {
-  log '🍺 Checking for Homebrew...'
-  command -v brew &> /dev/null && { log '✅ Homebrew found'; return; }
-  printf 'Error: Homebrew is required. Install from https://brew.sh\n' >&2
-  exit 1
-}
-
-function ensure_tool() {
-  local -r cmd="${1}"
-  command -v "${cmd}" &> /dev/null && return 0
-  log "📦 Installing ${cmd} via Homebrew..."
-  brew install "${cmd}"
-  log "✅ ${cmd} installed"
-}
-
-function start_container_system() {
-  container system status > /dev/null 2>&1 && { log '✅ container system running'; return; }
-  log '🚀 Starting Apple container system service...'
-  container system start
-  log '✅ container system started'
+# install_container: Apple's signed package of the latest release; the system started, with its kernel.
+function install_container() {
+  log '📦 Installing Apple container...'
+  make -C "${REPO_ROOT}" --no-print-directory setup-apple-container
 }
 
 function build_toolbox() {
@@ -84,7 +66,7 @@ function build_toolbox() {
 
 function is_running() {
   local -r id="${1}"
-  container ls | awk -v id="${id}" 'NR > 1 && $1 == id { found = 1 } END { exit !found }'
+  container inspect "${id}" 2> /dev/null | jq -e '.[0].status.state == "running"' > /dev/null
 }
 
 function start_cluster() {
@@ -97,7 +79,8 @@ function start_cluster() {
   container cluster create \
     --name "${name}" \
     --cpus "${KEEL_CLUSTER_CPU:-4}" \
-    --memory "${KEEL_CLUSTER_MEMORY:-6G}"
+    --memory "${KEEL_CLUSTER_MEMORY:-6G}" \
+    --shared-image-store
   log "✅ Cluster '${name}' created"
 }
 

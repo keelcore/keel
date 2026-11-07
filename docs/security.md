@@ -321,7 +321,7 @@ groups as the listeners. A test (`TestOutboundTLSPolicy_NoOtherPath`) fails on a
 
 ### 4.2 Go Cryptographic Module (FIPS 140-3)
 
-By default, Keel uses Go's standard `crypto/tls`. The `fips` flavor (`make max`) is built with the Go Cryptographic
+By default, Keel uses Go's standard `crypto/tls`. The `fips` flavor (`make build-max`) is built with the Go Cryptographic
 Module pinned to the CMVP-certified version (`GOFIPS140=v1.0.0`, CMVP certificate #5247). It is part of the Go standard
 library: pure Go, no cgo, so the FIPS binary stays static and scratch-friendly.
 
@@ -747,7 +747,7 @@ every image index, and links each one back to the exact workflow run and commit 
 ### 7.5 Read the VEX Statements
 
 Each image index carries an [OpenVEX](https://openvex.dev) attestation stating which reported vulnerabilities do not
-affect keel and why. Each release generates it with `govulncheck -format openvex` (`make release-vex`): every
+affect keel and why. Each release generates it with `govulncheck -format openvex` (`make generate-vex`): every
 vulnerability govulncheck finds in a required module but cannot reach from keel's code is stated `not_affected`. The
 same document is attached to the [GitHub Release](https://github.com/keelcore/keel/releases) as `keel.openvex.json`.
 
@@ -761,7 +761,7 @@ cosign verify-attestation \
 ```
 
 Every release verifies all of the above for its own artifacts as the last step of the release workflow
-(`make release-verify`).
+(`make verify-release`).
 
 ---
 

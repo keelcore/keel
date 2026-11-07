@@ -89,23 +89,23 @@ function holds() {
 function verify() {
   local -r kind="${1}" name="${2}" platform="${4}"
   case "${kind}:${name}" in
-    gomod:*) printf 'min max test' ;;
+    gomod:*) printf 'build-min build-max test' ;;
     tool:GOSEC) printf 'setup-gosec lint-gosec' ;;
     gotool:*/govulncheck) printf 'setup-govulncheck lint-vuln' ;;
     tool:ACTIONLINT) printf 'setup-actionlint lint-workflows' ;;
     gotool:*/go-licenses*) printf 'setup-go-licenses lint-licenses' ;;
     gotool:*/staticcheck) printf 'setup-staticcheck' ;;
-    gotool:*/pebble) printf 'setup-pebble min max test' ;;
+    gotool:*/pebble) printf 'setup-pebble build-min build-max test' ;;
     tool:KUBESCAPE) printf 'setup-kubescape lint-helm-policy' ;;
     tool:ZIZMOR) printf 'setup-zizmor lint-workflows' ;;
     tool:KUBECONFORM) printf 'setup-kubeconform lint-helm-validate' ;;
     tool:GOTESTSUM) printf 'setup-gotestsum test-unit' ;;
     # Rebuilding the toolbox image verifies the new version's checksums; helm also installs in the dev image.
     tool:KUBECTL)
-      if [ "${platform}" = 'Darwin' ]; then printf 'KEEL_CLUSTER_NAME=%s KEEL_TOOLBOX_NAME=%s container-setup' "${PINS_CLUSTER}" "${PINS_TOOLBOX}"; fi ;;
+      if [ "${platform}" = 'Darwin' ]; then printf 'KEEL_CLUSTER_NAME=%s KEEL_TOOLBOX_NAME=%s setup-container' "${PINS_CLUSTER}" "${PINS_TOOLBOX}"; fi ;;
     tool:HELM)
       printf 'setup-helm lint-helm'
-      if [ "${platform}" = 'Darwin' ]; then printf ' KEEL_CLUSTER_NAME=%s KEEL_TOOLBOX_NAME=%s container-setup' "${PINS_CLUSTER}" "${PINS_TOOLBOX}"; fi ;;
+      if [ "${platform}" = 'Darwin' ]; then printf ' KEEL_CLUSTER_NAME=%s KEEL_TOOLBOX_NAME=%s setup-container' "${PINS_CLUSTER}" "${PINS_TOOLBOX}"; fi ;;
   esac
 }
 
@@ -113,9 +113,9 @@ function verify() {
 # integration stack — Apple container locally, Docker Compose on Linux.
 function combined() {
   if [ "${1}" = 'Darwin' ]; then
-    printf 'KEEL_CLUSTER_NAME=%s KEEL_TOOLBOX_NAME=%s min max lint audit test container-setup container-stack-test' "${PINS_CLUSTER}" "${PINS_TOOLBOX}"
+    printf 'KEEL_CLUSTER_NAME=%s KEEL_TOOLBOX_NAME=%s build-min build-max lint audit test setup-container test-container-stack' "${PINS_CLUSTER}" "${PINS_TOOLBOX}"
   else
-    printf 'min max lint audit test test-compose'
+    printf 'build-min build-max lint audit test test-compose'
   fi
 }
 

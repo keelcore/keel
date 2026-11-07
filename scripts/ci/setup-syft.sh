@@ -84,7 +84,7 @@ function download_and_verify() {
 
 function download_tarball() {
   local -r tmp="${1}"
-  curl -fsSL "${SYFT_URL}" -o "${tmp}/${SYFT_TARBALL}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 "${SYFT_URL}" -o "${tmp}/${SYFT_TARBALL}"
 }
 
 function verify_checksum() {

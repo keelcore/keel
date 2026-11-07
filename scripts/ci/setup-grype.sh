@@ -18,9 +18,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
-readonly GRYPE_VERSION='0.120.1'
-readonly GRYPE_SHA256_AMD64='0a9ee97ef5ae2ee953b0a80098105052e846cdbe319a57d808b519c33cd1343d'
-readonly GRYPE_SHA256_ARM64='29f47391dc283aa79fcc38e65224cd61f64dec0ecfd0db7074128ebf8ff23514'
+readonly GRYPE_VERSION='0.121.0'
+readonly GRYPE_SHA256_AMD64='64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519'
+readonly GRYPE_SHA256_ARM64='86f570f75ca947ea3dd6486309232bcff6d78e44ba081ae75ab14eab72be3dae'
 if [ "$(uname -m)" = 'aarch64' ]; then
   readonly GRYPE_SHA256="${GRYPE_SHA256_ARM64}" GRYPE_ARCH='arm64'
 else
@@ -67,8 +67,7 @@ function is_pinned_version_installed() {
 
 function require_linux() {
   if [[ "$(uname -s)" != 'Linux' ]]; then
-    log "ERROR: setup-grype.sh only supports Linux CI runners"
-    log "  For macOS: brew install grype"
+    log '❌ grype installs in the dev image (Linux); run its targets through make'
     exit 1
   fi
 }
@@ -84,7 +83,7 @@ function download_and_verify() {
 
 function download_tarball() {
   local -r tmp="${1}"
-  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${GRYPE_URL}" -o "${tmp}/${GRYPE_TARBALL}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 "${GRYPE_URL}" -o "${tmp}/${GRYPE_TARBALL}"
 }
 
 function verify_checksum() {

@@ -1,8 +1,8 @@
 # Canonical scripts keel does not use (governance/ci.md, Canonical Scripts). Listed
-# scripts are neither synced by governance-refresh nor checked by verify-canonical.
+# scripts are neither synced by refresh-governance nor checked by verify-canonical.
 
 # .standards package publishers: keel publishes no Go-proxy announcement, npm or PyPI
 # package; its release ships binaries, images and a Helm chart (release.yml).
-scripts/release/go-publish.sh
-scripts/release/npm-publish.sh
-scripts/release/pypi-publish.sh
+scripts/release/publish-go.sh
+scripts/release/publish-npm.sh
+scripts/release/publish-pypi.sh

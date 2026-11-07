@@ -11,7 +11,7 @@ usage patterns.
 > To sync new entries after editing this file, run:
 >
 > ```sh
-> scripts/roadmap-issues.sh
+> scripts/create-roadmap-issues.sh
 > ```
 >
 > The script is idempotent — it skips entries that already have a matching issue (open or closed).

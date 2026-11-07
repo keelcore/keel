@@ -69,7 +69,7 @@ auditor.
 - `v1.0.0`, `v1.26.0` — a specific frozen module, FIPS mode on.
 - `certified` / `inprocess` — aliases for the newest certified / in-review version.
 
-Keel pins `GOFIPS140=v1.0.0` (`scripts/build/ci_max.sh`), so a FIPS build always names exactly the certified module.
+Keel pins `GOFIPS140=v1.0.0` (`scripts/build/build-max.sh`), so a FIPS build always names exactly the certified module.
 Moving to a newer module is a deliberate one-line change; if the toolchain drops `v1.0.0`, the build fails rather than
 silently switching modules.
 
@@ -85,16 +85,16 @@ it (see §3.3).
 
 ### 3.1 The `fips` Image Flavor (Docker / Helm)
 
-The `fips` image is built from `scripts/deploy/docker/Dockerfile` with `FLAVOR=fips`, which runs `make max`. Deploy that
-image tag with the Helm chart; no other configuration is needed.
+The `fips` image is built from `scripts/deploy/docker/Dockerfile` with `FLAVOR=fips`, which runs `make build-max`.
+Deploy that image tag with the Helm chart; no other configuration is needed.
 
 ### 3.2 Building Your Own FIPS Binary
 
 ```sh
-make max            # dist/keel-fips: GOFIPS140=v1.0.0, tags fips,no_h3
+make build-max            # dist/keel-fips: GOFIPS140=v1.0.0, tags fips,no_h3
 ```
 
-`make max` also runs the test suite with `GODEBUG=fips140=only` to prove no code path needs non-approved crypto.
+`make build-max` also runs the test suite with `GODEBUG=fips140=only` to prove no code path needs non-approved crypto.
 Equivalent manual build:
 
 ```sh
@@ -119,7 +119,7 @@ go version -m ./keel-fips | grep -E 'GOFIPS140|fips140'
 # build   DefaultGODEBUG=fips140=on
 ```
 
-`make release-ci` with `FIPS_MODE=true` fails the release unless `dist/keel-fips` records `GOFIPS140=v1.0.0`.
+`make run-release-ci` with `FIPS_MODE=true` fails the release unless `dist/keel-fips` records `GOFIPS140=v1.0.0`.
 
 ---
 
@@ -273,5 +273,5 @@ openssl s_client -connect localhost:8443 -tls1_3 < /dev/null 2>&1 | grep "Protoc
 openssl s_client -connect localhost:8443 -tls1_2 < /dev/null 2>&1 | grep -E "alert|handshake failure"
 
 # 6. Re-run the suite under strict FIPS mode
-make max
+make build-max
 ```

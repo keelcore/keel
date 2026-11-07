@@ -61,7 +61,7 @@ function install_cosign() {
   binary="cosign-linux-${arch}"
   tmp="$(mktemp -d)"
   log "⚓ Installing cosign ${COSIGN_VERSION} (${arch})..."
-  curl -fsSL "${COSIGN_RELEASES}/v${COSIGN_VERSION}/${binary}" -o "${tmp}/${binary}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 "${COSIGN_RELEASES}/v${COSIGN_VERSION}/${binary}" -o "${tmp}/${binary}"
   printf '%s  %s/%s\n' "${sha}" "${tmp}" "${binary}" | sha256sum --check --quiet
   as_root install -m 0755 "${tmp}/${binary}" "${COSIGN_INSTALL_PATH}"
   rm -rf "${tmp}"

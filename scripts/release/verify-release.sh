@@ -10,9 +10,9 @@
 #   - the Helm chart: cosign signature.
 #
 # Required environment variables:
-#   <VARIANT>_DIGEST                   — each variant's index digest (sha256:...) from docker.sh
+#   <VARIANT>_DIGEST                   — each variant's index digest (sha256:...) from publish-release-images.sh
 #   GH_TOKEN                           — for gh attestation verify
-#   GITHUB_TOKEN, GITHUB_ACTOR         — GHCR login for cosign (scripts/release/cosign.sh)
+#   GITHUB_TOKEN, GITHUB_ACTOR         — GHCR login for cosign (scripts/release/run-cosign.sh)
 #
 # Runs on the host (docker buildx imagetools, gh, jq); cosign runs in the dev image
 # (scripts/dev/run.sh) on the published refs and the files in dist/.
@@ -54,9 +54,9 @@ readonly -a VERIFY_IDENTITY=(
 GH_ATTEST_LOCK="$(mktemp)"
 readonly GH_ATTEST_LOCK
 
-# cosign: the dev image's, logged in to GHCR (scripts/release/cosign.sh; the packages may be private).
+# cosign: the dev image's, logged in to GHCR (scripts/release/run-cosign.sh; the packages may be private).
 function cosign() {
-  bash scripts/dev/run.sh bash scripts/release/cosign.sh "$@"
+  bash scripts/dev/run.sh bash scripts/release/run-cosign.sh "$@"
 }
 
 function main() {
@@ -85,7 +85,7 @@ function verify_step() {
   esac
 }
 
-# variant_digest VARIANT: its index digest, from <VARIANT>_DIGEST (docker.sh records them).
+# variant_digest VARIANT: its index digest, from <VARIANT>_DIGEST (publish-release-images.sh records them).
 function variant_digest() {
   local -r var="$(printf '%s' "${1}" | tr '[:lower:]' '[:upper:]')_DIGEST"
   printf '%s' "${!var:?${var} is required}"

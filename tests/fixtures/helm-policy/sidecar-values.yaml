@@ -1,4 +1,4 @@
-# Sidecar-mode values for the chart policy scan (scripts/lint/helm-policy.sh).
+# Sidecar-mode values for the chart policy scan (scripts/lint/lint-helm-policy.sh).
 # The app container is the user's; these are the hardened settings a user is
 # expected to supply, so the scan judges the chart, not an empty placeholder.
 mode: sidecar

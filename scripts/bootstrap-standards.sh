@@ -4,11 +4,11 @@
 # wire AI adapters, copy starter templates (Makefile, BATS scaffolding,
 # .gitleaks.toml, .markdownlintignore, .prettierrc, .local-claude.md) and
 # the markdownlint config, then delegate the full canonical-script sync to
-# `governance-refresh.sh`. No file content is embedded inline.
+# `refresh-governance.sh`. No file content is embedded inline.
 #
 # Architecture:
-#   - Canonical scripts (scripts/**) come from one place: governance-refresh.sh.
-#     Bootstrap copies governance-refresh.sh from .standards as a seed and
+#   - Canonical scripts (scripts/**) come from one place: refresh-governance.sh.
+#     Bootstrap copies refresh-governance.sh from .standards as a seed and
 #     invokes it; the script then walks .standards/scripts/ and copies any
 #     missing or content-divergent file into the consumer. `.standards`
 #     always wins for canonical scripts — operator hand-edits are overwritten
@@ -24,15 +24,15 @@
 #     .local-claude.md so its content survives, then symlink the adapter.
 #     If .local-claude.md already exists, warn and leave CLAUDE.md alone.
 #   - If Makefile (or any other template target) exists, it is NOT
-#     overwritten; governance-refresh handles Makefile target injection
+#     overwritten; refresh-governance handles Makefile target injection
 #     for canonical targets the consumer is missing.
 #   - Project-specific scripts living alongside canonical ones (e.g.
 #     fetch-data.sh) are never touched, and neither are *.local.sh hooks
 #     (e.g. scripts/release/create-release.local.sh): they are never
-#     canonical, so governance-refresh never copies the standards repo's own.
+#     canonical, so refresh-governance never copies the standards repo's own.
 #
 # For ongoing reconciliation after bootstrap, the consumer runs
-# `make governance-refresh`.
+# `make refresh-governance`.
 #
 # Run locally:  bash .standards/scripts/bootstrap-standards.sh
 
@@ -133,15 +133,15 @@ function create_adapters() {
 }
 
 function seed_governance_refresh() {
-  log '📥 Seeding scripts/governance-refresh.sh from .standards...'
+  log '📥 Seeding scripts/refresh-governance.sh from .standards...'
   mkdir -p scripts
-  cp .standards/scripts/governance-refresh.sh scripts/governance-refresh.sh
-  chmod +x scripts/governance-refresh.sh
+  cp .standards/scripts/refresh-governance.sh scripts/refresh-governance.sh
+  chmod +x scripts/refresh-governance.sh
 }
 
 function run_governance_refresh() {
   log '🔄 Syncing canonical scripts and Makefile targets via governance-refresh...'
-  bash scripts/governance-refresh.sh
+  bash scripts/refresh-governance.sh
 }
 
 function copy_markdownlint_config() {

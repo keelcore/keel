@@ -2,7 +2,7 @@
 # build-binaries.sh
 # Build every release binary concurrently (scripts/lib/parallel.sh): each flavor for each
 # architecture, each in its own output directory, then under its release name
-# (dist/keel-<flavor>-linux-<arch>). Runs in the dev image (make release-binaries).
+# (dist/keel-<flavor>-linux-<arch>). Runs in the dev image (make build-release-binaries).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -58,9 +58,9 @@ function build_one() {
 
 function build_script() {
   case "${1}" in
-    min) printf 'ci_min.sh' ;;
-    max) printf 'ci_max_no_fips.sh' ;;
-    fips) printf 'ci_max.sh' ;;
+    min) printf 'build-min.sh' ;;
+    max) printf 'build-max-no-fips.sh' ;;
+    fips) printf 'build-max.sh' ;;
   esac
 }
 

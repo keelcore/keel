@@ -87,3 +87,8 @@ function chart_name() {
   [ -n "${file}" ] || return 0
   awk '$1 == "name:" { print $2; exit }' "${file}"
 }
+
+# release_dev_image: the name of the dev image that built this tree, empty when it has none.
+function release_dev_image() {
+  [ ! -s containers/dev/image.ref ] || head -1 containers/dev/image.ref
+}

@@ -2,7 +2,7 @@ name: dev-image
 
 # Publishes the tool images (containers/*/Containerfile) to GHCR, tagged by build
 # context (ctx-<hash>), built natively per architecture, joined into a multi-arch
-# index and signed keyless. Pin the result with `make dev-image-ref` (writes
+# index and signed keyless. Pin the result with `make update-dev-image-ref` (writes
 # containers/NAME/image.ref) and commit it.
 
 on:
@@ -51,7 +51,7 @@ jobs:
           # A consumer's Makefile includes .standards/templates/Makefile.canonical from the submodule.
           submodules: recursive
 
-      - run: make dev-image-push
+      - run: make push-dev-image
         env:
           ARCH: ${{ matrix.arch }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,7 +74,7 @@ jobs:
           # A consumer's Makefile includes .standards/templates/Makefile.canonical from the submodule.
           submodules: recursive
 
-      - run: make dev-image-merge
+      - run: make merge-dev-image
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # One registry login per job (publish.sh), reused read-only by the signing tool image.

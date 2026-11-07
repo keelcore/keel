@@ -3,7 +3,7 @@
 # Topology: upstream ← keel → prometheus / otel-collector → jaeger
 #
 # Usage:
-#   scripts/test/compose.sh            # full run
+#   scripts/test/test-compose.sh            # full run
 #   docker compose --project-directory . -f tests/compose/docker-compose.test.yaml up -d --build
 #   docker compose --project-directory . -f tests/compose/docker-compose.test.yaml down --volumes
 

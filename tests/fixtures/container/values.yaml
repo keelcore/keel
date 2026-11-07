@@ -9,7 +9,7 @@ replicaCount: 1
 image:
   repository: keel
   tag: test
-  pullPolicy: Never   # loaded via `container cluster load-image`
+  pullPolicy: Never   # the node reads it from the local image store (--shared-image-store)
 
 mode: library
 

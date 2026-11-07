@@ -1,5 +1,5 @@
 # scripts/deploy/docker/Dockerfile
-# CA source: keel-certs (Dockerfile.certs; build it first with make certs-image).
+# CA source: keel-certs (Dockerfile.certs; build it first with make build-certs-image).
 ARG CERTS_IMAGE=keel-certs:latest
 FROM ${CERTS_IMAGE} AS certs
 
@@ -7,14 +7,14 @@ FROM golang:1.27.3@sha256:e519d3b0a5b285e5aa53ab9eef02bc6bbb9cb04608389b743a136a
 WORKDIR /src
 COPY . .
 
-RUN chmod +x ./scripts/build/ci_min.sh ./scripts/build/ci_max.sh ./scripts/build/ci_max_no_fips.sh
+RUN chmod +x ./scripts/build/build-min.sh ./scripts/build/build-max.sh ./scripts/build/build-max-no-fips.sh
 
 ARG FLAVOR=max
 RUN mkdir -p /out && \
     case "${FLAVOR}" in \
-      min)  ./scripts/build/ci_min.sh && cp -f dist/keel-min  /out/keel ;; \
-      max)  ./scripts/build/ci_max_no_fips.sh && cp -f dist/keel-max  /out/keel ;; \
-      fips) ./scripts/build/ci_max.sh && cp -f dist/keel-fips /out/keel ;; \
+      min)  ./scripts/build/build-min.sh && cp -f dist/keel-min  /out/keel ;; \
+      max)  ./scripts/build/build-max-no-fips.sh && cp -f dist/keel-max  /out/keel ;; \
+      fips) ./scripts/build/build-max.sh && cp -f dist/keel-fips /out/keel ;; \
       *) echo "unknown FLAVOR=${FLAVOR} (use min|max|fips)"; exit 2 ;; \
     esac
 

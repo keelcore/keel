@@ -74,7 +74,7 @@ function require_linux() {
 function download_and_verify() {
   local tmp
   tmp="$(mktemp -d)"
-  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "${GOTESTSUM_URL}" -o "${tmp}/${GOTESTSUM_TARBALL}"
+  curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60 "${GOTESTSUM_URL}" -o "${tmp}/${GOTESTSUM_TARBALL}"
   printf '%s  %s/%s\n' "${GOTESTSUM_SHA256}" "${tmp}" "${GOTESTSUM_TARBALL}" | sha256sum --check --quiet
   tar -xz -C "${tmp}" -f "${tmp}/${GOTESTSUM_TARBALL}" gotestsum
   mv "${tmp}/gotestsum" /tmp/gotestsum-staged

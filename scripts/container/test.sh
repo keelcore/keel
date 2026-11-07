@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # test.sh
 # P3.5 — Runs k8s-specific integration tests against the Apple container
-# cluster. Delegates to scripts/k8s/cluster-test.sh inside keel-toolbox.
+# cluster. Delegates to scripts/k8s/test-k8s-cluster.sh inside keel-toolbox.
 # Requires: scripts/container/deploy.sh must have been run first.
 
 # bash configuration:
@@ -21,9 +21,9 @@ function main() {
   validate_args "${@:-}"
   local -r name="${KEEL_CLUSTER_NAME:-keel-k8s}"
   local -r toolbox="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
-  log "🧪 Delegating to cluster-test.sh in ${toolbox} (context: ${name})..."
+  log "🧪 Delegating to test-k8s-cluster.sh in ${toolbox} (context: ${name})..."
   container exec -e "KEEL_K8S_CONTEXT=${name}" "${toolbox}" \
-    bash scripts/k8s/cluster-test.sh
+    bash scripts/k8s/test-k8s-cluster.sh
 }
 
 function log() {

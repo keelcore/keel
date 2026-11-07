@@ -42,7 +42,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Helm Policy — kubescape on the rendered chart (library and sidecar mode).
-  # Allowed controls and their reasons are listed in scripts/lint/helm-policy.sh.
+  # Allowed controls and their reasons are listed in scripts/lint/lint-helm-policy.sh.
   # ---------------------------------------------------------------------------
   helm-policy:
     name: Helm Policy
