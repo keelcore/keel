@@ -36,6 +36,11 @@ const (
 var (
 	jsonMarshal               = json.Marshal
 	httpNewRequestWithContext = http.NewRequestWithContext
+	// newTicker is the flush ticker: its channel and its stop function.
+	newTicker = func(d time.Duration) (<-chan time.Time, func()) {
+		t := time.NewTicker(d)
+		return t.C, t.Stop
+	}
 )
 
 // Span is the data captured per request by the OTelSpan middleware.
@@ -114,8 +119,8 @@ func Shutdown(e *Exporter) {
 func (e *Exporter) run() {
 	defer e.wg.Done()
 	batch := make([]Span, 0, batchMax)
-	ticker := time.NewTicker(flushInterval)
-	defer ticker.Stop()
+	tick, stop := newTicker(flushInterval)
+	defer stop()
 
 	flush := func() {
 		if len(batch) > 0 {
@@ -131,7 +136,7 @@ func (e *Exporter) run() {
 			if len(batch) >= batchMax {
 				flush()
 			}
-		case <-ticker.C:
+		case <-tick:
 			flush()
 		case <-e.done:
 			for {

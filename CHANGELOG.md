@@ -72,6 +72,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- The tracing exporter's flush tests are deterministic: the flush ticker is a seam (`newTicker`), so the batch-size
+  flush and the ticker flush each run in exactly one way, and `provider.go` is covered on every run (#36).
 - `make audit` and `make lint-bash` pass on .standards v0.10.24: the three package publishers `.canonical-exclude` keeps
   out of sync (`scripts/release/publish-go.sh`, `publish-npm.sh`, `publish-pypi.sh`, copies of .standards' own,
   run by nothing in keel) are removed, and two BATS assertions end with `|| false`.

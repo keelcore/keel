@@ -4,6 +4,7 @@ package tracing
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -46,66 +47,71 @@ func TestSend_NewRequestError(t *testing.T) {
 	e.send([]Span{{TraceID: "a", SpanID: "b", Name: "x"}})
 }
 
-// TestRun_BatchMaxFlush covers the len(batch) >= batchMax flush branch in
-// run() (line 114-115) by submitting more than batchMax spans rapidly.
-func TestRun_BatchMaxFlush(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+// manualExporter starts an Exporter whose flush ticker fires only when the test sends on the returned channel,
+// against a collector that reports the span count of every request it receives.
+func manualExporter(t *testing.T) (*Exporter, chan<- time.Time, <-chan int) {
+	t.Helper()
+	tick := make(chan time.Time)
+	origTicker := newTicker
+	newTicker = func(time.Duration) (<-chan time.Time, func()) { return tick, func() {} }
+	t.Cleanup(func() { newTicker = origTicker })
+	spans := make(chan int, 16)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req exportReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode export request: %v", err)
+		}
+		n := 0
+		for _, rs := range req.ResourceSpans {
+			for _, ss := range rs.ScopeSpans {
+				n += len(ss.Spans)
+			}
+		}
+		spans <- n
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer srv.Close()
-
-	exp, err := Setup(config.OTLPConfig{
-		Enabled:  true,
-		Endpoint: srv.URL,
-		Insecure: true,
-	})
+	t.Cleanup(srv.Close)
+	exp, err := Setup(config.OTLPConfig{Enabled: true, Endpoint: srv.URL, Insecure: true})
 	if err != nil || exp == nil {
 		t.Fatalf("setup failed: %v", err)
 	}
-	defer Shutdown(exp)
+	t.Cleanup(func() { Shutdown(exp) })
+	return exp, tick, spans
+}
 
-	for range batchMax + 32 {
+// TestRun_BatchMaxFlush: with the ticker never firing and the exporter running, the only flush that can send
+// is the one at batchMax spans, so batchMax spans arrive in one request.
+func TestRun_BatchMaxFlush(t *testing.T) {
+	exp, _, spans := manualExporter(t)
+	for range batchMax {
 		exp.Submit(Span{TraceID: "a", SpanID: "b", Name: "x", HTTPStatus: 200})
 	}
-	// Give the background goroutine time to drain and hit the batchMax flush.
-	deadline := time.Now().Add(2 * time.Second)
-	for len(exp.ch) > batchMax && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
+	select {
+	case n := <-spans:
+		if n != batchMax {
+			t.Fatalf("batch flush sent %d spans, want %d", n, batchMax)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no flush at batchMax")
 	}
 }
 
-// TestRun_TickerFlush covers the ticker.C flush branch in run() (line 117-118).
-// It submits a single span and waits for the periodic flush interval to elapse.
+// TestRun_TickerFlush: one queued span below batchMax, then one tick: the tick's flush sends it.
 func TestRun_TickerFlush(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping timer-based flush test in -short mode")
-	}
-	received := make(chan struct{}, 1)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		select {
-		case received <- struct{}{}:
-		default:
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer srv.Close()
-
-	exp, err := Setup(config.OTLPConfig{
-		Enabled:  true,
-		Endpoint: srv.URL,
-		Insecure: true,
-	})
-	if err != nil || exp == nil {
-		t.Fatalf("setup failed: %v", err)
-	}
-	defer Shutdown(exp)
-
+	exp, tick, spans := manualExporter(t)
 	exp.Submit(Span{TraceID: "a", SpanID: "b", Name: "x", HTTPStatus: 200})
-
-	// Wait past flushInterval so the ticker fires and flushes the batch.
+	// The span has left the queue; the tick is sent on an unbuffered channel, so run() takes it only after
+	// appending the span to its batch.
+	for len(exp.ch) > 0 {
+		time.Sleep(time.Millisecond)
+	}
+	tick <- time.Now()
 	select {
-	case <-received:
-	case <-time.After(flushInterval + 3*time.Second):
-		t.Fatal("ticker-driven flush did not reach the collector")
+	case n := <-spans:
+		if n != 1 {
+			t.Fatalf("ticker flush sent %d spans, want 1", n)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("no flush on the tick")
 	}
 }
