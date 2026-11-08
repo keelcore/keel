@@ -8,6 +8,8 @@
 # Env: DOCKER_CONFIG (the job's registry login, read-only), else GITHUB_TOKEN and GITHUB_ACTOR
 # (a login of its own); ACTIONS_ID_TOKEN_REQUEST_URL and
 # ACTIONS_ID_TOKEN_REQUEST_TOKEN (the job's OIDC token for the signing certificate).
+# Project hook: sign-dev-image.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -19,9 +21,13 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   local -r ref="${1}"
   if cosign verify --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
     --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}/" \

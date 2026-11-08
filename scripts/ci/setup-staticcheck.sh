@@ -6,6 +6,8 @@
 #
 # Pinned version: 2026.2.2 (module v0.8.2)
 # Update STATICCHECK_VERSION and STATICCHECK_SHA256_* together when bumping.
+# Project hook: setup-staticcheck.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -17,6 +19,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 readonly STATICCHECK_VERSION='2026.2.2'
 readonly STATICCHECK_SHA256_AMD64='14c081e0f0d05b5a4d4c53fd3d357d4a5af9d20501465fefc9024ee828d3aa5c'
 readonly STATICCHECK_SHA256_ARM64='ccbdaaf81c37eb246a6063f811ee3b89e02ff042cb068cd1ca73a7377e2f7045'
@@ -26,6 +31,7 @@ readonly STATICCHECK_INSTALL_PATH='/usr/local/bin/staticcheck'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   install_staticcheck
 }
 

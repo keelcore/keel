@@ -9,10 +9,15 @@
 #
 # Input:  ${COVERAGE_DIR:-target/coverage}/*.lcov  (one per language)
 # Output: ${COVERAGE_DIR}/lcov.info                (merged) + a per-language table
+# Project hook: merge-coverage.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 set -o nounset
 set -o errexit
 set -o pipefail
+
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 readonly COVERAGE_DIR="${COVERAGE_DIR:-target/coverage}"
 readonly MERGED="${COVERAGE_DIR}/lcov.info"
@@ -23,6 +28,7 @@ function log() {
 
 function main() {
   exec 5>&1
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   if ! ls "${COVERAGE_DIR}"/*.lcov >/dev/null 2>&1; then
     log 'ℹ️  no per-language LCOV tracefiles found; run make test-coverage-go / coverage-rust first.'
     return 0

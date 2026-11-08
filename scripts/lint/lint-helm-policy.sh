@@ -3,6 +3,8 @@
 # kubescape on each render of every repo-owned chart; a failed control outside the allowed list fails.
 # Renders: config/helm-policy.local.txt, one per line, tab-separated: NAME, helm arguments, allowed
 # control IDs. Without it: one default render, no control allowed.
+# Project hook: lint-helm-policy.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -14,6 +16,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 # shellcheck source=../lib/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 # shellcheck source=../lib/tool-config.sh
@@ -22,6 +27,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   local chart found=0 failed=0
   while IFS= read -r chart; do
     [ -n "${chart}" ] || continue

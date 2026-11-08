@@ -6,6 +6,8 @@
 # SHA-256 for the runner's architecture (same version and sums as the toolbox
 # Containerfile; update-pins.local.sh keeps both in step).
 # No-op if the pinned version is already present.
+# Project hook: setup-helm.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -17,6 +19,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 readonly HELM_VERSION='v4.3.1'
 readonly HELM_SHA256_AMD64='0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b'
 readonly HELM_SHA256_ARM64='8cf8f66ecbc252ac8f7f06cca68aba88508ddfde3a6a34feb1678ad1694b4f88'
@@ -25,6 +30,7 @@ readonly HELM_INSTALL_PATH='/usr/local/bin/helm'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   case "$(uname -s)" in
     Linux)
       install_helm_linux

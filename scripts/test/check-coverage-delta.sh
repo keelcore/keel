@@ -10,6 +10,8 @@
 #
 # Optional environment variables:
 #   COVERAGE_THRESHOLD  — maximum allowed drop in percentage points (default: 1.0)
+# Project hook: check-coverage-delta.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -21,6 +23,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 readonly COVERAGE_BASE_FILE='/tmp/keel_coverage_base.txt'
 readonly COVERAGE_PR_FILE='/tmp/keel_coverage_pr.txt'
 readonly LOG_FILE='/tmp/keel_coverage_delta.log'
@@ -28,6 +33,7 @@ readonly LOG_FILE='/tmp/keel_coverage_delta.log'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   require_env
   # Capture the merge commit SHA now (actions/checkout gives us refs/pull/N/merge
   # — base + PR already merged). This is what we measure for the PR side.

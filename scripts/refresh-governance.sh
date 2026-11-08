@@ -39,6 +39,8 @@
 # Env overrides (testing only — production reads paths from git):
 #   GOVREFRESH_STANDARDS_ROOT  defaults to ${REPO_ROOT}/.standards
 #   GOVREFRESH_REPO_ROOT       defaults to `git rev-parse --show-toplevel`
+# Project hook: refresh-governance.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -49,6 +51,9 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+# shellcheck source=./lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/./lib/local-hook.sh"
 
 # shellcheck source=lib/canonical-files.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/canonical-files.sh"
@@ -86,6 +91,7 @@ declare -r SELF_PATH
 function main() {
   exec 5>&1
   parse_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   detect_consumer
   validate_env
   maybe_pull_submodule
@@ -110,6 +116,8 @@ function main() {
   fi
 
   apply_renamed_scripts
+  apply_removed_scripts
+  rewrite_renamed_references
   apply_script_changes "${script_changes}"
   apply_target_injections "${target_injections}"
   maybe_stage_submodule
@@ -268,8 +276,9 @@ function reexec_from_canonical_if_stale() {
 }
 
 # apply_renamed_scripts: carry the consumer over canonical scripts renamed in .standards
-# (templates/renamed-scripts.txt): the old canonical copy goes (the new one is synced next), and the
-# project hook (<script>.local.sh) is renamed to follow its script.
+# (templates/renamed-scripts.txt). A tracked old copy moves to the new name with git mv, keeping its
+# history (its content is synced next); when the new name is already there, or the old copy is untracked,
+# the old copy goes. The project hook (<script>.local.sh) is renamed to follow its script.
 function apply_renamed_scripts() {
   local -r map="${STANDARDS_ROOT}/templates/renamed-scripts.txt"
   [ -f "${map}" ] || return 0
@@ -277,9 +286,14 @@ function apply_renamed_scripts() {
   while IFS=$'\t' read -r old new; do
     [ -n "${old}" ] && [ "${old#\#}" = "${old}" ] || continue
     if [ -f "${REPO_ROOT}/${old}" ]; then
-      git -C "${REPO_ROOT}" rm -q --cached --ignore-unmatch -- "${old}"
-      rm -f "${REPO_ROOT:?}/${old}"
-      log "🗑  ${old} (renamed ${new})"
+      if [ ! -e "${REPO_ROOT}/${new}" ] && is_tracked "${old}"; then
+        mkdir -p "${REPO_ROOT}/$(dirname "${new}")"
+        git -C "${REPO_ROOT}" mv -f -- "${old}" "${new}"
+        log "📝 ${old} → ${new}"
+      else
+        remove_file "${old}"
+        log "🗑  ${old} (renamed ${new})"
+      fi
     fi
     if [ -f "${REPO_ROOT}/${old%.sh}.local.sh" ] && [ ! -e "${REPO_ROOT}/${new%.sh}.local.sh" ]; then
       if git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${old%.sh}.local.sh" > /dev/null 2>&1; then
@@ -290,6 +304,54 @@ function apply_renamed_scripts() {
       log "📝 ${old%.sh}.local.sh → ${new%.sh}.local.sh"
     fi
   done < "${map}"
+}
+
+# apply_removed_scripts: canonical scripts deleted from .standards with no new name
+# (templates/removed-scripts.txt) are removed from the consumer.
+function apply_removed_scripts() {
+  local -r list="${STANDARDS_ROOT}/templates/removed-scripts.txt"
+  [ -f "${list}" ] || return 0
+  local rel
+  while IFS= read -r rel; do
+    [ -n "${rel}" ] && [ "${rel#\#}" = "${rel}" ] || continue
+    [ -e "${REPO_ROOT}/${rel}" ] || continue
+    remove_file "${rel}"
+    log "🗑  ${rel} (removed from .standards)"
+  done < "${list}"
+}
+
+# rewrite_renamed_references: every old path in templates/renamed-scripts.txt becomes its new one in the
+# consumer's tracked text files, outside .standards/ and vendored trees; CHANGELOG.md keeps its released
+# sections as written (scripts/lib/rewrite-paths.pl). Files changed are left unstaged and listed.
+function rewrite_renamed_references() {
+  local -r map="${STANDARDS_ROOT}/templates/renamed-scripts.txt"
+  [ -f "${map}" ] || return 0
+  local -a olds=() files=()
+  local old new f
+  while IFS=$'\t' read -r old new; do
+    [ -n "${old}" ] && [ "${old#\#}" = "${old}" ] && [ -n "${new}" ] || continue
+    olds+=(-e "${old}")
+  done < "${map}"
+  [ "${#olds[@]}" -gt 0 ] || return 0
+  while IFS= read -r f; do files+=("${f}"); done < <(git -C "${REPO_ROOT}" grep -lIF "${olds[@]}" -- . \
+    ':!.standards' ':!vendor' ':!**/vendor/**' 2> /dev/null || true)
+  [ "${#files[@]}" -gt 0 ] || return 0
+  (cd "${REPO_ROOT}" && perl "${STANDARDS_ROOT}/scripts/lib/rewrite-paths.pl" "${map}" "${files[@]}") \
+    | while IFS= read -r f; do log "✏️  ${f}: renamed script references updated"; done
+}
+
+# is_tracked REL: REL is in the consumer's index.
+function is_tracked() {
+  git -C "${REPO_ROOT}" ls-files --error-unmatch -- "${1}" > /dev/null 2>&1
+}
+
+# remove_file REL: REL leaves the index, whatever is staged for it, and the tree.
+function remove_file() {
+  local -r rel="${1}"
+  if is_tracked "${rel}"; then
+    git -C "${REPO_ROOT}" rm -q -f -- "${rel}"
+  fi
+  rm -f "${REPO_ROOT:?}/${rel}"
 }
 
 # Stage the (possibly advanced) submodule pointer so the consumer's index

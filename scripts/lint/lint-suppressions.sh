@@ -17,10 +17,15 @@
 # File set: the vendoring-aware source_files generator (scripts/lib/paths.sh), so
 # vendored, nested-vendored (.nolint) and submodule trees are never scanned; the
 # content search is a SINGLE `git grep` per class.
+# Project hook: lint-suppressions.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 set -o nounset
 set -o errexit
 set -o pipefail
+
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 declare REPO_ROOT
 REPO_ROOT="$(git rev-parse --show-toplevel)"
@@ -65,6 +70,7 @@ readonly MARKDOWN_DIRECTIVE='<!--[[:space:]]*markdownlint-(disable|capture)'
 
 function main() {
   exec 5>&1
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   local rc=0 code_pattern
   code_pattern="$(IFS='|'; printf '%s' "${DIRECTIVES[*]}")"
   scan "${MARKDOWN_DIRECTIVE}" 'markdownlint directive' "$(markdown_files)" || rc=1

@@ -34,6 +34,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/scorecard-assets.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/scorecard-assets.sh"
+
 # A newly published version can take minutes to appear in a registry.
 readonly FETCH_TRIES=30
 readonly FETCH_DELAY=30
@@ -82,6 +85,7 @@ function main() {
   if git cat-file -e "${tag}:LICENSE" 2> /dev/null; then
     git show "${tag}:LICENSE" > "${dir}/LICENSE"
   fi
+  stage_provenance "${dir}"
   local -a files=()
   for f in "${dir}"/*; do
     [ -f "${f}" ] || continue
@@ -91,6 +95,7 @@ function main() {
     files+=("$(basename "${f}")")
   done
   (cd "${dir}" && bash "${root}/scripts/release/sign-release.sh" --sums-dir . "${files[@]}")
+  stage_sigstore_copies "${dir}"
   log "✅ release assets for ${tag}: $(find "${dir}" -maxdepth 1 -type f | wc -l | tr -d ' ') files in ${dir}"
 }
 

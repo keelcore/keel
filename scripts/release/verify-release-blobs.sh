@@ -6,6 +6,8 @@
 #
 # Usage: verify-release-blobs.sh DIR   (in the dev image: make verify-release-blobs)
 # Env: GITHUB_REPOSITORY (owner/repo: the signing identity).
+# Project hook: verify-release-blobs.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -17,9 +19,13 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   local -r dir="${1}"
   local -r identity="^https://github.com/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}/"
   (cd "${dir}" && sha256sum -c --quiet SHA256SUMS)
@@ -27,7 +33,7 @@ function main() {
   local f n=0
   for f in "${dir}"/*; do
     [ -f "${f}" ] || continue
-    case "${f}" in *.bundle) continue ;; esac
+    case "${f}" in *.bundle | *.sigstore.json) continue ;; esac
     [ -f "${f}.bundle" ] || { log "❌ no signature for $(basename "${f}")"; exit 1; }
     cosign verify-blob --bundle "${f}.bundle" \
       --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \

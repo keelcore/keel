@@ -3,6 +3,8 @@
 # Install the pinned cosign from its GitHub release, verified against the
 # committed SHA-256 for the architecture. Runs when the dev image is built
 # (containers/dev/Containerfile); no-op if that version is already installed.
+# Project hook: setup-cosign.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -14,6 +16,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 readonly COSIGN_VERSION='3.1.4'
 readonly COSIGN_SHA256_AMD64='424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa'
 readonly COSIGN_SHA256_ARM64='ade83b7aac62e131cacfe96d958948b2150cc9efec46a570a2649b8e27dedad2'
@@ -23,6 +28,7 @@ readonly COSIGN_INSTALL_PATH='/usr/local/bin/cosign'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   install_cosign
 }
 

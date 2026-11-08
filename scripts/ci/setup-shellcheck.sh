@@ -3,6 +3,8 @@
 # Install the pinned shellcheck from its GitHub release (Linux; runs when the dev
 # image is built), verified against the committed SHA-256 for the architecture.
 # No-op if that version is already installed.
+# Project hook: setup-shellcheck.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -14,6 +16,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 readonly SHELLCHECK_VERSION='0.11.0'
 readonly SHELLCHECK_SHA256_X86_64='8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198'
 readonly SHELLCHECK_SHA256_AARCH64='12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588'
@@ -23,6 +28,7 @@ readonly SHELLCHECK_INSTALL_PATH='/usr/local/bin/shellcheck'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   install_shellcheck
 }
 

@@ -6,6 +6,8 @@
 #
 # Usage: test-native.sh DIR   (DIR: target/native/<os>-<arch>)
 # Exits 1 if any package fails; prints "N of N passed, M skipped" per test.
+# Project hook: test-native.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -17,9 +19,13 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   local -r dir="${1}" root="${PWD}"
   local pkg bin logf failed=0 pass=0 fail=0 skip=0
   mkdir -p "${dir}/logs"

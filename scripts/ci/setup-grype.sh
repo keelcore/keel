@@ -7,6 +7,8 @@
 #
 # Pinned version: v0.120.1
 # Update GRYPE_VERSION and GRYPE_SHA256 together when bumping.
+# Project hook: setup-grype.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -17,6 +19,9 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 readonly GRYPE_VERSION='0.121.0'
 readonly GRYPE_SHA256_AMD64='64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519'
@@ -33,6 +38,7 @@ readonly GRYPE_INSTALL_PATH='/usr/local/bin/grype'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   if is_pinned_version_installed; then
     log "✅ grype ${GRYPE_VERSION} already installed"
     return 0

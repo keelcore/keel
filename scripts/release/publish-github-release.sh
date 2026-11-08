@@ -7,6 +7,8 @@
 #
 # Usage: publish-github-release.sh TAG DIR   (in the dev image: make publish-github-release TAG=vX.Y.Z)
 # Env: GITHUB_TOKEN (contents: write), GITHUB_REPOSITORY (owner/repo).
+# Project hook: publish-github-release.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -18,11 +20,15 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 readonly API='https://api.github.com'
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   local -r tag="${1}" dir="${2}"
   local -r repo="${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
   : "${GITHUB_TOKEN:?GITHUB_TOKEN is required}"

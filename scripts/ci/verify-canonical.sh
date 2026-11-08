@@ -10,6 +10,8 @@
 # For each mandatory canonical script the script compares sha256sum of:
 #   <standards-repo>/scripts/X  vs  <downstream-repo>/scripts/X
 # and reports PASS/FAIL per file. Exits 1 if any mismatch is found.
+# Project hook: verify-canonical.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -20,6 +22,9 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 # shellcheck source=../lib/canonical-files.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/canonical-files.sh"
@@ -123,6 +128,7 @@ function verify_script() {
 
 function main() {
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   local downstream_root standards_root
   downstream_root="$(cd "${1:-$(git rev-parse --show-toplevel)}" && pwd -P)"
   standards_root="$(resolve_standards_root "${downstream_root}")"

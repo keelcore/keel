@@ -8,6 +8,8 @@
 # REPO_ROOT) — invoked unconditionally by `make test-coverage` via the
 # aggregator pattern; the per-language gate lives here. HALTs (non-zero) if
 # Rust scope is detected but cargo-llvm-cov is not installed.
+# Project hook: test-coverage-rust.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -19,6 +21,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 declare -r OUT_DIR='target/llvm-cov'
 declare -r LCOV_PATH="${OUT_DIR}/lcov.info"
 # Shared coverage bucket where each language drops its LCOV for the aggregate.
@@ -27,6 +32,7 @@ declare -r COVERAGE_DIR="${COVERAGE_DIR:-target/coverage}"
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   if ! has_rust_scope; then
     log 'ℹ️  No Rust scope detected (no Cargo.toml); skipping coverage-rust.'
     return 0

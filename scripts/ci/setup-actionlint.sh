@@ -6,6 +6,8 @@
 #
 # Pinned version: v1.7.12
 # Update ACTIONLINT_VERSION and ACTIONLINT_SHA256_* together when bumping.
+# Project hook: setup-actionlint.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -16,6 +18,9 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 readonly ACTIONLINT_VERSION='1.7.12'
 readonly ACTIONLINT_SHA256_AMD64='8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
@@ -32,6 +37,7 @@ readonly ACTIONLINT_INSTALL_PATH='/usr/local/bin/actionlint'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   if is_pinned_version_installed; then
     log "✅ actionlint v${ACTIONLINT_VERSION} already installed"
     return 0

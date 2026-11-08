@@ -4,6 +4,8 @@
 # documented method, verified against the release's published SHA-256 and Apple's signature. Runs on
 # the host (macOS on Apple silicon); no-op if that version is already installed. Then starts the system
 # and installs its default kernel when it has none.
+# Project hook: setup-apple-container.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -15,6 +17,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 readonly CONTAINER_LATEST='https://api.github.com/repos/apple/container/releases/latest'
 readonly CONTAINER_SIGNER='Developer ID Installer: Apple Inc. - Containerization (UPBK2H6LZM)'
 readonly CURL_RETRY=(--retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60)
@@ -24,6 +29,7 @@ WORK_DIR=''
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   require_platform
   install_container
   start_system
@@ -113,8 +119,13 @@ function install_container() {
   log "✅ container ${version} installed"
 }
 
-# start_system: a running system stays as it is; a missing default kernel is installed.
+# start_system: a running system is left as it is, so its image builder and build cache survive; a stopped one
+# is started, installing its default kernel when it has none.
 function start_system() {
+  if container system status > /dev/null 2>&1; then
+    log '✅ container system already running'
+    return 0
+  fi
   container system start --enable-kernel-install
   log '✅ container system running, with its kernel'
 }

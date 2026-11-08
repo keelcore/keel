@@ -23,6 +23,8 @@
 # `ARG BASE_DEV_IMAGE` gets the .standards dev image as that argument.
 # Runtime: Apple `container` on macOS, docker on Linux.
 # Inside the image (KEELCORE_DEV_IMAGE set) the command runs directly.
+# Project hook: run.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -33,6 +35,9 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 # shellcheck source=../lib/dev-image.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/dev-image.sh"
@@ -64,6 +69,7 @@ function main() {
     esac
   done
   validate_args "$@"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   if [ -n "${KEELCORE_DEV_IMAGE:-}" ]; then
     exec "$@"
   fi
@@ -88,8 +94,8 @@ function validate_args() {
   fi
 }
 
-# dev_image DIR NAME: DIR's NAME image: the one its context names, on this machine or published, else
-# a local build of that context. Inside a git hook: hook_image.
+# dev_image DIR NAME: DIR's NAME image for its context: the pinned name or a local build already on this
+# machine, else the published one, else a local build made now. Inside a git hook: hook_image.
 function dev_image() {
   local -r dir="${1}" name="${2}"
   if [ -n "${KEELCORE_DEV_IN_HOOK:-}" ]; then
@@ -101,14 +107,23 @@ function dev_image() {
   local base hash tag
   base="$(dev_base_ref "${dir}" "${name}")"
   hash="$(dev_tree_hash "${dir}" "${name}")"
-  if "$(runtime)" image inspect "$(dev_pin_ref "${dir}" "${name}")" > /dev/null 2>&1 \
-    || dev_published_ref "$(dev_repository "${dir}" "${name}")" "${hash}" > /dev/null; then
+  tag="keelcore-${name}-$(dev_repo_name "${dir}"):ctx-${hash}"
+  # On this machine first (the pinned name, then a local build of the context), so the registry is asked
+  # only when neither is here.
+  if "$(runtime)" image inspect "$(dev_pin_ref "${dir}" "${name}")" > /dev/null 2>&1; then
     dev_pin_ref "${dir}" "${name}"
     return 0
   fi
-  log "ℹ️  ctx-${hash} of ${dir} is not published yet; building it locally"
-  tag="keelcore-${name}-$(dev_repo_name "${dir}"):ctx-${hash}"
-  if [ -z "${IMAGE_REF_ONLY:-}" ] && ! "$(runtime)" image inspect "${tag}" > /dev/null 2>&1; then
+  if "$(runtime)" image inspect "${tag}" > /dev/null 2>&1; then
+    printf '%s' "${tag}"
+    return 0
+  fi
+  if dev_published_ref "$(dev_repository "${dir}" "${name}")" "${hash}" > /dev/null; then
+    dev_pin_ref "${dir}" "${name}"
+    return 0
+  fi
+  if [ -z "${IMAGE_REF_ONLY:-}" ]; then
+    log "ℹ️  ctx-${hash} of ${dir} is not published yet; building it locally"
     local build_base=''
     [ -z "${base}" ] || build_base="$(dev_image "${dir}/.standards" dev)" || return 1
     build_image "${dir}" "${cf}" "${tag}" "${build_base}" || { log "❌ building ${tag} failed"; exit 1; }

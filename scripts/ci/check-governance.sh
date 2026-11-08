@@ -12,6 +12,8 @@
 # Env overrides (testing only — production reads paths from git):
 #   GOVREFRESH_STANDARDS_ROOT  passed through to refresh-governance.sh
 #   GOVREFRESH_REPO_ROOT       passed through to refresh-governance.sh
+# Project hook: check-governance.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -22,6 +24,9 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 # Locate refresh-governance.sh. Two contexts to handle:
 #   (1) Running in the standards repo itself — refresh is a sibling at
@@ -44,6 +49,7 @@ declare -r REFRESH_SCRIPT
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   validate_env
   local output exit_code=0
   output="$(bash "${REFRESH_SCRIPT}" --dry-run 2>&1)" || exit_code=$?

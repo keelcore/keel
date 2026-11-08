@@ -121,6 +121,8 @@ TOOLS=''
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 # shellcheck source=../lib/progress.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/progress.sh"
+# shellcheck source=../lib/pin-targets.sh
+. "$(dirname "${BASH_SOURCE[0]}")/../lib/pin-targets.sh"
 
 function main() {
   exec 5>&1
@@ -1677,7 +1679,7 @@ function verify_targets() {
       printf 'test' ;;
     # Tool installs run in the tool image (Linux) on every host.
     gotool | npm | tool)
-      if [ -n "${setup}" ]; then printf '%s' "${setup}"; else combined_targets; fi ;;
+      if [ -n "${setup}" ]; then setup_verify_targets "${setup}"; else combined_targets; fi ;;
     # The tool image is Linux on every host, so the toolchain is tested locally everywhere.
     toolchain)
       printf 'test' ;;

@@ -3,6 +3,8 @@
 # Install kubeconform for offline Kubernetes schema validation.
 # Linux: download the release tarball and verify its committed SHA-256.
 # No-op if kubeconform is already present.
+# Project hook: setup-kubeconform.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -14,6 +16,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 readonly KUBECONFORM_VERSION='v0.8.0'
 # Published in the release's CHECKSUMS file.
 readonly KUBECONFORM_SHA256_AMD64='9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883'
@@ -22,6 +27,7 @@ readonly KUBECONFORM_SHA256_ARM64='1f53fc8e81258197a35e8603054162a5af1de8c5af137
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   if command -v kubeconform >/dev/null 2>&1; then
     log "kubeconform already installed: $(kubeconform -v 2>&1 | head -1)"
     return 0

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/test/setup-bats.sh
+# scripts/ci/setup-bats.sh
 # Install the pinned bats-core (Linux; runs when the dev image is built): the
 # release tag, cloned and verified against its committed commit SHA (the release
 # publishes no assets to checksum). No-op if the pinned version is present.

@@ -6,6 +6,8 @@
 #
 # Pinned version: v1.30.1
 # Update ZIZMOR_VERSION and ZIZMOR_SHA256_* together when bumping (make update-pins does).
+# Project hook: setup-zizmor.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -16,6 +18,9 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 readonly ZIZMOR_VERSION='1.31.1'
 readonly ZIZMOR_SHA256_X86_64='d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99'
@@ -32,6 +37,7 @@ readonly ZIZMOR_INSTALL_PATH='/usr/local/bin/zizmor'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   if command -v zizmor >/dev/null 2>&1; then
     log "zizmor already installed: $(zizmor --version 2>&1 | head -1)"
     return 0

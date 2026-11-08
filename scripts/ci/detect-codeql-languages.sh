@@ -3,6 +3,8 @@
 # The CodeQL languages this repository holds, as a JSON list in the workflow output `languages`
 # (codeql.yml). Detected from repo-owned tracked files; config/codeql.local.txt (one language per
 # line, # comments) replaces the detection.
+# Project hook: detect-codeql-languages.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -14,6 +16,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 # shellcheck source=../lib/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 
@@ -22,6 +27,7 @@ readonly OVERRIDE='config/codeql.local.txt'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   local json
   json="$(languages | to_json)"
   log "languages=${json}"

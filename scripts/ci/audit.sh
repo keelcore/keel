@@ -16,6 +16,7 @@
 #   7. SECURITY.md, CODEOWNERS and dependabot.yml exist.
 #   8. Targets are verb-first (<verb>-<object>[-<qualifier>]).
 #   9. Every script is named verb-first, as its target is (governance/ci.md, Make Targets).
+#  10. Every canonical script runs its project hook (scripts/lib/local-hook.sh), or its own <script>.local.sh.
 #
 # Exit semantics:
 #   - Exit 0 only when every invariant holds; exit 1 when any finding is
@@ -25,6 +26,8 @@
 #   - A missing .github/workflows/ directory is NOT a finding: consumers may
 #     use a different CI provider or not yet have CI wired up; Rule 1 skips.
 # Safe to run locally: make audit
+# Project hook: audit.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -35,6 +38,9 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 readonly REPO_ROOT
@@ -424,6 +430,22 @@ function check_script_names() {
   return "${failed}"
 }
 
+# Rule 10: every canonical script has a project hook: it calls run_local_hook (scripts/lib/local-hook.sh), or runs
+# its own <script>.local.sh. In a consumer, the canonical scripts are those .standards/scripts holds; in
+# .standards itself, every script. Shared libraries, git hooks and the hooks themselves are exempt.
+function check_local_hooks() {
+  local failed=0 source_root="${REPO_ROOT}" rel file
+  [ -d "${REPO_ROOT}/.standards/scripts" ] && source_root="${REPO_ROOT}/.standards"
+  while IFS= read -r rel; do
+    file="${REPO_ROOT}/${rel}"
+    [ -f "${file}" ] || continue
+    grep -qE "^[^#]*(run_local_hook|$(basename "${rel}" .sh)\.local\.sh)" "${file}" && continue
+    log "❌ Rule 10: canonical script '${rel}' has no project hook (run_local_hook, scripts/lib/local-hook.sh)"
+    failed=1
+  done < <(cd "${source_root}" && find scripts -name '*.sh' -type f ! -name '*.local.sh' | grep -vE '^scripts/(lib|hooks)/' | sort)
+  return "${failed}"
+}
+
 # runtime_install_steps: "<workflow file>\t<job id>\t<step line>" for every setup step.
 function runtime_install_steps() {
   local f
@@ -441,6 +463,7 @@ function runtime_install_steps() {
 # ---------------------------------------------------------------------------
 function main() {
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   build_expanded_makefile
   trap cleanup_expanded_makefile EXIT
 
@@ -454,6 +477,7 @@ function main() {
   check_required_files     || overall=1
   check_target_names       || overall=1
   check_script_names       || overall=1
+  check_local_hooks        || overall=1
 
   if [ "${overall}" -eq 0 ]; then
     log '✅ CI audit clean: all Makefile target invariants satisfied.'

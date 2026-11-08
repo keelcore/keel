@@ -3,6 +3,8 @@
 # Install the pinned gitleaks from its GitHub release, verified against the
 # committed SHA-256 for the architecture. Runs when the dev image is built
 # (containers/dev/Containerfile); no-op if that version is already installed.
+# Project hook: setup-gitleaks.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -14,6 +16,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 readonly GITLEAKS_VERSION='8.30.1'
 readonly GITLEAKS_SHA256_X64='551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
 readonly GITLEAKS_SHA256_ARM64='e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080'
@@ -23,6 +28,7 @@ readonly GITLEAKS_INSTALL_PATH='/usr/local/bin/gitleaks'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   install_gitleaks
 }
 

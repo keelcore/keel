@@ -6,6 +6,8 @@
 #
 # Pinned version: v4.0.16
 # Update KUBESCAPE_VERSION and KUBESCAPE_SHA256_* together when bumping (make update-pins does).
+# Project hook: setup-kubescape.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -16,6 +18,9 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 readonly KUBESCAPE_VERSION='4.0.16'
 readonly KUBESCAPE_SHA256_AMD64='fcf172f0d1fb5683379586bcf8875091da4d0d815bd304f8098d58be65ecab0d'
@@ -32,6 +37,7 @@ readonly KUBESCAPE_INSTALL_PATH='/usr/local/bin/kubescape'
 function main() {
   exec 5>&1
   validate_args "${@:-}"
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   if command -v kubescape >/dev/null 2>&1; then
     log "kubescape already installed: $(kubescape version 2>&1 | head -1)"
     return 0

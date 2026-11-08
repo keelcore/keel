@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # scripts/lint/lint-bash.sh
-# Runs shellcheck against all bash scripts in the repository.
+# Runs shellcheck against all bash scripts in the repository, and checks BATS files for a [[ … ]] that is a
+# test's own statement but not its last, without `|| false`: bash does not always fail a test on it.
+# Project hook: lint-bash.local.sh runs first, when present, with this script's arguments
+# (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -12,6 +15,9 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+# shellcheck source=../lib/local-hook.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
 # shellcheck source=../lib/paths-ensure.sh
 . "$(dirname "${BASH_SOURCE[0]}")/../lib/paths-ensure.sh"
 # shellcheck source=../lib/paths.sh
@@ -19,8 +25,10 @@ set -o pipefail
 
 function main() {
   exec 5>&1
+  run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   validate_env
   lint
+  check_bats_conditionals
 }
 
 function validate_env() {
@@ -63,6 +71,36 @@ function lint() {
     exit "${rc}"
   fi
   log '✅ All scripts passed shellcheck'
+}
+
+# check_bats_conditionals: every tracked *.bats file's tests; a top-level [[ … ]] statement (two-space
+# indent) that is not the test's last statement must end with `|| false`. Heredoc text is not code.
+function check_bats_conditionals() {
+  local -a files=()
+  local f
+  while IFS= read -r f; do files+=("${f}"); done < <(source_files '*.bats')
+  [ "${#files[@]}" -gt 0 ] || return 0
+  local found
+  found="$(awk '
+    FNR == 1 { inside = 0; doc = "" }
+    doc != "" { if ($0 == doc) doc = ""; next }
+    /^@test .*\{[[:space:]]*$/ { inside = 1; n = 0; next }
+    inside && /^\}[[:space:]]*$/ {
+      for (i = 1; i < n; i++) if (cond[i]) printf "%s:%d: [[ … ]] is not the last statement; end it with `|| false`\n", FILENAME, line[i]
+      inside = 0; next
+    }
+    inside {
+      if (match($0, /<<-?[[:space:]]*["\047]?[A-Za-z_]+["\047]?/)) { doc = substr($0, RSTART, RLENGTH); sub(/^<<-?[[:space:]]*["\047]?/, "", doc); sub(/["\047]$/, "", doc) }
+      if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/) next
+      if ($0 !~ /^  [^ ]/) next
+      n++; line[n] = FNR; cond[n] = ($0 ~ /^  \[\[ .* \]\][[:space:]]*$/)
+    }
+  ' "${files[@]}")"
+  if [ -n "${found}" ]; then
+    printf '%s\n' "${found}" | while IFS= read -r f; do log "❌ ${f}"; done
+    exit 1
+  fi
+  log "✅ BATS conditionals OK (${#files[@]} files)"
 }
 
 function log() {
