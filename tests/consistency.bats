@@ -569,7 +569,7 @@ GO
 @test "make build-dev-image: puts keel's dev image on this machine, pulled or built, never pushed" {
   run make -n build-dev-image
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *'bash scripts/dev/build-image.local.sh'* ]]
+  [[ "${output}" == *'bash scripts/dev/build-image.local.sh'* ]] || false
   grep -qF 'run.sh" --fetch-image' scripts/dev/build-image.local.sh
   [ -z "$(grep -vE '^#' scripts/dev/build-image.local.sh | grep -E 'push')" ]
 }

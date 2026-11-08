@@ -72,6 +72,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- `make audit` and `make lint-bash` pass on .standards v0.10.24: the three package publishers `.canonical-exclude` keeps
+  out of sync (`scripts/release/publish-go.sh`, `publish-npm.sh`, `publish-pypi.sh`, copies of .standards' own,
+  run by nothing in keel) are removed, and two BATS assertions end with `|| false`.
 - A response body that fails to close is reported: the upstream health probe logs
   `upstream_health_probe_close_failed`, the OTLP exporter logs `otlp_export_close_failed`, and an oversized upstream
   response returns the close error with its 502.

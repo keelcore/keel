@@ -802,7 +802,7 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 
   [ "${status}" -ne 0 ]
   [ "${status}" -ne 124 ]
-  [[ "${output}" == *":${http_port}"* ]]
+  [[ "${output}" == *":${http_port}"* ]] || false
   [[ "${output}" == *":${health_port}"* ]]
 }
 
