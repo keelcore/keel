@@ -176,7 +176,7 @@ keel:
 
 #### Inbound mTLS (transport gate)
 
-Set `tls.client_ca_file` (env `KEEL_TLS_CLIENT_CA_FILE`; Helm `keel.tls.clientCASecretName`, a Secret with `ca.crt`) and
+Set `tls.client_ca_file` (env `KEEL_TLS_CLIENT_CA_FILE`; Helm `keel.mounts.clientCASecret`, a Secret with `ca.crt`) and
 the HTTPS and H3 listeners require every client to present a certificate that chains to one of those CAs; the handshake
 fails otherwise. This is a transport-level gate only: the certificate's Subject or SANs are **not** mapped to a principal
 and are not checked against `trusted_ids`. Per-caller identity comes from JWT authn above. Plain HTTP is unaffected.

@@ -94,6 +94,7 @@ publish-release-images: | ensure-container
 .PHONY: publish-release-images-local
 .PHONY: build-native-local
 .PHONY: lint-gosec-local
+.PHONY: lint-helm-schema
 .PHONY: test-native-integrity-local
 .PHONY: build-dev-image
 .PHONY: publish-dev-image-local
@@ -331,6 +332,11 @@ test-native-integrity-local:
 lint-gosec-local: | ensure-container
 	@echo "🔍 Running gosec on keel's own code..."
 	bash scripts/dev/run.sh bash scripts/lint/lint-gosec.local.sh
+
+## keel's Helm schema audit: the chart's values follow the config schema (#41); its own CI job.
+lint-helm-schema: | ensure-container
+	@echo "🔍 Auditing helm/keel values against the config schema..."
+	bash scripts/dev/run.sh bash scripts/lint/lint-helm-schema.local.sh
 
 ## Pin hook (WHAT=pins|holds) — also called by canonical update-pins.sh (`make update-pins`)
 update-pins-local:

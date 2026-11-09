@@ -1,5 +1,5 @@
 ## Keel Helm chart values
-## All keel.yaml config fields are mirrored here. See README §3.8 for full schema docs.
+## values.keel takes every field of the config schema (pkg/config/schema.yaml); see Keel config below.
 
 replicaCount: 1
 
@@ -35,20 +35,42 @@ sidecar:
     securityContext: {}
 
 # ── Keel config ───────────────────────────────────────────────────────────────
+# values.keel takes every value and attribute the config schema defines
+# (pkg/config/schema.yaml; docs/config-reference.md), with the schema's names
+# and nesting: keel.yaml's tree, rendered to /etc/keel/keel.yaml, the global
+# config file (KEEL_KNOBS_GLOBAL_PATH). A field left out takes keel's default.
+# Listed below: the fields the chart reads or sets differently from keel's
+# defaults, and the chart's own keys (config, secrets, mounts, extra*), which
+# are not schema fields. Secrets (admin.token, admin.metrics_token,
+# authn.oidc.client_secret) belong in keel.secrets, or in the environment
+# (KEEL_ADMIN_TOKEN, KEEL_ADMIN_METRICS_TOKEN, KEEL_AUTHN_OIDC_CLIENT_SECRET).
 keel:
-  # Inline keel.yaml overrides. Rendered to /etc/keel/keel.yaml, the global config
-  # file (KEEL_KNOBS_GLOBAL_PATH). Keys here override chart-derived defaults. Use sparingly; prefer
-  # the typed values below for chart-managed fields.
+  # keel.yaml settings applied last, over everything above and what the chart
+  # derives (sidecar.enabled from mode, file paths of keel.mounts).
   config: {}
 
-  # k8s Secret to mount as /etc/keel/secrets/keel-secrets.yaml
-  # The secret should contain a key named "keel-secrets.yaml".
+  # k8s Secret holding keel-secrets.yaml (key "keel-secrets.yaml"), the secrets
+  # file (KEEL_KNOBS_SECRETS_PATH), mounted at mountPath/keel-secrets.yaml.
   secrets:
     existingSecret: ""
     mountPath: /etc/keel/secrets
     # Copies the Secret into an owner-only file for keel (knobs requires mode 0600).
     initImage: alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f
 
+  # Kubernetes sources of keel's files; the chart sets the matching file paths.
+  mounts:
+    # Secret of type kubernetes.io/tls (tls.crt, tls.key): tls.cert_file, tls.key_file.
+    # Leave empty when using ACME or when TLS is terminated upstream.
+    tlsSecret: ""
+    # Secret holding ca.crt: tls.client_ca_file (inbound mTLS; HTTPS/H3 require
+    # client certs signed by it).
+    clientCASecret: ""
+    # Secret with ca.crt, tls.crt, tls.key: sidecar.upstream_tls.* (sidecar mode).
+    upstreamTLSSecret: ""
+    # PVC (ReadWriteOnce or ReadWriteMany) mounted at tls.acme.cache_dir.
+    acmeCachePVC: ""
+
+  # The Deployment, Service and NetworkPolicy open these ports.
   listeners:
     http:
       enabled: true
@@ -73,167 +95,13 @@ keel:
       port: 9999
 
   tls:
-    # k8s Secret of type kubernetes.io/tls (keys: tls.crt, tls.key).
-    # Leave empty when using ACME or when TLS is terminated upstream.
-    certSecretName: ""
-    # Secret holding ca.crt: inbound mTLS — HTTPS/H3 require client certs signed by it.
-    clientCASecretName: ""
-    # With clientCASecretName: a request without a client certificate gets the KEEL-PROTO-005
-    # notice instead of a handshake failure (a presented certificate is still verified).
-    clientCertNotice: false
-    # Protocol rejection notice: where clients are sent to read why (empty: the HTTP listener).
-    notice:
-      baseUrl: ""
-      helpUrl: ""
-      contact: ""
     acme:
-      enabled: false
-      domains: []
-      email: ""
-      # PVC name for on-disk cert cache.  Must be ReadWriteOnce or ReadWriteMany.
-      cachePVC: ""
-      caUrl: ""  # default: Let's Encrypt production
-      caCertFile: ""  # path to PEM CA cert to trust when connecting to caUrl (private/test CAs)
-      challengePort: 80  # RFC 8555 §8.3 requires 80 in production; do not change
+      # Where keel.mounts.acmeCachePVC is mounted.
+      cache_dir: /var/lib/keel/acme
 
-  # Upstream connection (sidecar mode)
-  upstream:
+  sidecar:
     # In sidecar mode the app runs on localhost. Keep in sync with sidecar.app.port.
-    url: "http://localhost:3000"
-    # aud claim on outbound signed JWTs (sidecar.upstream_audience); empty: none.
-    audience: ""
-    # Plaintext HTTP/2 (h2c) to the upstream; enable only if the app serves h2c.
-    h2c: false
-    # k8s Secret with keys: ca.crt, tls.crt, tls.key
-    # Mounted at /etc/keel/secrets/upstream-tls/ and wired into upstream_tls.*_file paths.
-    tlsSecret: ""
-    tlsInsecureSkipVerify: false
-    healthPath: "/health"
-    healthInterval: "10s"
-    healthTimeout: "2s"
-    circuitBreaker:
-      enabled: true
-      failureThreshold: 5
-      resetTimeout: "30s"
-    # Retries of an upstream connect that failed before any byte was sent (safe for every method).
-    retry:
-      dialAttempts: 3
-      dialBackoff: "50ms"
-      # Retry a 503/429 once after its Retry-After (replayable requests, within timeouts.write).
-      honorRetryAfter: false
-    headerPolicy:
-      forward: []
-      strip: []
-    xffMode: "append"
-    xffTrustedHops: 0
-
-  security:
-    owaspHeaders: true
-    maxHeaderBytes: 65536
-    maxRequestBodyBytes: 10485760
-    maxResponseBodyBytes: 52428800
-    hstsMaxAge: 63072000
-    # Lifetime (seconds) of the Alt-Svc advertisement of HTTP/3 (sent when H3 is enabled).
-    altSvcMaxAge: 86400
-    # Lowest HTTP version served on HTTPS and H3: "1.1", "2" or "3".
-    minHttpVersion: "1.1"
-
-  timeouts:
-    readHeader: "5s"
-    read: "30s"
-    write: "30s"
-    idle: "60s"
-    shutdownDrain: "10s"
-    prestopSleep: "0s"
-
-  limits:
-    maxConcurrent: 0
-    queueDepth: 0
-
-  backpressure:
-    heapMaxBytes: 0
-    highWatermark: 0.85
-    lowWatermark: 0.70
-    sheddingEnabled: true
-    # Memory guard: 503 while headroom below the memory limit is under this (bytes).
-    minHeadroomBytes: 10485760
-
-  admin:
-    # Admin-port pprof (requires admin.token from keel-secrets.yaml or KEEL_ADMIN_TOKEN).
-    pprof: false
-
-  authn:
-    enabled: true
-    trustedIDs: []
-    trustedSigners: []
-    trustedSignersFile: ""
-    myID: ""
-    mySignatureKeyFile: ""
-    # Required aud claim on inbound JWTs (authn.audience); empty: not checked.
-    audience: ""
-    # Browser login (docs/security.md §10). Mount the cookie key and any CA through extraVolumes;
-    # set the client secret through keel-secrets.yaml or KEEL_OIDC_CLIENT_SECRET.
-    oidc:
-      enabled: false
-      issuer: ""
-      clientId: ""
-      redirectUrl: ""
-      scopes: ["openid", "email", "profile"]
-      cookieKeyFile: ""
-      caFile: ""
-      sessionTtl: "8h"
-
-  extAuthz:
-    enabled: false
-    endpoint: ""
-    path: ""
-    timeout: "500ms"
-    transport: "http"
-    failOpen: false
-
-  logging:
-    json: true
-    level: info
-    accessLog: true
-    remoteSink:
-      enabled: false
-      endpoint: ""
-      protocol: "http"
-    # Also write every log line to this path (a writable volume); empty: stdout and the remote sink only.
-    file: ""
-    # Bounds for logging.file. 0 turns a limit off. SIGUSR2 rotates at once.
-    rotation:
-      maxSizeMb: 100
-      maxAgeDays: 30
-      maxBackups: 5
-      compress: true
-
-  # Tamper-evident audit stream (docs/security.md §9). The file needs a writable volume.
-  audit:
-    enabled: false
-    file: ""
-    rotation:
-      maxSizeMb: 100
-      maxAgeDays: 0
-      maxBackups: 0
-      compress: true
-    remoteSink:
-      enabled: false
-      endpoint: ""
-      protocol: "http"
-
-  metrics:
-    prometheus: true
-    statsd:
-      enabled: false
-      endpoint: ""
-      prefix: keel
-
-  tracing:
-    otlp:
-      enabled: false
-      endpoint: ""
-      insecure: false
+    upstream_url: "http://localhost:3000"
 
   fips:
     monitor: true

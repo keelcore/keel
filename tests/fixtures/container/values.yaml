@@ -14,6 +14,7 @@ image:
 mode: library
 
 keel:
+  # keel.yaml settings, with the config schema's names and nesting (pkg/config/schema.yaml).
   listeners:
     http:
       enabled: true
@@ -38,69 +39,64 @@ keel:
       port: 9999
 
   tls:
-    certSecretName: ""
-    # Secret holding ca.crt: inbound mTLS — HTTPS/H3 require client certs signed by it.
-    clientCASecretName: ""
     acme:
       enabled: false
       domains: []
       email: ""
-      caUrl: ""
-      cachePVC: ""
+      ca_url: ""
 
   security:
-    owaspHeaders: true
-    maxHeaderBytes: 65536
-    maxRequestBodyBytes: 10485760
-    maxResponseBodyBytes: 52428800
-    hstsMaxAge: 63072000
+    owasp_headers: true
+    max_header_bytes: 65536
+    max_request_body_bytes: 10485760
+    max_response_body_bytes: 52428800
+    hsts_max_age: 63072000
 
   timeouts:
-    readHeader: 5s
+    read_header: 5s
     read: 30s
     write: 30s
     idle: 60s
-    shutdownDrain: 10s
-    prestopSleep: 3s
+    shutdown_drain: 10s
+    prestop_sleep: 3s
 
   limits:
-    maxConcurrent: 0
-    queueDepth: 0
+    max_concurrent: 0
+    queue_depth: 0
 
   backpressure:
-    heapMaxBytes: 0
-    highWatermark: 0.85
-    lowWatermark: 0.70
-    sheddingEnabled: false
-    minHeadroomBytes: 10485760
+    heap_max_bytes: 0
+    high_watermark: 0.85
+    low_watermark: 0.70
+    shedding_enabled: false
+    min_headroom_bytes: 10485760
 
   admin:
     pprof: false
 
   authn:
     enabled: false
-    trustedIDs: []
-    trustedSigners: []
-    trustedSignersFile: ""
-    myID: ""
-    mySignatureKeyFile: ""
+    trusted_ids: []
+    trusted_signers: []
+    trusted_signers_file: ""
+    my_id: ""
+    my_signature_key_file: ""
     # Required aud claim on inbound JWTs (authn.audience); empty: not checked.
     audience: ""
-    h2c: false
 
-  extAuthz:
+  ext_authz:
     enabled: false
     endpoint: ""
     path: ""
     timeout: "500ms"
     transport: "http"
-    failOpen: false
+    fail_open: false
 
   logging:
     json: true
     level: debug
-    accessLog: true
-    remoteSink:
+    access_log: true
+    remote_sink:
       enabled: false
       endpoint: ""
       protocol: "http"
@@ -109,11 +105,11 @@ keel:
     enabled: false
     file: ""
     rotation:
-      maxSizeMb: 100
-      maxAgeDays: 0
-      maxBackups: 0
+      max_size_mb: 100
+      max_age_days: 0
+      max_backups: 0
       compress: true
-    remoteSink:
+    remote_sink:
       enabled: false
       endpoint: ""
       protocol: "http"
@@ -134,27 +130,27 @@ keel:
   fips:
     monitor: false
 
-  upstream:
-    url: ""
-    audience: ""
-    tlsSecret: ""
-    tlsInsecureSkipVerify: false
-    healthPath: "/health"
-    healthInterval: "10s"
-    healthTimeout: "2s"
-    circuitBreaker:
+  sidecar:
+    upstream_url: ""
+    upstream_audience: ""
+    upstream_tls:
+      insecure_skip_verify: false
+    upstream_health_path: "/health"
+    upstream_health_interval: "10s"
+    upstream_health_timeout: "2s"
+    circuit_breaker:
       enabled: true
-      failureThreshold: 5
-      resetTimeout: "30s"
+      failure_threshold: 5
+      reset_timeout: "30s"
     # Retries of an upstream connect that failed before any byte was sent (safe for every method).
     retry:
-      dialAttempts: 3
-      dialBackoff: "50ms"
-    headerPolicy:
+      dial_attempts: 3
+      dial_backoff: "50ms"
+    header_policy:
       forward: []
       strip: []
-    xffMode: "append"
-    xffTrustedHops: 0
+    xff_mode: "append"
+    xff_trusted_hops: 0
 
 service:
   type: ClusterIP

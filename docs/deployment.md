@@ -232,8 +232,9 @@ image:
 # values.yaml
 mode: library
 
-# Keel config — becomes a ConfigMap mounted at /etc/keel/keel.yaml
-config:
+# Keel config: values.keel takes every field of the config schema, with its names and nesting
+# (docs/config-reference.md). It becomes a ConfigMap mounted at /etc/keel/keel.yaml.
+keel:
   listeners:
     https:
       enabled: true
@@ -251,13 +252,9 @@ config:
     json: true
   metrics:
     prometheus: true
-
-# Secrets — contents become a Kubernetes Secret, mounted at /etc/keel/secrets/
-secrets:
-  existingSecret: myapp-keel-secrets    # Use an existing k8s Secret
-  # OR provide values directly (not recommended for production):
-  # tlsCert: <base64-encoded-cert>
-  # tlsKey: <base64-encoded-key>
+  # An existing k8s Secret holding keel-secrets.yaml, copied to an owner-only file for keel
+  secrets:
+    existingSecret: myapp-keel-secrets
 ```
 
 ### 2.4 Sidecar Mode — Intra-Pod
@@ -280,7 +277,9 @@ sidecar:
             name: myapp-secrets
             key: database_url
 
-  upstream_url: http://127.0.0.1:3000   # Keel proxies to this URL
+keel:
+  sidecar:
+    upstream_url: http://127.0.0.1:3000   # Keel proxies to this URL
 ```
 
 The chart generates a Pod with two containers: your app container and Keel. The app container is not exposed via the
@@ -295,14 +294,13 @@ VM, another namespace, external API).
 # values.yaml
 mode: sidecar
 
-sidecar:
-  upstream_url: https://legacy-api.internal:8443
-  upstream_tls:
-    enabled: true
-    ca_file: /etc/keel/secrets/upstream-ca.crt
-    client_cert_file: /etc/keel/secrets/client.crt
-    client_key_file: /etc/keel/secrets/client.key
-  upstreamTLSSecret: my-upstream-mtls-secret   # k8s Secret name containing the mTLS material
+keel:
+  sidecar:
+    upstream_url: https://legacy-api.internal:8443
+  mounts:
+    # k8s Secret with ca.crt, tls.crt, tls.key; the chart enables sidecar.upstream_tls
+    # and sets its ca_file, client_cert_file and client_key_file.
+    upstreamTLSSecret: my-upstream-mtls-secret
 ```
 
 ### 2.6 Full Values Reference
@@ -331,13 +329,21 @@ autoscaling:
   targetCPUUtilizationPercentage: 80
   targetMemoryUtilizationPercentage: 80
 
-# --- Keel config (becomes a ConfigMap) ---
-config: {}                # Keel YAML config, nested under key "keel:" in the ConfigMap
-
-# --- Secrets ---
-secrets:
-  existingSecret: ""      # Name of an existing k8s Secret to mount
-  mountPath: /etc/keel/secrets
+# --- Keel config (becomes a ConfigMap at /etc/keel/keel.yaml) ---
+# keel takes every field of the config schema (pkg/config/schema.yaml), with its names and
+# nesting; a field left out takes keel's default. The keys below are the chart's own.
+keel:
+  config: {}              # keel.yaml settings applied last, over everything else
+  secrets:
+    existingSecret: ""    # existing k8s Secret holding keel-secrets.yaml
+    mountPath: /etc/keel/secrets
+  mounts:
+    tlsSecret: ""         # kubernetes.io/tls Secret: tls.cert_file, tls.key_file
+    clientCASecret: ""    # Secret with ca.crt: tls.client_ca_file
+    upstreamTLSSecret: "" # Secret with ca.crt, tls.crt, tls.key: sidecar.upstream_tls.*
+    acmeCachePVC: ""      # PVC mounted at tls.acme.cache_dir
+  extraEnv: []
+  extraArgs: []
 
 # --- Service ---
 service:
@@ -357,13 +363,6 @@ sidecar:
     port: 3000
     env: []
     resources: {}
-  upstream_url: ""
-  upstream_tls:
-    enabled: false
-    ca_file: ""
-    client_cert_file: ""
-    client_key_file: ""
-  upstreamTLSSecret: ""
 
 # --- Resources ---
 resources:
@@ -414,7 +413,7 @@ startupProbe:
 
 # --- Lifecycle ---
 # No preStop hook: the image is FROM scratch (no shell). keel performs the
-# pre-stop sleep itself on SIGTERM via keel.timeouts.prestopSleep.
+# pre-stop sleep itself on SIGTERM via keel.timeouts.prestop_sleep.
 terminationGracePeriodSeconds: 30
 
 # --- ServiceAccount / RBAC ---
@@ -446,9 +445,9 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
-# --- Extra volumes and mounts ---
-extraVolumes: []
-extraVolumeMounts: []
+# --- Extra volumes and mounts (under keel) ---
+# keel.extraVolumes: []
+# keel.extraVolumeMounts: []
 ```
 
 ### 2.7 ServiceMonitor (Prometheus Operator)

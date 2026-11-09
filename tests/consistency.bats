@@ -27,10 +27,12 @@ setup_file() {
 
   # Render the chart once; expose the keel.yaml block from the ConfigMap.
   export RENDERED
+  # The chart's values list only what it needs; tests/fixtures/helm/schema-values.yaml sets every field.
   RENDERED="$(helm template consistency-test "${REPO_ROOT}/helm/keel" \
+    --values "${REPO_ROOT}/tests/fixtures/helm/schema-values.yaml" \
     --set 'mode=sidecar' \
     --set 'sidecar.app.image=placeholder' \
-    --set 'keel.upstream.url=http://localhost:3000' 2>&1)"
+    --set 'keel.sidecar.upstream_url=http://localhost:3000' 2>&1)"
 
   export RENDERED_CONFIG
   RENDERED_CONFIG="$(printf '%s\n' "${RENDERED}" | \
@@ -66,7 +68,7 @@ setup_file() {
       enabled|port|insecure)                                      continue ;;
       cert_file|key_file)                                         continue ;;  # rendered conditionally from k8s secret
       ca_file|client_cert_file|client_key_file|client_ca_file)    continue ;;  # rendered conditionally from k8s secret
-      token|metrics_token)                                        continue ;;  # secrets: keel-secrets.yaml or env
+      token|metrics_token|client_secret)                          continue ;;  # secrets: keel-secrets.yaml or env
     esac
     if ! printf '%s\n' "${RENDERED_CONFIG}" | grep -qE "^\s+${tag}:"; then
       echo "MISSING from rendered configmap: '${tag}'"
@@ -126,7 +128,7 @@ setup_file() {
   # Exclude Helm-specific extension fields not expected in fixture files.
   local keys
   keys="$(awk '/^keel:/{found=1; next} found && /^[^ ]/{exit} found && /^  [a-z]/{print $1}' \
-    "${VALUES}" | tr -d ':' | grep -Ev '^(config|secrets|extraEnv|extraArgs|extraVolumeMounts|extraVolumes)$')"
+    "${VALUES}" | tr -d ':' | grep -Ev '^(config|secrets|mounts|extraEnv|extraArgs|extraVolumeMounts|extraVolumes)$')"
 
   while IFS= read -r key; do
     if ! awk '/^keel:/{found=1; next} found && /^[^ ]/{exit} found' "${CONTAINER_VALUES}" | \
@@ -137,6 +139,65 @@ setup_file() {
   done <<< "${keys}"
 
   [ "${failed}" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Helm values follow the config schema (#41): values.keel takes every schema
+# field under its schema name. make lint-helm-schema audits the chart against
+# tests/fixtures/helm/schema-values.yaml, which sets every field; these tests
+# show it passes, and fails on each way the values can drift from the schema.
+# ---------------------------------------------------------------------------
+@test "lint-helm-schema: the chart's keel.yaml loads in keel, covers the schema, and keel.config overrides in place (#41)" {
+  run bash "${REPO_ROOT}/scripts/lint/lint-helm-schema.local.sh"
+  echo "${output}"
+  [ "${status}" -eq 0 ]
+}
+
+# schema_values EDIT...: a copy of the full-values fixture, edited by sed, in BATS_TEST_TMPDIR.
+function schema_values() {
+  local -r values="${BATS_TEST_TMPDIR}/schema-values.yaml"
+  sed "$@" "${REPO_ROOT}/tests/fixtures/helm/schema-values.yaml" > "${values}"
+  printf '%s' "${values}"
+}
+
+@test "lint-helm-schema: an unrecognized node fails (#41)" {
+  local values
+  values="$(schema_values -e 's/^  admin:$/  admin:\n    no_such_field: true/')"
+  run bash "${REPO_ROOT}/scripts/lint/lint-helm-schema.local.sh" "${REPO_ROOT}/helm/keel" "${values}"
+  echo "${output}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *admin.no_such_field* ]]
+}
+
+@test "lint-helm-schema: a schema node missing from the full values fails, naming it (#41)" {
+  local values
+  values="$(schema_values -e '/^    pprof: false$/d')"
+  run bash "${REPO_ROOT}/scripts/lint/lint-helm-schema.local.sh" "${REPO_ROOT}/helm/keel" "${values}"
+  echo "${output}"
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *admin.pprof* ]]
+}
+
+@test "lint-helm-schema: a node of the wrong type fails (#41)" {
+  local values edit
+  for edit in 's/^      port: 8080$/      port: not-a-port/' \
+    's/^    pprof: false$/    pprof: "yes please"/' \
+    's/^  admin:$/  admin: off/; /^    pprof: false$/d'; do
+    values="$(schema_values -e "${edit}")"
+    run bash "${REPO_ROOT}/scripts/lint/lint-helm-schema.local.sh" "${REPO_ROOT}/helm/keel" "${values}"
+    echo "${edit}: ${output}"
+    [ "${status}" -ne 0 ]
+    [[ "${output}" == *invalid_type* ]]
+  done
+}
+
+@test "helm values with nodes missing render only the nodes set, leaving the rest to keel's defaults (#41)" {
+  local rendered
+  rendered="$(helm template keel-missing "${REPO_ROOT}/helm/keel" --show-only templates/configmap.yaml \
+    --set mode=library --set keel.logging.level=debug)"
+  echo "${rendered}"
+  grep -qE '^ +level: debug$' <<< "${rendered}"
+  ! grep -qE '^ +(owasp_headers|pprof|trusted_ids):' <<< "${rendered}"
 }
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 {{- if .Values.networkPolicy.enabled }}
+{{- $s := include "keel.settings" . | fromYaml }}{{- $l := $s.listeners }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -20,14 +21,14 @@ spec:
   ingress:
     # Main HTTP/HTTPS traffic — from any pod in the cluster
     - ports:
-        - port: {{ .Values.keel.listeners.http.port }}
+        - port: {{ $l.http.port }}
           protocol: TCP
-        {{- if .Values.keel.listeners.https.enabled }}
-        - port: {{ .Values.keel.listeners.https.port }}
+        {{- if $l.https.enabled }}
+        - port: {{ $l.https.port }}
           protocol: TCP
         {{- end }}
-        {{- if .Values.keel.listeners.h3.enabled }}
-        - port: {{ .Values.keel.listeners.h3.port }}
+        {{- if $l.h3.enabled }}
+        - port: {{ $l.h3.port }}
           protocol: UDP
         {{- end }}
 
@@ -36,17 +37,17 @@ spec:
         - ipBlock:
             cidr: {{ .Values.networkPolicy.kubeletCIDR }}
       ports:
-        - port: {{ .Values.keel.listeners.health.port }}
+        - port: {{ $l.health.port }}
           protocol: TCP
-        - port: {{ .Values.keel.listeners.ready.port }}
+        - port: {{ $l.ready.port }}
           protocol: TCP
-        {{- if .Values.keel.listeners.startup.enabled }}
-        - port: {{ .Values.keel.listeners.startup.port }}
+        {{- if $l.startup.enabled }}
+        - port: {{ $l.startup.port }}
           protocol: TCP
         {{- end }}
 
     # Admin port — restricted to a specific namespace (e.g. monitoring)
-    {{- if .Values.keel.listeners.admin.enabled }}
+    {{- if $l.admin.enabled }}
     - from:
         {{- if .Values.networkPolicy.adminNamespaceSelector }}
         - namespaceSelector:
@@ -55,7 +56,7 @@ spec:
         - podSelector: {}   # same namespace only when no selector specified
         {{- end }}
       ports:
-        - port: {{ .Values.keel.listeners.admin.port }}
+        - port: {{ $l.admin.port }}
           protocol: TCP
     {{- end }}
 

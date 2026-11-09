@@ -110,6 +110,25 @@ jobs:
         run: make test-consistency
 
   # ---------------------------------------------------------------------------
+  # Helm Schema — the chart's values follow the config schema: each rendered
+  # keel.yaml loads in keel, keel.config overrides in place, and the full-values
+  # fixture covers every schema field (scripts/lint/lint-helm-schema.local.sh).
+  # ---------------------------------------------------------------------------
+  helm-schema:
+    name: Helm Schema
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Audit Helm values against the config schema
+        run: make lint-helm-schema
+
+  # ---------------------------------------------------------------------------
   # Lint — aggregates: go vet + staticcheck, markdownlint, trailing newlines.
   # ---------------------------------------------------------------------------
   lint:

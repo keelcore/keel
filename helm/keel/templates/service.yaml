@@ -1,3 +1,4 @@
+{{- $s := include "keel.settings" . | fromYaml }}{{- $l := $s.listeners }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -24,14 +25,14 @@ spec:
       protocol: TCP
     {{- end }}
 
-    {{- if and .Values.service.https.enabled .Values.keel.listeners.https.enabled }}
+    {{- if and .Values.service.https.enabled $l.https.enabled }}
     - name: https
       port: {{ .Values.service.https.port }}
       targetPort: https
       protocol: TCP
     {{- end }}
 
-    {{- if and .Values.service.h3.enabled .Values.keel.listeners.h3.enabled }}
+    {{- if and .Values.service.h3.enabled $l.h3.enabled }}
     - name: h3
       port: {{ .Values.service.h3.port }}
       targetPort: h3
@@ -47,7 +48,7 @@ spec:
       port: {{ .Values.serviceProbes.readyPort }}
       targetPort: ready
       protocol: TCP
-    {{- if .Values.keel.listeners.startup.enabled }}
+    {{- if $l.startup.enabled }}
     - name: startup
       port: {{ .Values.serviceProbes.startupPort }}
       targetPort: startup

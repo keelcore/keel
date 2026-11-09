@@ -1,3 +1,4 @@
+{{- $s := include "keel.settings" . | fromYaml }}{{- $l := $s.listeners }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -55,25 +56,25 @@ spec:
           emptyDir:
             medium: Memory
         {{- end }}
-        {{- if .Values.keel.tls.certSecretName }}
+        {{- if .Values.keel.mounts.tlsSecret }}
         - name: keel-tls
           secret:
-            secretName: {{ .Values.keel.tls.certSecretName }}
+            secretName: {{ .Values.keel.mounts.tlsSecret }}
         {{- end }}
-        {{- if .Values.keel.tls.clientCASecretName }}
+        {{- if .Values.keel.mounts.clientCASecret }}
         - name: keel-client-ca
           secret:
-            secretName: {{ .Values.keel.tls.clientCASecretName }}
+            secretName: {{ .Values.keel.mounts.clientCASecret }}
         {{- end }}
-        {{- if .Values.keel.upstream.tlsSecret }}
+        {{- if .Values.keel.mounts.upstreamTLSSecret }}
         - name: upstream-tls
           secret:
-            secretName: {{ .Values.keel.upstream.tlsSecret }}
+            secretName: {{ .Values.keel.mounts.upstreamTLSSecret }}
         {{- end }}
-        {{- if .Values.keel.tls.acme.cachePVC }}
+        {{- if .Values.keel.mounts.acmeCachePVC }}
         - name: acme-cache
           persistentVolumeClaim:
-            claimName: {{ .Values.keel.tls.acme.cachePVC }}
+            claimName: {{ .Values.keel.mounts.acmeCachePVC }}
         {{- end }}
         {{- with .Values.keel.extraVolumes }}
         {{- toYaml . | nindent 8 }}
@@ -136,32 +137,32 @@ spec:
 
           ports:
             - name: http
-              containerPort: {{ .Values.keel.listeners.http.port }}
+              containerPort: {{ $l.http.port }}
               protocol: TCP
-            {{- if .Values.keel.listeners.https.enabled }}
+            {{- if $l.https.enabled }}
             - name: https
-              containerPort: {{ .Values.keel.listeners.https.port }}
+              containerPort: {{ $l.https.port }}
               protocol: TCP
             {{- end }}
-            {{- if .Values.keel.listeners.h3.enabled }}
+            {{- if $l.h3.enabled }}
             - name: h3
-              containerPort: {{ .Values.keel.listeners.h3.port }}
+              containerPort: {{ $l.h3.port }}
               protocol: UDP
             {{- end }}
             - name: health
-              containerPort: {{ .Values.keel.listeners.health.port }}
+              containerPort: {{ $l.health.port }}
               protocol: TCP
             - name: ready
-              containerPort: {{ .Values.keel.listeners.ready.port }}
+              containerPort: {{ $l.ready.port }}
               protocol: TCP
-            {{- if .Values.keel.listeners.startup.enabled }}
+            {{- if $l.startup.enabled }}
             - name: startup
-              containerPort: {{ .Values.keel.listeners.startup.port }}
+              containerPort: {{ $l.startup.port }}
               protocol: TCP
             {{- end }}
-            {{- if .Values.keel.listeners.admin.enabled }}
+            {{- if $l.admin.enabled }}
             - name: admin
-              containerPort: {{ .Values.keel.listeners.admin.port }}
+              containerPort: {{ $l.admin.port }}
               protocol: TCP
             {{- end }}
 
@@ -183,7 +184,7 @@ spec:
             timeoutSeconds: 2
             failureThreshold: 3
 
-          {{- if .Values.keel.listeners.startup.enabled }}
+          {{- if $l.startup.enabled }}
           startupProbe:
             httpGet:
               path: /startupz
@@ -196,7 +197,7 @@ spec:
 
           # No preStop hook: the image is FROM scratch (no /bin/sh), so an exec
           # hook can only fail. keel performs the pre-stop sleep itself on
-          # SIGTERM (keel.timeouts.prestopSleep → timeouts.prestop_sleep),
+          # SIGTERM (keel.timeouts.prestop_sleep),
           # reporting NOT ready while it keeps serving, then drains.
 
           volumeMounts:
@@ -209,24 +210,24 @@ spec:
               mountPath: {{ .Values.keel.secrets.mountPath }}
               readOnly: true
             {{- end }}
-            {{- if .Values.keel.tls.certSecretName }}
+            {{- if .Values.keel.mounts.tlsSecret }}
             - name: keel-tls
               mountPath: /etc/keel/tls
               readOnly: true
             {{- end }}
-            {{- if .Values.keel.tls.clientCASecretName }}
+            {{- if .Values.keel.mounts.clientCASecret }}
             - name: keel-client-ca
               mountPath: /etc/keel/client-ca
               readOnly: true
             {{- end }}
-            {{- if .Values.keel.upstream.tlsSecret }}
+            {{- if .Values.keel.mounts.upstreamTLSSecret }}
             - name: upstream-tls
               mountPath: /etc/keel/secrets/upstream-tls
               readOnly: true
             {{- end }}
-            {{- if .Values.keel.tls.acme.cachePVC }}
+            {{- if .Values.keel.mounts.acmeCachePVC }}
             - name: acme-cache
-              mountPath: /var/lib/keel/acme
+              mountPath: {{ dig "tls" "acme" "cache_dir" "/var/lib/keel/acme" $s }}
             {{- end }}
             {{- with .Values.keel.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}

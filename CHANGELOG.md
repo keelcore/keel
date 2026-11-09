@@ -12,6 +12,10 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Added
 
+- `make lint-helm-schema` and the **Helm Schema** CI job audit the chart against the config schema: each rendered
+  `keel.yaml` (sidecar, library, the container fixture, every field) loads in keel, `keel.config` overrides in place,
+  and `tests/fixtures/helm/schema-values.yaml` sets every schema field but the secrets. BATS tests show it fails on an
+  unrecognized node, a missing node and a node of the wrong type (#41).
 - `make build-dev-image` (`scripts/dev/build-image.local.sh`): keel's dev image for this tree on this machine, pulled
   when published, else built locally; never pushed.
 - `sidecar.retry.honor_retry_after` (default `false`): a 503 or 429 from the upstream carrying `Retry-After` is
@@ -38,6 +42,15 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- **Breaking:** Helm values follow the config schema (#41): `values.keel` takes every field of
+  `pkg/config/schema.yaml` with the schema's names and nesting (`keel.sidecar.upstream_url`, `keel.ext_authz.fail_open`,
+  `keel.security.owasp_headers`), and the chart renders it as `keel.yaml` whole instead of field by field; a field left
+  out takes keel's default. `keel.upstream` and `keel.extAuthz` become `keel.sidecar` and `keel.ext_authz`, and every
+  camelCase key its snake_case schema name. The Secrets and PVC the chart mounts move to `keel.mounts`
+  (`tlsSecret`, `clientCASecret`, `upstreamTLSSecret`, `acmeCachePVC`). `keel.config` is applied last and replaces a
+  rendered value instead of repeating its section, so overriding a section the chart renders no longer breaks the
+  config load; `false`, `0` and `""` override too. The ConfigMap carries no secret fields; the chart names the
+  schema-path env names (`KEEL_AUTHN_OIDC_CLIENT_SECRET`).
 - Config files are validated against `pkg/config/schema.yaml` by `github.com/keelcore/knobs` v0.8.4 (JSON Schema via
   `santhosh-tekuri/jsonschema/v6`), replacing the direct `santhosh-tekuri/jsonschema/v5` dependency (#39, stage 1).
 - **Breaking:** `github.com/keelcore/knobs` resolves the whole configuration (#39, stage 2,
