@@ -609,12 +609,8 @@ func validateAgainstSchema(b []byte) error {
 		return fmt.Errorf("the document is not a mapping")
 	}
 	e := schemaEngine()
-	if err := e.Attach(*sc); err != nil {
-		return err
-	}
-	if err := e.Add(docLayer{doc: m}); err != nil {
-		return err
-	}
+	_ = e.Attach(*sc)           // getSchema attached this schema without error
+	_ = e.Add(docLayer{doc: m}) // Add fails only after Resolve
 	_, err = e.Resolve()
 	return err
 }

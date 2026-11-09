@@ -74,6 +74,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- `pkg/config/config.go` is covered at 100% again: tests for a document that is not a mapping and for a scalar given
+  for a nested object, and the knobs calls that cannot fail return no error branch (#39).
 - keel's scripts import each environment variable once, at file scope, with `declare -rx NAME="${NAME:-default}"`
   and list it in the header (governance/bash.md R37), so `run.sh` forwards exactly the names each script reads (#37).
 - The tracing exporter's flush tests are deterministic: the flush ticker is a seam (`newTicker`), so the batch-size

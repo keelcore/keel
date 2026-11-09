@@ -4,8 +4,11 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/keelcore/knobs"
 )
 
 // ---------------------------------------------------------------------------
@@ -92,6 +95,22 @@ func TestValidateAgainstSchema_InvalidYAML(t *testing.T) {
 	invalid := []byte("key:\t value\n")
 	if err := validateAgainstSchema(invalid); err == nil {
 		t.Error("expected error for invalid YAML, got nil")
+	}
+}
+
+// validateAgainstSchema rejects a document that is not a mapping.
+func TestValidateAgainstSchema_NotAMapping(t *testing.T) {
+	err := validateAgainstSchema([]byte("- logging\n"))
+	if err == nil || !strings.Contains(err.Error(), "not a mapping") {
+		t.Errorf("expected not-a-mapping error, got %v", err)
+	}
+}
+
+// validateAgainstSchema rejects a scalar where the schema has a nested object.
+func TestValidateAgainstSchema_ScalarForObject(t *testing.T) {
+	err := validateAgainstSchema([]byte("listeners:\n  http: 8080\n"))
+	if err == nil || !strings.Contains(err.Error(), knobs.CodeInvalidType) {
+		t.Errorf("expected %s error, got %v", knobs.CodeInvalidType, err)
 	}
 }
 
