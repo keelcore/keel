@@ -28,6 +28,15 @@ export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGES
 # set-dist-permissions hands dist/ back to DIST_OWNER, which the canonical recipe no longer passes into the
 # dev image; exported, run.sh forwards it (set-dist-permissions.sh imports it). Remove once canonical passes it.
 export DIST_OWNER
+# Canonical targets that run a tool image or Apple container without ensuring the container runtime first
+# (keelcore/standards#32): make merges these prerequisites into the canonical rules. Remove once canonical has them.
+update-pins: | ensure-container
+publish-dev-image: | ensure-container
+push-dev-image: | ensure-container
+merge-dev-image: | ensure-container
+pull-dev-image: | ensure-container
+update-dev-image-ref: | ensure-container
+publish-release-images: | ensure-container
 
 .PHONY: build-all
 .PHONY: clean
@@ -105,23 +114,23 @@ export DIST_OWNER
 build-all: build-min
 
 ## Build Targets
-build-min:
+build-min: | ensure-container
 	@echo "⚓ Building Shredded (BYOS)..."
 	bash scripts/dev/run.sh bash scripts/build/build-min.sh
 
-build-max:
+build-max: | ensure-container
 	@echo "⚓ Building Rock-Hard (FIPS/Corporate)..."
 	bash scripts/dev/run.sh bash scripts/build/build-max.sh
 
-build-max-no-fips:
+build-max-no-fips: | ensure-container
 	@echo "⚓ Building Ripped (Full Feature/No-FIPS)..."
 	bash scripts/dev/run.sh bash scripts/build/build-max-no-fips.sh
 
-test-consistency:
+test-consistency: | ensure-container
 	@echo "🧪 Running consistency suite..."
 	bash scripts/dev/run.sh --writable bash scripts/test/test-consistency.sh
 
-test-integrity:
+test-integrity: | ensure-container
 	@echo "🧪 Running BATS integrity suite..."
 	bash scripts/dev/run.sh bash scripts/build/test-integrity.sh
 
@@ -143,32 +152,32 @@ test-k8s:
 	./scripts/test/test-k8s.sh
 
 ## P3.5 Local k8s (Apple container) Targets
-setup-container:
+setup-container: | ensure-container
 	@echo "☸️  Starting local k8s cluster + keel-toolbox via Apple container..."
 	./scripts/container/setup.sh
 
-deploy-container:
+deploy-container: | ensure-container
 	@echo "⎈ Building and deploying Keel to Apple container k8s..."
 	./scripts/container/deploy.sh
 
-test-container:
+test-container: | ensure-container
 	@echo "🧪 Running k8s integration tests against Apple container cluster..."
 	./scripts/container/test.sh
 
-test-container-stack:
+test-container-stack: | ensure-container
 	@echo "🧪 Running compose integration tests on the Apple container k8s stack..."
 	./scripts/container/test-container-stack.sh
 
-test-container-stack-keep:
+test-container-stack-keep: | ensure-container
 	@echo "🧪 Running stack tests (stack stays up)..."
 	./scripts/container/test-container-stack.sh --keep-up
 
-teardown-container:
+teardown-container: | ensure-container
 	@echo "🧹 Tearing down Apple container k8s environment..."
 	./scripts/container/teardown.sh
 
 ## Apple container host networking
-setup-container-host-network:
+setup-container-host-network: | ensure-container
 	@echo "🛣️  Checking Apple container host networking..."
 	./scripts/container/setup-container-host-network.sh
 
@@ -178,11 +187,11 @@ build-certs-image:
 	./scripts/build/build-certs-image.sh
 
 ## Certificate Generation
-generate-certs:
+generate-certs: | ensure-container
 	@echo "🔑 Generating self-signed test certificates..."
 	bash scripts/dev/run.sh bash scripts/test/generate-certs.sh
 
-generate-schema:
+generate-schema: | ensure-container
 	@echo "📐 Regenerating config field schema..."
 	bash scripts/dev/run.sh --writable bash scripts/release/generate-schema.sh
 
@@ -201,11 +210,11 @@ create-fresh-repo: install-hooks
 	bash scripts/create-fresh-repo.sh
 
 ## Branch protection as code (docs/governance.md): check is read-only; apply needs an admin GH_TOKEN.
-check-rulesets:
+check-rulesets: | ensure-container
 	@echo "🛡️  Checking rulesets against .github/rulesets..."
 	bash scripts/dev/run.sh bash scripts/admin/apply-rulesets.sh check
 
-apply-rulesets:
+apply-rulesets: | ensure-container
 	@echo "🛡️  Applying .github/rulesets..."
 	bash scripts/dev/run.sh bash scripts/admin/apply-rulesets.sh apply
 
@@ -214,11 +223,11 @@ build: build-min
 
 test-integration: test-integrity test-consistency
 
-setup-pebble:
+setup-pebble: | ensure-container
 	@echo "🔧 Installing pebble..."
 	bash scripts/dev/run.sh bash scripts/ci/setup-pebble.sh
 
-setup-kind:
+setup-kind: | ensure-container
 	@echo "🔧 Installing kind..."
 	bash scripts/dev/run.sh bash scripts/ci/setup-kind.sh
 
@@ -228,20 +237,20 @@ test-smoke-windows:
 	./scripts/build/test-smoke-windows.sh
 
 ## BATS Runner Targets (artifact-based; distinct from test-integrity which builds first)
-test-integrity-artifact:
+test-integrity-artifact: | ensure-container
 	@echo "🧪 Running BATS integrity suite against downloaded artifact..."
 	bash scripts/dev/run.sh bash scripts/test/test-integrity-artifact.sh
 
-test-example-artifact:
+test-example-artifact: | ensure-container
 	@echo "🧪 Running BATS example suite..."
 	bash scripts/dev/run.sh bash scripts/test/test-example-artifact.sh
 
-build-example:
+build-example: | ensure-container
 	@echo "🔨 Building examples/myapp (CI, no BATS)..."
 	bash scripts/dev/run.sh bash scripts/build/build-example.sh
 
 ## build-release-binaries: every flavor for every architecture, concurrently, under its release name.
-build-release-binaries:
+build-release-binaries: | ensure-container
 	@echo "⚓ Building release binaries..."
 	bash scripts/dev/run.sh bash scripts/release/build-binaries.sh
 
@@ -284,7 +293,7 @@ run-release-ci:
 	./scripts/release/run-release-ci.sh
 
 ## Additional Utility Targets
-report-size:
+report-size: | ensure-container
 	@echo "📏 Generating binary size report..."
 	bash scripts/dev/run.sh bash scripts/build/report-size.sh
 
@@ -310,7 +319,7 @@ publish-release-images-local:
 	bash scripts/release/publish-release-images.local.sh
 
 ## keel's part of the canonical native targets: run by them, and runnable alone.
-build-native-local:
+build-native-local: | ensure-container
 	@echo "🔨 Building keel and pebble for $(OS)/$(ARCH)..."
 	bash scripts/dev/run.sh bash scripts/test/build-native.local.sh $(OS) $(ARCH) target/native/$(OS)-$(ARCH) $(EXT)
 
@@ -319,7 +328,7 @@ test-native-integrity-local:
 	bash scripts/test/test-native-integrity.local.sh
 
 ## keel's gosec: skips submodule folders (.standards first) and accepts reviewed sites (config/gosec-sites.local.txt).
-lint-gosec-local:
+lint-gosec-local: | ensure-container
 	@echo "🔍 Running gosec on keel's own code..."
 	bash scripts/dev/run.sh bash scripts/lint/lint-gosec.local.sh
 
@@ -328,18 +337,18 @@ update-pins-local:
 	@echo "📌 keel pin hook: $(WHAT)"
 	bash scripts/release/update-pins.local.sh $(WHAT)
 
-build-dev-image:
+build-dev-image: | ensure-container
 	@echo "🔨 Putting keel's dev image for this tree on this machine..."
 	bash scripts/dev/build-image.local.sh
 
-publish-dev-image-local:
+publish-dev-image-local: | ensure-container
 	@echo "📦 keel publish hook: $(WHAT)"
 	bash scripts/dev/publish.local.sh $(WHAT)
 
 ## report-coverage: pretty-print the merged per-file LCOV (from `make test-coverage`)
 ## as an ascending, colorized console table with coverage bars. Read-only view;
 ## does not run tests or alter the baseline.
-report-coverage:
+report-coverage: | ensure-container
 	bash scripts/dev/run.sh bash scripts/test/report-coverage.sh
 
 ## help composes keel's curated summary (help-local) with the canonical

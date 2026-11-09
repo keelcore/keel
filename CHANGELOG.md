@@ -89,6 +89,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- Every make target that runs a tool image or Apple container starts the container system when it is stopped
+  (`| ensure-container`), instead of failing at once; canonical targets that lack it get it from keel's Makefile until
+  keelcore/standards#32 ships (#43). A consistency test checks the merged make database (#42).
 - `config/legal-copies.local.txt` lists keel's legal-file copies (`pkg/clisupport/LICENSE`, `TRADEMARK.md`), so
   `make check-legal-drift` and the commit hook check them against their sources again (#38).
 - Release: Sign Artifacts hands `dist/` back to the runner user again (`export DIST_OWNER` in the Makefile), so

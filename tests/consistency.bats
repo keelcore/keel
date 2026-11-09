@@ -637,6 +637,22 @@ site_issues() {
 # Shared env imports (#37): every scripts/container script that reads a shared
 # name imports it with declare -rx, and all of them give it one default.
 # ---------------------------------------------------------------------------
+@test "make: every target that runs a tool image or Apple container ensures the container runtime (#42)" {
+  local missing
+  missing="$(cd "${REPO_ROOT}" && make -pRrq -f Makefile : 2> /dev/null | awk '
+    /^[a-zA-Z0-9_.-]+:([^=]|$)/ { target = $1; sub(/:$/, "", target); deps = $0; next }
+    /^$/ { target = "" }
+    /^\t/ && target != "" && target != "ensure-container" \
+      && /scripts\/dev\/|scripts\/container\/|update-pins\.sh|publish-release-images\.sh/ \
+      && deps !~ /\|.*[[:space:]]ensure-container([[:space:]]|$)/ { print target; target = "" }
+  ' | sort -u)"
+  [ -z "${missing}" ] || {
+    echo "targets without | ensure-container:"
+    echo "${missing}"
+    return 1
+  }
+}
+
 @test "scripts/container imports KEEL_CLUSTER_NAME and KEEL_TOOLBOX_NAME with one default each" {
   local name script defaults
   for name in KEEL_CLUSTER_NAME KEEL_TOOLBOX_NAME; do
