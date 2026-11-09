@@ -2,15 +2,12 @@
 package config
 
 import (
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/santhosh-tekuri/jsonschema/v5"
 
 	"go.yaml.in/yaml/v3"
 
@@ -175,8 +172,6 @@ func TestValidateAgainstSchema_UnmarshalError(t *testing.T) {
 func withFreshSchema(t *testing.T) {
 	t.Helper()
 	origYAML := SchemaYAML
-	origMarshal := jsonMarshal
-	origAdd := schemaAddResource
 	reset := func() {
 		compiledSchemaOnce = sync.Once{}
 		compiledSchema = nil
@@ -184,8 +179,6 @@ func withFreshSchema(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		SchemaYAML = origYAML
-		jsonMarshal = origMarshal
-		schemaAddResource = origAdd
 		reset()
 		// Recompile the real schema so subsequent tests see a valid one.
 		_, _ = getSchema()
@@ -204,27 +197,5 @@ func TestGetSchema_BadEmbeddedSchema(t *testing.T) {
 	// Drives the getSchema-error branch inside validateAgainstSchema (cached err).
 	if err := validateAgainstSchema([]byte("logging:\n  json: true\n")); err == nil {
 		t.Error("expected schema error from validateAgainstSchema, got nil")
-	}
-}
-
-// A json.Marshal failure surfaces the "convert schema to JSON" error.
-func TestGetSchema_JSONMarshalError(t *testing.T) {
-	withFreshSchema(t)
-	jsonMarshal = func(any) ([]byte, error) { return nil, errors.New("boom") }
-	_, err := getSchema()
-	if err == nil || !strings.Contains(err.Error(), "convert schema to JSON") {
-		t.Fatalf("expected convert-to-JSON error, got %v", err)
-	}
-}
-
-// An AddResource failure surfaces the "load schema" error.
-func TestGetSchema_AddResourceError(t *testing.T) {
-	withFreshSchema(t)
-	schemaAddResource = func(*jsonschema.Compiler, string, io.Reader) error {
-		return errors.New("boom")
-	}
-	_, err := getSchema()
-	if err == nil || !strings.Contains(err.Error(), "load schema") {
-		t.Fatalf("expected load-schema error, got %v", err)
 	}
 }

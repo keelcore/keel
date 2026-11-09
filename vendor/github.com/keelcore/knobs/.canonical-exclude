@@ -1,0 +1,8 @@
+# Canonical scripts knobs does not use (governance/ci.md, Canonical Scripts). Listed scripts are
+# neither synced by refresh-governance nor checked by verify-canonical.
+
+# .standards package publishers: they publish the .standards packages. knobs publishes its Go module with
+# its own scripts/release/publish-go-module.sh (make publish-go-module); its other languages are deferred.
+scripts/release/publish-go.sh
+scripts/release/publish-npm.sh
+scripts/release/publish-pypi.sh

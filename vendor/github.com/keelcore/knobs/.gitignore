@@ -1,0 +1,26 @@
+# Build and test output (containers/writable)
+/dist/
+/target/
+
+# Language build output
+node_modules/
+*.test
+*.cover
+*.prof
+coverage.out
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local agent state and plans
+.claude
+.claude/*
+docs/plans/
+
+# Secrets never enter the repository
+.env
+.env.*
+*.pem
+*.key

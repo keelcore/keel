@@ -38,6 +38,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- Config files are validated against `pkg/config/schema.yaml` by `github.com/keelcore/knobs` v0.8.4 (JSON Schema via
+  `santhosh-tekuri/jsonschema/v6`), replacing the direct `santhosh-tekuri/jsonschema/v5` dependency (#39, stage 1).
 - `docs/ROADMAP.md` lists planned work only: OIDC browser login, the audit log and the shared outbound TLS policy
   are in this release.
 - **Breaking:** make targets are verb-first (standards), for example `make build-min`, `make test-container-stack`,

@@ -1,0 +1,20 @@
+# markdownlint-cli2 ignore patterns (gitignore syntax).
+# Used by scripts/lint/lint-markdown.sh; keeps lint scoped to repo-owned content.
+#
+# Created by bootstrap-standards.sh template — extend per project.
+
+# Vendored standards submodule — upstream-owned.
+.standards/
+
+# Common build outputs and caches.
+target/
+dist/
+build/
+node_modules/
+
+# Local scratch and editor metadata.
+.scratch/
+.idea/
+
+# Long-form run logs (timestamps, ANSI noise — not prose).
+logs/

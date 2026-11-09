@@ -3,7 +3,6 @@ package config
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/santhosh-tekuri/jsonschema/v5"
+	"github.com/keelcore/knobs"
 
 	"go.yaml.in/yaml/v3"
 
@@ -558,49 +557,38 @@ func applyYAMLFile(path string, cfg *Config) error {
 }
 
 // ---------------------------------------------------------------------------
-// JSON Schema validation — compiled once from the embedded schema.yaml.
+// Schema validation — keelcore/knobs checks each document against the
+// embedded schema.yaml.
 // ---------------------------------------------------------------------------
 
 var (
-	compiledSchema     *jsonschema.Schema
+	compiledSchema     *knobs.Module
 	compiledSchemaErr  error
 	compiledSchemaOnce sync.Once
 )
 
-// Seams over the standard-library / jsonschema calls in getSchema so their
-// error branches can be exercised in tests. Production values are the bare
-// library functions; behaviour is unchanged.
-var (
-	jsonMarshal       = json.Marshal
-	schemaAddResource = func(c *jsonschema.Compiler, name string, r io.Reader) error {
-		return c.AddResource(name, r)
-	}
-)
-
-func getSchema() (*jsonschema.Schema, error) {
+// getSchema checks the embedded schema once and returns it as a knobs module.
+func getSchema() (*knobs.Module, error) {
 	compiledSchemaOnce.Do(func() {
-		var raw interface{}
-		if err := yaml.Unmarshal(SchemaYAML, &raw); err != nil {
-			compiledSchemaErr = fmt.Errorf("parse embedded schema: %w", err)
-			return
-		}
-		b, err := jsonMarshal(raw)
-		if err != nil {
-			compiledSchemaErr = fmt.Errorf("convert schema to JSON: %w", err)
-			return
-		}
-		c := jsonschema.NewCompiler()
-		if err := schemaAddResource(c, "keel:config", bytes.NewReader(b)); err != nil {
+		m := &knobs.Module{Schema: SchemaYAML}
+		if err := schemaEngine().Attach(*m); err != nil {
 			compiledSchemaErr = fmt.Errorf("load schema: %w", err)
 			return
 		}
-		compiledSchema, compiledSchemaErr = c.Compile("keel:config")
+		compiledSchema = m
 	})
 	return compiledSchema, compiledSchemaErr
 }
 
-// validateAgainstSchema validates raw YAML bytes against the embedded JSON
-// Schema.  Empty or whitespace-only input is accepted (no overrides).
+// schemaEngine returns an empty knobs engine for the keel application; "keel"
+// is a valid application name, so New cannot fail.
+func schemaEngine() *knobs.Engine {
+	e, _ := knobs.New("keel")
+	return e
+}
+
+// validateAgainstSchema validates raw YAML bytes against the embedded schema.
+// Empty or whitespace-only input is accepted (no overrides).
 func validateAgainstSchema(b []byte) error {
 	if len(bytes.TrimSpace(b)) == 0 {
 		return nil
@@ -616,7 +604,66 @@ func validateAgainstSchema(b []byte) error {
 	if doc == nil {
 		return nil
 	}
-	return sc.Validate(doc)
+	m, ok := doc.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("the document is not a mapping")
+	}
+	e := schemaEngine()
+	if err := e.Attach(*sc); err != nil {
+		return err
+	}
+	if err := e.Add(docLayer{doc: m}); err != nil {
+		return err
+	}
+	_, err = e.Resolve()
+	return err
+}
+
+// docLayer is one decoded YAML document, rooted at keel's modules, as a knobs
+// layer: knobs validates each value it sets against the schema.
+type docLayer struct{ doc map[string]interface{} }
+
+func (docLayer) Name() string { return knobs.LayerGlobal }
+
+func (docLayer) Policy() knobs.Policy {
+	return knobs.Policy{RejectSecrets: knobs.CodeSecretInPlainFile}
+}
+
+func (l docLayer) Load(s *knobs.Schemas) ([]knobs.Setting, error) {
+	return docSettings(s, s.App(), l.doc), nil
+}
+
+// docSettings flattens the mapping at prefix into one setting per knob,
+// descending into nested objects; a key the schema does not define is an
+// unknown key.
+func docSettings(s *knobs.Schemas, prefix string, doc map[string]interface{}) []knobs.Setting {
+	var out []knobs.Setting
+	for k, v := range doc {
+		key := prefix + "." + k
+		mod, name, known := s.Lookup(key)
+		sub, isMap := v.(map[string]interface{})
+		switch {
+		case known:
+			out = append(out, knobs.Setting{Key: key, Module: mod, Name: name, Value: v})
+		case !isBranch(s, key):
+			out = append(out, knobs.Setting{Key: key, Err: knobs.CodeUnknownKey})
+		case !isMap:
+			out = append(out, knobs.Setting{Key: key, Err: knobs.CodeInvalidType})
+		default:
+			out = append(out, docSettings(s, key, sub)...)
+		}
+	}
+	return out
+}
+
+// isBranch reports whether key is a nested object holding knobs.
+func isBranch(s *knobs.Schemas, key string) bool {
+	for _, k := range s.Keys() {
+		if strings.HasPrefix(s.App()+"."+k[0]+"."+k[1], key+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // applyEnv overlays environment variables onto cfg. Only vars that are

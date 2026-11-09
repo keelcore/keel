@@ -1,0 +1,39 @@
+# .gitleaks.toml
+# Project config for `gitleaks detect`. Extends gitleaks' built-in default
+# rules (the [extend] block) so we inherit AWS keys, GitHub tokens, Slack
+# webhooks, private-key headers, etc. without re-declaring them here. The
+# [allowlist] section suppresses paths known to produce false positives.
+#
+# Created by bootstrap-standards.sh template — extend the allowlist with any
+# paths that produce false positives in YOUR repo (large generated artifacts,
+# fixture vaults, etc.).
+
+title = "gitleaks config (keelcore default)"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Paths whose secret-shaped strings are known safe"
+paths = [
+  # Vendored standards submodule — upstream content, scanned by upstream CI.
+  '''^\.standards/''',
+  # Local scratch / editor metadata.
+  '''^\.scratch/''',
+  '''^\.idea/''',
+  # Common build outputs (extend per language: target/, dist/, build/, bin/).
+  '''^target/''',
+  '''^dist/''',
+  '''^build/''',
+  '''^node_modules/''',
+  # Long-form run logs (timestamps, hex SHAs, ANSI noise — not credentials).
+  '''^logs/''',
+  # Test fixtures (synthetic data only by .standards/governance/testing.md).
+  '''^tests/fixtures/''',
+  # Lockfile hashes (cryptographic checksums, not credentials).
+  '''^Cargo\.lock$''',
+  '''^go\.sum$''',
+  '''^package-lock\.json$''',
+  '''^pnpm-lock\.yaml$''',
+  '''^yarn\.lock$''',
+]
