@@ -15,7 +15,7 @@ import (
 func TestReload_ValidConfig_UpdatesFields(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "keel.yaml")
-	if err := os.WriteFile(cfgPath, []byte("logging:\n  json: true\n"), 0644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("keel:\n  logging:\n    json: true\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -31,7 +31,7 @@ func TestReload_ValidConfig_UpdatesFields(t *testing.T) {
 func TestReload_InvalidConfig_KeepsOldConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "keel.yaml")
-	if err := os.WriteFile(cfgPath, []byte("logging:\n  json: false\n"), 0644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("keel:\n  logging:\n    json: false\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 

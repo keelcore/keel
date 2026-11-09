@@ -95,7 +95,7 @@ func TestWithReadinessCheck_RegistersCheck(t *testing.T) {
 func TestReloadHandler_PostSuccess_Returns200(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "keel.yaml")
-	if err := os.WriteFile(cfgPath, []byte("logging:\n  json: true\n"), 0o600); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("keel:\n  logging:\n    json: true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

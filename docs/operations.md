@@ -165,9 +165,10 @@ The Helm chart sets no `preStop` hook: the image is `FROM scratch`, so an `exec`
 
 ```yaml
 # keel.yaml for Kubernetes deployment
-timeouts:
-  shutdown_drain: 15s     # Wait up to 15s for in-flight requests to finish
-  prestop_sleep: 5s       # Sleep 5s before starting drain (endpoint propagation window)
+keel:
+  timeouts:
+    shutdown_drain: 15s     # Wait up to 15s for in-flight requests to finish
+    prestop_sleep: 5s       # Sleep 5s before starting drain (endpoint propagation window)
 ```
 
 And in your Kubernetes pod spec:
@@ -190,10 +191,11 @@ When running in sidecar mode, Keel actively monitors the upstream service's heal
 **Configuration:**
 
 ```yaml
-sidecar:
-  upstream_health_path: /health          # Path to probe on the upstream
-  upstream_health_interval: 10s          # How often to probe
-  upstream_health_timeout: 2s            # How long to wait for a probe response
+keel:
+  sidecar:
+    upstream_health_path: /health          # Path to probe on the upstream
+    upstream_health_interval: 10s          # How often to probe
+    upstream_health_timeout: 2s            # How long to wait for a probe response
 ```
 
 **What the health prober does:**
@@ -267,11 +269,12 @@ a partially-recovered upstream.
 ### 7.2 Configuration
 
 ```yaml
-sidecar:
-  circuit_breaker:
-    enabled: true
-    failure_threshold: 5    # Open circuit after 5 consecutive failures
-    reset_timeout: 30s      # Wait 30s before testing recovery
+keel:
+  sidecar:
+    circuit_breaker:
+      enabled: true
+      failure_threshold: 5    # Open circuit after 5 consecutive failures
+      reset_timeout: 30s      # Wait 30s before testing recovery
 ```
 
 **Tuning guidance:**
@@ -444,27 +447,29 @@ API credentials are needed.
 ### 10.2 Minimal Configuration
 
 ```yaml
-tls:
-  acme:
-    enabled: true
-    domains: [api.example.com]
-    email: ops@example.com
-    cache_dir: /var/lib/keel/acme
+keel:
+  tls:
+    acme:
+      enabled: true
+      domains: [api.example.com]
+      email: ops@example.com
+      cache_dir: /var/lib/keel/acme
 ```
 
 **Multiple domains** — Let's Encrypt issues a single cert covering all listed names. The first entry is the
 Common Name; all entries appear as Subject Alternative Names:
 
 ```yaml
-tls:
-  acme:
-    enabled: true
-    domains:
-      - api.example.com
-      - www.example.com
-      - example.com
-    email: ops@example.com
-    cache_dir: /var/lib/keel/acme
+keel:
+  tls:
+    acme:
+      enabled: true
+      domains:
+        - api.example.com
+        - www.example.com
+        - example.com
+      email: ops@example.com
+      cache_dir: /var/lib/keel/acme
 ```
 
 All listed domains must resolve to this host at issuance time and at each renewal.
@@ -502,13 +507,14 @@ Always test against the Let's Encrypt staging environment before using productio
 untrusted certificates but has much higher rate limits.
 
 ```yaml
-tls:
-  acme:
-    enabled: true
-    domains: [api.example.com]
-    email: ops@example.com
-    cache_dir: /var/lib/keel/acme-staging
-    ca_url: https://acme-staging-v02.api.letsencrypt.org/directory
+keel:
+  tls:
+    acme:
+      enabled: true
+      domains: [api.example.com]
+      email: ops@example.com
+      cache_dir: /var/lib/keel/acme-staging
+      ca_url: https://acme-staging-v02.api.letsencrypt.org/directory
 ```
 
 Use a separate `cache_dir` for staging and production — the certs are not interchangeable.
@@ -523,14 +529,15 @@ certificate:
 > override this field in production configs.
 
 ```yaml
-tls:
-  acme:
-    enabled: true
-    domains: [api.internal]
-    email: ops@example.com
-    cache_dir: /var/lib/keel/acme
-    ca_url: https://acme.internal/directory
-    ca_cert_file: /etc/keel/internal-ca.pem
+keel:
+  tls:
+    acme:
+      enabled: true
+      domains: [api.internal]
+      email: ops@example.com
+      cache_dir: /var/lib/keel/acme
+      ca_url: https://acme.internal/directory
+      ca_cert_file: /etc/keel/internal-ca.pem
 ```
 
 ### 10.5 Fleet Deployments

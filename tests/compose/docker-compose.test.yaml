@@ -20,6 +20,19 @@ services:
     ports:
       - "9000:9000"
 
+  # ── Keel secrets ─────────────────────────────────────────────────────────────
+  # knobs reads a secrets file only when its owner alone may access it: copy the
+  # fixture into a volume owned by keel's user (65532), mode 0600.
+  keel-secrets:
+    image: alpine:3.22@sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034
+    command:
+      - sh
+      - -c
+      - cp /src/keel-secrets.yaml /secrets/keel-secrets.yaml && chown 65532:65532 /secrets/keel-secrets.yaml && chmod 0600 /secrets/keel-secrets.yaml
+    volumes:
+      - ./tests/fixtures:/src:ro
+      - keel-secrets:/secrets
+
   # ── Keel ─────────────────────────────────────────────────────────────────────
   keel:
     build:
@@ -29,14 +42,18 @@ services:
         FLAVOR: max   # max includes H3/QUIC; min has no_h3
     image: keel:test
     depends_on:
-      - upstream
+      upstream:
+        condition: service_started
+      keel-secrets:
+        condition: service_completed_successfully
     networks:
       - keel-test
     volumes:
       - ./tests/fixtures:/etc/keel:ro   # certs land at /etc/keel/certs/ via gen-certs.sh
+      - keel-secrets:/etc/keel-secrets:ro
     environment:
-      KEEL_CONFIG: /etc/keel/keel.yaml
-      KEEL_SECRETS: /etc/keel/keel-secrets.yaml
+      KEEL_KNOBS_GLOBAL_PATH: /etc/keel/keel.yaml
+      KEEL_KNOBS_SECRETS_PATH: /etc/keel-secrets/keel-secrets.yaml
     ports:
       - "8080:8080"         # HTTP main
       - "8443:8443"         # HTTPS
@@ -77,7 +94,7 @@ services:
     volumes:
       - ./tests/fixtures:/etc/keel:ro
     environment:
-      KEEL_CONFIG: /etc/keel/keel-sidecar.yaml
+      KEEL_KNOBS_GLOBAL_PATH: /etc/keel/keel-sidecar.yaml
     ports:
       - "8180:8180"         # HTTP (proxied to mockupstream:9300)
       - "9192:9192"         # /readyz
@@ -106,7 +123,7 @@ services:
     volumes:
       - ./tests/fixtures:/etc/keel:ro
     environment:
-      KEEL_CONFIG: /etc/keel/keel-oidc.yaml
+      KEEL_KNOBS_GLOBAL_PATH: /etc/keel/keel-oidc.yaml
     ports:
       - "8280:8280"         # HTTP
       - "9292:9292"         # /readyz
@@ -148,6 +165,9 @@ services:
       - "--log.level=warn"
     ports:
       - "9090:9090"   # Prometheus UI / query API
+
+volumes:
+  keel-secrets: {}
 
 networks:
   keel-test:

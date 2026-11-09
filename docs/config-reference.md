@@ -9,17 +9,24 @@ If you are new to Keel, read this document alongside the [README](../README.md) 
 
 ## How Configuration Works: The Merge Order
 
-Keel loads configuration in **four layers**, each one able to override the previous:
+Keel resolves its configuration through [keelcore/knobs](https://github.com/keelcore/knobs), in **six layers**, each
+one able to override the previous:
 
 ```text
 Layer 1: Built-in defaults (compiled in)
     ↓ overridden by
-Layer 2: keel.yaml (primary config file, path from --config or KEEL_CONFIG)
+Layer 2: global config file (/etc/keel/config.yaml, or KEEL_KNOBS_GLOBAL_PATH)
     ↓ overridden by
-Layer 3: keel-secrets.yaml (secrets file, path from --secrets or KEEL_SECRETS)
+Layer 3: user config file ($XDG_CONFIG_HOME/keel/config.yaml, or KEEL_KNOBS_USER_PATH)
     ↓ overridden by
-Layer 4: KEEL_* environment variables
+Layer 4: secrets file (KEEL_KNOBS_SECRETS_PATH; owner-only, mode 0600)
+    ↓ overridden by
+Layer 5: KEEL_* environment variables
+    ↓ overridden by
+Layer 6: --knob keel.<path>=<value> arguments
 ```
+
+Every file is rooted at `keel:`, and every value is validated against the schema before it is merged.
 
 **Why this design?**
 
@@ -36,8 +43,9 @@ YAML retains its default value. You only write what you want to change.
 
 ## 1. YAML Config File
 
-The config file path is set with `--config <path>` or `KEEL_CONFIG=<path>`. If neither is set, Keel starts with only
-built-in defaults and ENV overrides.
+Keel reads the global file at `/etc/keel/config.yaml` and the user file at `$XDG_CONFIG_HOME/keel/config.yaml` (else
+`~/.config/keel/config.yaml`), each when present. `KEEL_KNOBS_GLOBAL_PATH`, `KEEL_KNOBS_USER_PATH`, or
+`--knob keel.knobs.global_path=<path>` name another file, which must then exist.
 
 The full schema with every key and its default value:
 
@@ -50,521 +58,526 @@ The full schema with every key and its default value:
 # -----------------------------------------------------------------------
 # Listeners: which network ports Keel opens and for what purpose
 # -----------------------------------------------------------------------
-listeners:
-  http:
-    enabled: true
-    port: 8080        # Plain-text HTTP. Used for ACME challenge, health redirects,
-                      # and library mode when TLS is not needed.
+keel:
+  listeners:
+    http:
+      enabled: true
+      port: 8080        # Plain-text HTTP. Used for ACME challenge, health redirects,
+                        # and library mode when TLS is not needed.
 
-  https:
+    https:
+      enabled: false
+      port: 8443        # TLS-terminated HTTPS. Requires cert_file+key_file or ACME.
+
+    h3:
+      enabled: false
+      port: 8443        # HTTP/3 over QUIC (UDP). Shares port number with HTTPS (TLS),
+                        # but uses UDP rather than TCP. Requires the same cert as HTTPS.
+
+    health:
+      enabled: true
+      port: 9091        # Liveness probe endpoint (/healthz). Kubernetes kubelet hits this.
+
+    ready:
+      enabled: true
+      port: 9092        # Readiness probe endpoint (/readyz). Kubernetes removes pod from
+                        # Service endpoints when this returns non-200.
+
+    startup:
+      enabled: false
+      port: 9093        # Startup probe endpoint (/startupz). Kubernetes uses this during
+                        # slow initialization to avoid premature liveness restarts.
+
+    admin:
+      enabled: false
+      port: 9999        # Administrative port: probes, /version, /metrics, /admin/reload,
+                        # /debug/pprof (see admin: below). Never expose this port publicly.
+
+  # -----------------------------------------------------------------------
+  # TLS: certificate and key material for HTTPS and H3 listeners
+  # -----------------------------------------------------------------------
+  tls:
+    cert_file: ""       # Path to PEM-encoded TLS certificate. Leave empty when using ACME.
+    key_file: ""        # Path to PEM-encoded private key. Leave empty when using ACME.
+    client_ca_file: ""  # Inbound mTLS: PEM bundle of CAs. When set, HTTPS and H3 reject any
+                        # client that does not present a certificate chaining to one of them.
+                        # The certificate is not mapped to an identity (use JWT authn for that).
+                        # Plain HTTP is unaffected. Restart-required.
+    client_cert_notice: false  # With client_ca_file: complete the handshake without a client
+                        # certificate and answer each request with the KEEL-PROTO-005 notice
+                        # (301). A presented certificate is still verified. Restart-required.
+    notice:             # Protocol rejections (docs/security.md §8, docs/errors.md).
+      base_url: ""      # scheme://host[:port] serving /.well-known/keel/upgrade. Empty: the
+                        # HTTP listener on the host the client asked for; with no HTTP listener,
+                        # rejections answer 426 with the problem body in place.
+      help_url: ""      # Linked from the notice page ("How to upgrade").
+      contact: ""       # Shown on the notice page.
+
+    acme:
+      enabled: false    # When true, Keel manages its own certificate via Let's Encrypt.
+                        # Port 80 must be reachable from the internet for http-01 challenge
+                        # validation. See docs/operations.md §ACME for the full lifecycle.
+      domains: []       # One or more domain names for the certificate (SANs). The first
+                        # entry becomes the Common Name; all entries appear as Subject
+                        # Alternative Names. All domains must point to this host.
+                        # Single domain:  domains: [api.example.com]
+                        # Multiple SANs:  domains: [api.example.com, www.example.com]
+      email: ""         # ACME account email. Let's Encrypt sends expiry warnings here.
+                        # Strongly recommended — without it you receive no advance warning
+                        # if automated renewal fails.
+      cache_dir: ""     # Directory where Keel persists the issued cert and account key
+                        # between restarts. On restart Keel loads cert.crt / cert.key from
+                        # this directory and serves them immediately, without contacting
+                        # Let's Encrypt, until the 30-day renewal window opens.
+                        # Recommended value: /var/lib/keel/acme
+                        # Empty (default): cert is not persisted — a new cert is obtained
+                        # on every startup, rapidly exhausting Let's Encrypt rate limits.
+                        # The directory must survive process restarts (bind mount, host
+                        # path, or persistent volume — never a tmpfs or ephemeral fs).
+      ca_url: ""        # ACME CA directory URL. Defaults to Let's Encrypt production when
+                        # empty. Override to use Let's Encrypt staging
+                        # (https://acme-staging-v02.api.letsencrypt.org/directory) during
+                        # development, or an internal CA URL.
+      ca_cert_file: ""  # Path to a PEM CA certificate to trust when connecting to ca_url.
+                        # Leave empty when using Let's Encrypt (trusted by the system store).
+                        # Required when ca_url points to a private or self-signed CA.
+      challenge_port: 80 # TCP port for the http-01 challenge server (RFC 8555 §8.3).
+                        # Must be 80 in production. Do not change.
+
+  # -----------------------------------------------------------------------
+  # Sidecar mode: reverse-proxy envelope around an upstream service
+  # -----------------------------------------------------------------------
+  sidecar:
     enabled: false
-    port: 8443        # TLS-terminated HTTPS. Requires cert_file+key_file or ACME.
 
-  h3:
-    enabled: false
-    port: 8443        # HTTP/3 over QUIC (UDP). Shares port number with HTTPS (TLS),
-                      # but uses UDP rather than TCP. Requires the same cert as HTTPS.
+    upstream_url: ""    # The URL Keel forwards requests to. Required when sidecar is
+                        # enabled. Example: http://127.0.0.1:3000
+                        # For intra-pod (localhost) upstreams, use http:// — TLS is not
+                        # needed across the loopback because the pod network namespace is
+                        # the trust boundary. For out-of-pod upstreams, use https://.
+                        # unix:///path/app.sock dials a Unix domain socket instead (no TCP
+                        # ports, so no ephemeral-port ceiling). NOT a drop-in: the app must
+                        # listen on that socket, and in Kubernetes both containers must
+                        # mount a shared volume for it (e.g. an emptyDir via extraVolumes /
+                        # extraVolumeMounts). Not combinable with upstream_tls.
 
-  health:
-    enabled: true
-    port: 9091        # Liveness probe endpoint (/healthz). Kubernetes kubelet hits this.
+    upstream_h2c: false  # Speak plaintext HTTP/2 (prior knowledge) to the upstream: many
+                        # concurrent requests share a few connections. Only enable when the
+                        # upstream serves h2c. Over upstream_tls, HTTP/2 is negotiated
+                        # automatically (ALPN) and this must stay false.
 
-  ready:
-    enabled: true
-    port: 9092        # Readiness probe endpoint (/readyz). Kubernetes removes pod from
-                      # Service endpoints when this returns non-200.
+    upstream_audience: ""   # aud claim Keel stamps on outbound signed JWTs (my_id /
+                        # my_signature_key_file). Set it to the upstream's authn.audience
+                        # so the token is valid only there and cannot be replayed to
+                        # another service that trusts the same signer. Empty: no aud.
 
-  startup:
-    enabled: false
-    port: 9093        # Startup probe endpoint (/startupz). Kubernetes uses this during
-                      # slow initialization to avoid premature liveness restarts.
+    upstream_health_path: /health         # Path Keel polls on the upstream to determine
+                        # upstream reachability. Used for /readyz and circuit breaker logic.
 
+    upstream_health_interval: 10s         # How often Keel polls the upstream health path.
+
+    upstream_health_timeout: 2s           # How long Keel waits for an upstream health probe
+                        # response before counting it as a failure.
+
+    upstream_tls:
+      enabled: false    # When true, Keel establishes a TLS (or mTLS) connection to the
+                        # upstream. Requires upstream_url to use https://.
+      ca_file: ""       # Path to PEM CA bundle used to verify the upstream's certificate.
+                        # Leave empty to use the system trust store (in keel images:
+                        # the 10-root allowlist — see docs/security.md).
+      client_cert_file: ""   # Path to PEM client certificate for mTLS. Leave empty if the
+                        # upstream does not require client authentication.
+      client_key_file: ""    # Path to PEM client private key for mTLS.
+      insecure_skip_verify: false   # NEVER set true in production. Disables upstream cert
+                        # verification entirely — only for local development against
+                        # self-signed certs.
+
+    circuit_breaker:
+      enabled: true
+      failure_threshold: 5      # Number of consecutive upstream failures before the circuit
+                        # opens and Keel stops forwarding requests.
+      reset_timeout: 30s        # Time the circuit stays open before attempting a half-open
+                        # probe to check if the upstream has recovered.
+
+    retry:
+      dial_attempts: 3          # Tries per request when connecting to the upstream fails. A failed
+                        # connect sent no request bytes, so every method is retried; the
+                        # circuit breaker sees one outcome per request. 1 disables retries.
+      dial_backoff: 50ms        # Wait before the second try; doubles after each failed try.
+                        # Retries stop when the client goes away or timeouts.read passes.
+      honor_retry_after: false  # Retry a 503 or 429 carrying Retry-After once, after the stated
+                        # delay (seconds or HTTP-date), for an idempotent request whose
+                        # body can be sent again, when the delay and the retry fit inside
+                        # timeouts.write. Otherwise the response passes through.
+
+    header_policy:
+      forward: []       # Headers to explicitly forward to the upstream. Hop-by-hop headers
+                        # (Connection, Transfer-Encoding, etc.) are always stripped per
+                        # RFC 7230 regardless of this setting.
+      strip: []         # Headers to strip before forwarding to the upstream.
+
+    xff_mode: append    # X-Forwarded-For handling mode. Options:
+                        #   append  — add client IP to existing XFF header chain (default)
+                        #   replace — replace any existing XFF with just the client IP
+                        #   strip   — remove XFF entirely (for upstreams that must not see it)
+
+    xff_trusted_hops: 0 # Number of right-most XFF hops to trust as legitimate client IPs.
+                        # Use 1 if you have a single trusted load balancer in front of Keel.
+                        # 0 means trust nothing — always use the socket peer address.
+                        # Above 0, Keel also keeps traceparent, tracestate and x-request-id
+                        # from that hop; at 0 it generates its own (docs/security.md §5.6).
+
+  # -----------------------------------------------------------------------
+  # Security: OWASP headers and body/header size limits
+  # -----------------------------------------------------------------------
+  security:
+    owasp_headers: true         # Apply canonical OWASP security headers to every response.
+                        # Disable only if your application sets its own headers and you have
+                        # verified they meet your security requirements.
+
+    max_header_bytes: 65536     # Maximum aggregate size of all request headers in bytes.
+                        # 65536 = 64 KB. Requests with larger headers are rejected 431.
+                        # Protects against header-smuggling and memory pressure attacks.
+
+    max_request_body_bytes: 10485760    # Maximum request body size in bytes.
+                        # 10485760 = 10 MB. Bodies larger than this are rejected 413.
+                        # Protects against upload-based memory exhaustion attacks.
+
+    max_response_body_bytes: 52428800   # Maximum upstream response body size in bytes
+                        # (sidecar mode). 52428800 = 50 MB. Upstream responses exceeding
+                        # this are truncated and the upstream connection is closed; the
+                        # client receives 502.
+
+    hsts_max_age: 63072000      # Strict-Transport-Security max-age in seconds.
+                        # 63072000 = 2 years. Applied only on HTTPS responses.
+                        # 2 years is the value recommended by the OWASP TLS Cheat Sheet.
+
+    alt_svc_max_age: 86400      # Lifetime in seconds of the Alt-Svc header advertising HTTP/3
+                        # on HTTPS responses; sent only when listeners.h3 is enabled.
+
+    min_http_version: "1.1"     # Lowest HTTP version served on HTTPS and H3: "1.1", "2" or "3".
+                        # Below it, requests get the KEEL-PROTO-007 notice (301). "3" needs
+                        # listeners.h3. The HTTP, health, ready and admin listeners are not
+                        # subject to it.
+
+  # -----------------------------------------------------------------------
+  # Timeouts: how long Keel waits at each phase of a request
+  # -----------------------------------------------------------------------
+  timeouts:
+    read_header: 5s     # Maximum time to read request headers from the client. Protects
+                        # against slowloris-style attacks that send headers very slowly.
+
+    read: 30s           # Maximum time to read the entire request (headers + body). For
+                        # upload-heavy endpoints, consider increasing this.
+
+    write: 30s          # Maximum time to write the full response. Includes proxy time
+                        # in sidecar mode — set this higher than your upstream's p99 latency.
+
+    idle: 60s           # Maximum time an idle keep-alive connection can remain open before
+                        # Keel closes it. Higher values reduce TCP handshake overhead for
+                        # high-request-rate clients.
+
+    shutdown_drain: 10s # Maximum time Keel waits for in-flight requests to complete after
+                        # receiving SIGTERM. Requests still in-flight after this window are
+                        # forcibly terminated. Set this to your worst-case request latency.
+
+    prestop_sleep: 0s   # Extra sleep before beginning drain. In Kubernetes, there is a race
+                        # between a pod being removed from Service endpoints and SIGTERM
+                        # arriving. Setting this to 5s eliminates 502s during rolling deploys
+                        # by allowing endpoint propagation to complete before Keel stops
+                        # accepting new connections. See docs/operations.md for details.
+
+  # -----------------------------------------------------------------------
+  # Limits: concurrency caps and queue depth
+  # -----------------------------------------------------------------------
+  limits:
+    max_concurrent: 0   # Maximum number of requests allowed in-flight simultaneously.
+                        # 0 = unlimited. When the cap is reached, additional requests are
+                        # either queued (if queue_depth > 0) or rejected with 429.
+
+    queue_depth: 0      # Maximum number of requests that can queue when max_concurrent is
+                        # reached. 0 = no queue (reject immediately). Queued requests that
+                        # wait longer than timeouts.write are rejected with 503.
+
+  # -----------------------------------------------------------------------
+  # Backpressure: memory-based load shedding
+  # -----------------------------------------------------------------------
+  backpressure:
+    heap_max_bytes: 0   # Target heap size limit in bytes. 0 = disable heap-based
+                        # backpressure. When set, Keel monitors Go runtime heap usage
+                        # and sheds load when pressure rises above high_watermark.
+
+    high_watermark: 0.85    # Fraction of heap_max_bytes at which load shedding begins.
+                        # 0.85 = 85%. When heap / heap_max_bytes exceeds this value,
+                        # Keel flips /readyz to 503 and starts returning 503 to new
+                        # requests. This is the "panic button" — once triggered, Keel
+                        # stays in shedding mode until pressure drops below low_watermark.
+
+    low_watermark: 0.70     # Fraction of heap_max_bytes at which load shedding stops.
+                        # 0.70 = 70%. The hysteresis gap between high and low watermarks
+                        # prevents oscillation — without it, Keel would flap between
+                        # shedding and accepting traffic on every GC cycle.
+
+    shedding_enabled: true  # Master switch for load shedding behavior. Set false to
+                        # collect pressure metrics without actually shedding traffic
+                        # (useful when tuning watermark values).
+
+    min_headroom_bytes: 10485760  # Memory guard (10 MiB). Every 250ms Keel measures
+                        # headroom = effective memory limit − memory Go holds. Below this
+                        # floor it answers 503 (Retry-After: 1) before doing any work, and
+                        # resumes at 2× the floor. The limit is heap_max_bytes, GOMEMLIMIT,
+                        # or 90% of the container (cgroup) RAM limit — headroom before
+                        # swap/OOM. With no limit known nothing is shed. 0 disables.
+
+  # -----------------------------------------------------------------------
+  # Admin: per-endpoint access on the admin listener
+  # -----------------------------------------------------------------------
   admin:
-    enabled: false
-    port: 9999        # Administrative port: probes, /version, /metrics, /admin/reload,
-                      # /debug/pprof (see admin: below). Never expose this port publicly.
+    token: ""           # Bearer token for /admin/reload and /debug/pprof/. Unset →
+                        # those endpoints answer 403 (reload still works via SIGHUP).
+                        # Secret: set in keel-secrets.yaml or KEEL_ADMIN_TOKEN.
+    metrics_token: ""   # Bearer token for /metrics. Unset → /metrics is open (scrapes
+                        # are network-restricted by the admin NetworkPolicy). Set it and
+                        # give Prometheus the same value:
+                        #   authorization: { type: Bearer, credentials_file: /etc/prom/keel-token }
+    pprof: false        # Serve /debug/pprof/ (still requires token). Probes and /version
+                        # are always open on the admin port.
+                        # Compiled out of the min flavor (no_pprof tag): ignored there, with
+                        # a pprof_not_compiled warning.
 
-# -----------------------------------------------------------------------
-# TLS: certificate and key material for HTTPS and H3 listeners
-# -----------------------------------------------------------------------
-tls:
-  cert_file: ""       # Path to PEM-encoded TLS certificate. Leave empty when using ACME.
-  key_file: ""        # Path to PEM-encoded private key. Leave empty when using ACME.
-  client_ca_file: ""  # Inbound mTLS: PEM bundle of CAs. When set, HTTPS and H3 reject any
-                      # client that does not present a certificate chaining to one of them.
-                      # The certificate is not mapped to an identity (use JWT authn for that).
-                      # Plain HTTP is unaffected. Restart-required.
-  client_cert_notice: false  # With client_ca_file: complete the handshake without a client
-                      # certificate and answer each request with the KEEL-PROTO-005 notice
-                      # (301). A presented certificate is still verified. Restart-required.
-  notice:             # Protocol rejections (docs/security.md §8, docs/errors.md).
-    base_url: ""      # scheme://host[:port] serving /.well-known/keel/upgrade. Empty: the
-                      # HTTP listener on the host the client asked for; with no HTTP listener,
-                      # rejections answer 426 with the problem body in place.
-    help_url: ""      # Linked from the notice page ("How to upgrade").
-    contact: ""       # Shown on the notice page.
-
-  acme:
-    enabled: false    # When true, Keel manages its own certificate via Let's Encrypt.
-                      # Port 80 must be reachable from the internet for http-01 challenge
-                      # validation. See docs/operations.md §ACME for the full lifecycle.
-    domains: []       # One or more domain names for the certificate (SANs). The first
-                      # entry becomes the Common Name; all entries appear as Subject
-                      # Alternative Names. All domains must point to this host.
-                      # Single domain:  domains: [api.example.com]
-                      # Multiple SANs:  domains: [api.example.com, www.example.com]
-    email: ""         # ACME account email. Let's Encrypt sends expiry warnings here.
-                      # Strongly recommended — without it you receive no advance warning
-                      # if automated renewal fails.
-    cache_dir: ""     # Directory where Keel persists the issued cert and account key
-                      # between restarts. On restart Keel loads cert.crt / cert.key from
-                      # this directory and serves them immediately, without contacting
-                      # Let's Encrypt, until the 30-day renewal window opens.
-                      # Recommended value: /var/lib/keel/acme
-                      # Empty (default): cert is not persisted — a new cert is obtained
-                      # on every startup, rapidly exhausting Let's Encrypt rate limits.
-                      # The directory must survive process restarts (bind mount, host
-                      # path, or persistent volume — never a tmpfs or ephemeral fs).
-    ca_url: ""        # ACME CA directory URL. Defaults to Let's Encrypt production when
-                      # empty. Override to use Let's Encrypt staging
-                      # (https://acme-staging-v02.api.letsencrypt.org/directory) during
-                      # development, or an internal CA URL.
-    ca_cert_file: ""  # Path to a PEM CA certificate to trust when connecting to ca_url.
-                      # Leave empty when using Let's Encrypt (trusted by the system store).
-                      # Required when ca_url points to a private or self-signed CA.
-    challenge_port: 80 # TCP port for the http-01 challenge server (RFC 8555 §8.3).
-                      # Must be 80 in production. Do not change.
-
-# -----------------------------------------------------------------------
-# Sidecar mode: reverse-proxy envelope around an upstream service
-# -----------------------------------------------------------------------
-sidecar:
-  enabled: false
-
-  upstream_url: ""    # The URL Keel forwards requests to. Required when sidecar is
-                      # enabled. Example: http://127.0.0.1:3000
-                      # For intra-pod (localhost) upstreams, use http:// — TLS is not
-                      # needed across the loopback because the pod network namespace is
-                      # the trust boundary. For out-of-pod upstreams, use https://.
-                      # unix:///path/app.sock dials a Unix domain socket instead (no TCP
-                      # ports, so no ephemeral-port ceiling). NOT a drop-in: the app must
-                      # listen on that socket, and in Kubernetes both containers must
-                      # mount a shared volume for it (e.g. an emptyDir via extraVolumes /
-                      # extraVolumeMounts). Not combinable with upstream_tls.
-
-  upstream_h2c: false  # Speak plaintext HTTP/2 (prior knowledge) to the upstream: many
-                      # concurrent requests share a few connections. Only enable when the
-                      # upstream serves h2c. Over upstream_tls, HTTP/2 is negotiated
-                      # automatically (ALPN) and this must stay false.
-
-  upstream_audience: ""   # aud claim Keel stamps on outbound signed JWTs (my_id /
-                      # my_signature_key_file). Set it to the upstream's authn.audience
-                      # so the token is valid only there and cannot be replayed to
-                      # another service that trusts the same signer. Empty: no aud.
-
-  upstream_health_path: /health         # Path Keel polls on the upstream to determine
-                      # upstream reachability. Used for /readyz and circuit breaker logic.
-
-  upstream_health_interval: 10s         # How often Keel polls the upstream health path.
-
-  upstream_health_timeout: 2s           # How long Keel waits for an upstream health probe
-                      # response before counting it as a failure.
-
-  upstream_tls:
-    enabled: false    # When true, Keel establishes a TLS (or mTLS) connection to the
-                      # upstream. Requires upstream_url to use https://.
-    ca_file: ""       # Path to PEM CA bundle used to verify the upstream's certificate.
-                      # Leave empty to use the system trust store (in keel images:
-                      # the 10-root allowlist — see docs/security.md).
-    client_cert_file: ""   # Path to PEM client certificate for mTLS. Leave empty if the
-                      # upstream does not require client authentication.
-    client_key_file: ""    # Path to PEM client private key for mTLS.
-    insecure_skip_verify: false   # NEVER set true in production. Disables upstream cert
-                      # verification entirely — only for local development against
-                      # self-signed certs.
-
-  circuit_breaker:
+  # -----------------------------------------------------------------------
+  # Authn: who Keel accepts requests from and who Keel asserts it is
+  # -----------------------------------------------------------------------
+  authn:
     enabled: true
-    failure_threshold: 5      # Number of consecutive upstream failures before the circuit
-                      # opens and Keel stops forwarding requests.
-    reset_timeout: 30s        # Time the circuit stays open before attempting a half-open
-                      # probe to check if the upstream has recovered.
 
-  retry:
-    dial_attempts: 3          # Tries per request when connecting to the upstream fails. A failed
-                      # connect sent no request bytes, so every method is retried; the
-                      # circuit breaker sees one outcome per request. 1 disables retries.
-    dial_backoff: 50ms        # Wait before the second try; doubles after each failed try.
-                      # Retries stop when the client goes away or timeouts.read passes.
-    honor_retry_after: false  # Retry a 503 or 429 carrying Retry-After once, after the stated
-                      # delay (seconds or HTTP-date), for an idempotent request whose
-                      # body can be sent again, when the delay and the retry fit inside
-                      # timeouts.write. Otherwise the response passes through.
+    trusted_ids: []     # Allowlist of principal identifiers (stable opaque strings, not
+                        # email addresses) whose tokens Keel will accept. Empty list means
+                        # any token signed by a trusted signer is accepted.
+                        # Example: ["service-a", "service-b", "admin-bot"]
 
-  header_policy:
-    forward: []       # Headers to explicitly forward to the upstream. Hop-by-hop headers
-                      # (Connection, Transfer-Encoding, etc.) are always stripped per
-                      # RFC 7230 regardless of this setting.
-    strip: []         # Headers to strip before forwarding to the upstream.
+    trusted_signers: [] # List of signing keys, PEM public keys, or JWKs endpoint URLs
+                        # that Keel trusts to have issued inbound JWT tokens.
+                        # - Bare secret string → HS256 shared secret
+                        # - PEM public key     → RS256 or ES256 public key
+                        # - https:// URL       → JWKs endpoint (fetched and cached with TTL)
 
-  xff_mode: append    # X-Forwarded-For handling mode. Options:
-                      #   append  — add client IP to existing XFF header chain (default)
-                      #   replace — replace any existing XFF with just the client IP
-                      #   strip   — remove XFF entirely (for upstreams that must not see it)
+    trusted_signers_file: ""    # Path to a file containing trusted signers, one per line.
+                        # Useful when the signer list is long or managed separately.
 
-  xff_trusted_hops: 0 # Number of right-most XFF hops to trust as legitimate client IPs.
-                      # Use 1 if you have a single trusted load balancer in front of Keel.
-                      # 0 means trust nothing — always use the socket peer address.
-                      # Above 0, Keel also keeps traceparent, tracestate and x-request-id
-                      # from that hop; at 0 it generates its own (docs/security.md §5.6).
+    my_id: ""           # The principal identifier Keel asserts as its own identity in
+                        # outbound JWT tokens (sidecar forwarding mode).
 
-# -----------------------------------------------------------------------
-# Security: OWASP headers and body/header size limits
-# -----------------------------------------------------------------------
-security:
-  owasp_headers: true         # Apply canonical OWASP security headers to every response.
-                      # Disable only if your application sets its own headers and you have
-                      # verified they meet your security requirements.
+    my_signature_key_file: ""   # Path to private key used to sign outbound JWT tokens.
+                        # Keel signs the forwarded request's Authorization header with this
+                        # key so the upstream can verify Keel's identity.
 
-  max_header_bytes: 65536     # Maximum aggregate size of all request headers in bytes.
-                      # 65536 = 64 KB. Requests with larger headers are rejected 431.
-                      # Protects against header-smuggling and memory pressure attacks.
+    audience: ""        # When set, inbound JWTs must carry this value in aud, so a token
+                        # a trusted signer minted for another service is rejected here.
+                        # Empty: aud is not checked. Independently of this, every inbound
+                        # token must carry exp, and only HS/RS/ES 256/384/512 are accepted.
 
-  max_request_body_bytes: 10485760    # Maximum request body size in bytes.
-                      # 10485760 = 10 MB. Bodies larger than this are rejected 413.
-                      # Protects against upload-based memory exhaustion attacks.
+    oidc:               # Browser login: authorization code with PKCE (docs/security.md §10).
+      enabled: false
+      issuer: ""        # The provider's issuer URL: https (http on loopback only).
+      client_id: ""
+      client_secret: "" # Put this in keel-secrets.yaml or KEEL_AUTHN_OIDC_CLIENT_SECRET. Empty: a public client.
+      redirect_url: ""  # https://your.host/oauth2/callback, registered with the provider.
+      scopes: [openid, email, profile]  # Must include openid. Add offline_access for refresh.
+      cookie_key_file: ""  # File of at least 32 bytes; seals the session cookies. Required.
+      ca_file: ""       # PEM CA for a provider on a private CA.
+      session_ttl: 8h   # Absolute session lifetime, however long refresh keeps working.
 
-  max_response_body_bytes: 52428800   # Maximum upstream response body size in bytes
-                      # (sidecar mode). 52428800 = 50 MB. Upstream responses exceeding
-                      # this are truncated and the upstream connection is closed; the
-                      # client receives 502.
-
-  hsts_max_age: 63072000      # Strict-Transport-Security max-age in seconds.
-                      # 63072000 = 2 years. Applied only on HTTPS responses.
-                      # 2 years is the value recommended by the OWASP TLS Cheat Sheet.
-
-  alt_svc_max_age: 86400      # Lifetime in seconds of the Alt-Svc header advertising HTTP/3
-                      # on HTTPS responses; sent only when listeners.h3 is enabled.
-
-  min_http_version: "1.1"     # Lowest HTTP version served on HTTPS and H3: "1.1", "2" or "3".
-                      # Below it, requests get the KEEL-PROTO-007 notice (301). "3" needs
-                      # listeners.h3. The HTTP, health, ready and admin listeners are not
-                      # subject to it.
-
-# -----------------------------------------------------------------------
-# Timeouts: how long Keel waits at each phase of a request
-# -----------------------------------------------------------------------
-timeouts:
-  read_header: 5s     # Maximum time to read request headers from the client. Protects
-                      # against slowloris-style attacks that send headers very slowly.
-
-  read: 30s           # Maximum time to read the entire request (headers + body). For
-                      # upload-heavy endpoints, consider increasing this.
-
-  write: 30s          # Maximum time to write the full response. Includes proxy time
-                      # in sidecar mode — set this higher than your upstream's p99 latency.
-
-  idle: 60s           # Maximum time an idle keep-alive connection can remain open before
-                      # Keel closes it. Higher values reduce TCP handshake overhead for
-                      # high-request-rate clients.
-
-  shutdown_drain: 10s # Maximum time Keel waits for in-flight requests to complete after
-                      # receiving SIGTERM. Requests still in-flight after this window are
-                      # forcibly terminated. Set this to your worst-case request latency.
-
-  prestop_sleep: 0s   # Extra sleep before beginning drain. In Kubernetes, there is a race
-                      # between a pod being removed from Service endpoints and SIGTERM
-                      # arriving. Setting this to 5s eliminates 502s during rolling deploys
-                      # by allowing endpoint propagation to complete before Keel stops
-                      # accepting new connections. See docs/operations.md for details.
-
-# -----------------------------------------------------------------------
-# Limits: concurrency caps and queue depth
-# -----------------------------------------------------------------------
-limits:
-  max_concurrent: 0   # Maximum number of requests allowed in-flight simultaneously.
-                      # 0 = unlimited. When the cap is reached, additional requests are
-                      # either queued (if queue_depth > 0) or rejected with 429.
-
-  queue_depth: 0      # Maximum number of requests that can queue when max_concurrent is
-                      # reached. 0 = no queue (reject immediately). Queued requests that
-                      # wait longer than timeouts.write are rejected with 503.
-
-# -----------------------------------------------------------------------
-# Backpressure: memory-based load shedding
-# -----------------------------------------------------------------------
-backpressure:
-  heap_max_bytes: 0   # Target heap size limit in bytes. 0 = disable heap-based
-                      # backpressure. When set, Keel monitors Go runtime heap usage
-                      # and sheds load when pressure rises above high_watermark.
-
-  high_watermark: 0.85    # Fraction of heap_max_bytes at which load shedding begins.
-                      # 0.85 = 85%. When heap / heap_max_bytes exceeds this value,
-                      # Keel flips /readyz to 503 and starts returning 503 to new
-                      # requests. This is the "panic button" — once triggered, Keel
-                      # stays in shedding mode until pressure drops below low_watermark.
-
-  low_watermark: 0.70     # Fraction of heap_max_bytes at which load shedding stops.
-                      # 0.70 = 70%. The hysteresis gap between high and low watermarks
-                      # prevents oscillation — without it, Keel would flap between
-                      # shedding and accepting traffic on every GC cycle.
-
-  shedding_enabled: true  # Master switch for load shedding behavior. Set false to
-                      # collect pressure metrics without actually shedding traffic
-                      # (useful when tuning watermark values).
-
-  min_headroom_bytes: 10485760  # Memory guard (10 MiB). Every 250ms Keel measures
-                      # headroom = effective memory limit − memory Go holds. Below this
-                      # floor it answers 503 (Retry-After: 1) before doing any work, and
-                      # resumes at 2× the floor. The limit is heap_max_bytes, GOMEMLIMIT,
-                      # or 90% of the container (cgroup) RAM limit — headroom before
-                      # swap/OOM. With no limit known nothing is shed. 0 disables.
-
-# -----------------------------------------------------------------------
-# Admin: per-endpoint access on the admin listener
-# -----------------------------------------------------------------------
-admin:
-  token: ""           # Bearer token for /admin/reload and /debug/pprof/. Unset →
-                      # those endpoints answer 403 (reload still works via SIGHUP).
-                      # Secret: set in keel-secrets.yaml or KEEL_ADMIN_TOKEN.
-  metrics_token: ""   # Bearer token for /metrics. Unset → /metrics is open (scrapes
-                      # are network-restricted by the admin NetworkPolicy). Set it and
-                      # give Prometheus the same value:
-                      #   authorization: { type: Bearer, credentials_file: /etc/prom/keel-token }
-  pprof: false        # Serve /debug/pprof/ (still requires token). Probes and /version
-                      # are always open on the admin port.
-                      # Compiled out of the min flavor (no_pprof tag): ignored there, with
-                      # a pprof_not_compiled warning.
-
-# -----------------------------------------------------------------------
-# Authn: who Keel accepts requests from and who Keel asserts it is
-# -----------------------------------------------------------------------
-authn:
-  enabled: true
-
-  trusted_ids: []     # Allowlist of principal identifiers (stable opaque strings, not
-                      # email addresses) whose tokens Keel will accept. Empty list means
-                      # any token signed by a trusted signer is accepted.
-                      # Example: ["service-a", "service-b", "admin-bot"]
-
-  trusted_signers: [] # List of signing keys, PEM public keys, or JWKs endpoint URLs
-                      # that Keel trusts to have issued inbound JWT tokens.
-                      # - Bare secret string → HS256 shared secret
-                      # - PEM public key     → RS256 or ES256 public key
-                      # - https:// URL       → JWKs endpoint (fetched and cached with TTL)
-
-  trusted_signers_file: ""    # Path to a file containing trusted signers, one per line.
-                      # Useful when the signer list is long or managed separately.
-
-  my_id: ""           # The principal identifier Keel asserts as its own identity in
-                      # outbound JWT tokens (sidecar forwarding mode).
-
-  my_signature_key_file: ""   # Path to private key used to sign outbound JWT tokens.
-                      # Keel signs the forwarded request's Authorization header with this
-                      # key so the upstream can verify Keel's identity.
-
-  audience: ""        # When set, inbound JWTs must carry this value in aud, so a token
-                      # a trusted signer minted for another service is rejected here.
-                      # Empty: aud is not checked. Independently of this, every inbound
-                      # token must carry exp, and only HS/RS/ES 256/384/512 are accepted.
-
-  oidc:               # Browser login: authorization code with PKCE (docs/security.md §10).
+  # -----------------------------------------------------------------------
+  # External Authz: delegate authorization decisions to an external policy engine
+  # -----------------------------------------------------------------------
+  ext_authz:
     enabled: false
-    issuer: ""        # The provider's issuer URL: https (http on loopback only).
-    client_id: ""
-    client_secret: "" # Put this in keel-secrets.yaml or KEEL_OIDC_CLIENT_SECRET. Empty: a public client.
-    redirect_url: ""  # https://your.host/oauth2/callback, registered with the provider.
-    scopes: [openid, email, profile]  # Must include openid. Add offline_access for refresh.
-    cookie_key_file: ""  # File of at least 32 bytes; seals the session cookies. Required.
-    ca_file: ""       # PEM CA for a provider on a private CA.
-    session_ttl: 8h   # Absolute session lifetime, however long refresh keeps working.
 
-# -----------------------------------------------------------------------
-# External Authz: delegate authorization decisions to an external policy engine
-# -----------------------------------------------------------------------
-ext_authz:
-  enabled: false
+    endpoint: ""        # Decision endpoint: "http(s)://host/path" or "unix:///socket/path"
+                        # OPA HTTP example:   "http://localhost:8181/v1/data/authz/allow"
+                        # Unix socket example: "unix:///run/opa/opa.sock"
 
-  endpoint: ""        # Decision endpoint: "http(s)://host/path" or "unix:///socket/path"
-                      # OPA HTTP example:   "http://localhost:8181/v1/data/authz/allow"
-                      # Unix socket example: "unix:///run/opa/opa.sock"
+    path: ""            # Request path used when endpoint is a unix socket.
+                        # Ignored for HTTP(S) endpoints (path is part of the URL).
 
-  path: ""            # Request path used when endpoint is a unix socket.
-                      # Ignored for HTTP(S) endpoints (path is part of the URL).
+    timeout: "500ms"    # Per-request timeout. Authz decisions should be fast.
+                        # On timeout, fail_open governs the outcome.
 
-  timeout: "500ms"    # Per-request timeout. Authz decisions should be fast.
-                      # On timeout, fail_open governs the outcome.
+    transport: "http"   # "http"  — send JSON envelope; allow on 200, deny otherwise.
+                        # "opa"   — wrap in {"input":...}; parse {"result":true/false}.
 
-  transport: "http"   # "http"  — send JSON envelope; allow on 200, deny otherwise.
-                      # "opa"   — wrap in {"input":...}; parse {"result":true/false}.
+    fail_open: false    # false (default): deny on error/timeout — safest.
+                        # true: allow on error/timeout — use only when authz is advisory.
 
-  fail_open: false    # false (default): deny on error/timeout — safest.
-                      # true: allow on error/timeout — use only when authz is advisory.
+  # -----------------------------------------------------------------------
+  # Logging: output format and remote sink
+  # -----------------------------------------------------------------------
+  logging:
+    json: true          # Emit structured JSON log lines. Set false for human-readable text
+                        # output during local development.
 
-# -----------------------------------------------------------------------
-# Logging: output format and remote sink
-# -----------------------------------------------------------------------
-logging:
-  json: true          # Emit structured JSON log lines. Set false for human-readable text
-                      # output during local development.
+    level: info         # Minimum log level. Options: debug, info, warn, error.
 
-  level: info         # Minimum log level. Options: debug, info, warn, error.
+    access_log: true    # Emit an access log entry for every HTTP request, including
+                        # request ID, trace ID, method, path, status, latency.
 
-  access_log: true    # Emit an access log entry for every HTTP request, including
-                      # request ID, trace ID, method, path, status, latency.
+    remote_sink:
+      enabled: false    # Ship logs to a remote endpoint (e.g., a log aggregator).
+      endpoint: ""      # URL of the remote log sink.
+      protocol: http    # Protocol used to ship logs. Options: http, syslog.
 
-  remote_sink:
-    enabled: false    # Ship logs to a remote endpoint (e.g., a log aggregator).
-    endpoint: ""      # URL of the remote log sink.
-    protocol: http    # Protocol used to ship logs. Options: http, syslog.
+    file: ""            # Also write every log line to this path. Empty: stdout and the
+                        # remote sink only. Opened owner-only (0600); the directory must exist.
 
-  file: ""            # Also write every log line to this path. Empty: stdout and the
-                      # remote sink only. Opened owner-only (0600); the directory must exist.
+    rotation:           # Bounds for logging.file. 0 turns a limit off. Reloaded on SIGHUP.
+      max_size_mb: 100  # Rotate before a write would pass this size. Lines are never split.
+      max_age_days: 30  # Remove backups older than this.
+      max_backups: 5    # Keep at most this many backups.
+      compress: true    # Gzip each backup (<file>.<UTC time>.gz), in the background.
 
-  rotation:           # Bounds for logging.file. 0 turns a limit off. Reloaded on SIGHUP.
-    max_size_mb: 100  # Rotate before a write would pass this size. Lines are never split.
-    max_age_days: 30  # Remove backups older than this.
-    max_backups: 5    # Keep at most this many backups.
-    compress: true    # Gzip each backup (<file>.<UTC time>.gz), in the background.
+  # -----------------------------------------------------------------------
+  # Audit: tamper-evident security events, separate from the logs (docs/security.md §9)
+  # -----------------------------------------------------------------------
+  audit:
+    enabled: false      # Record security events as a SHA-256 hash chain. Needs file or remote_sink.
+    file: ""            # Append-only JSON lines, opened owner-only (0600). A restart continues the
+                        # chain found here. Check it with: keel audit verify FILE
+    rotation:           # Bounds for audit.file; the chain carries across files. 0 turns a limit
+      max_size_mb: 100  # off. Backups are kept by default: pruning removes audit history.
+      max_age_days: 0
+      max_backups: 0
+      compress: true
+    remote_sink:        # Also ship each entry: same protocols as logging.remote_sink.
+      enabled: false
+      endpoint: ""
+      protocol: http
 
-# -----------------------------------------------------------------------
-# Audit: tamper-evident security events, separate from the logs (docs/security.md §9)
-# -----------------------------------------------------------------------
-audit:
-  enabled: false      # Record security events as a SHA-256 hash chain. Needs file or remote_sink.
-  file: ""            # Append-only JSON lines, opened owner-only (0600). A restart continues the
-                      # chain found here. Check it with: keel audit verify FILE
-  rotation:           # Bounds for audit.file; the chain carries across files. 0 turns a limit
-    max_size_mb: 100  # off. Backups are kept by default: pruning removes audit history.
-    max_age_days: 0
-    max_backups: 0
-    compress: true
-  remote_sink:        # Also ship each entry: same protocols as logging.remote_sink.
-    enabled: false
-    endpoint: ""
-    protocol: http
+  # -----------------------------------------------------------------------
+  # Metrics: Prometheus and StatsD output
+  # -----------------------------------------------------------------------
+  metrics:
+    prometheus: true    # Expose a /metrics endpoint (on the admin port) for Prometheus
+                        # scraping. Opt-out at build time with no_prom tag.
 
-# -----------------------------------------------------------------------
-# Metrics: Prometheus and StatsD output
-# -----------------------------------------------------------------------
-metrics:
-  prometheus: true    # Expose a /metrics endpoint (on the admin port) for Prometheus
-                      # scraping. Opt-out at build time with no_prom tag.
+    statsd:
+      enabled: false    # Emit metrics as StatsD UDP datagrams. Opt-out: no_statsd tag.
+      endpoint: ""      # UDP address of the StatsD server. Example: "localhost:8125"
+      prefix: keel      # Metric name prefix. All emitted metric names are prefixed with
+                        # this value. Example: "keel.requests.total"
 
-  statsd:
-    enabled: false    # Emit metrics as StatsD UDP datagrams. Opt-out: no_statsd tag.
-    endpoint: ""      # UDP address of the StatsD server. Example: "localhost:8125"
-    prefix: keel      # Metric name prefix. All emitted metric names are prefixed with
-                      # this value. Example: "keel.requests.total"
+  # -----------------------------------------------------------------------
+  # Tracing: OpenTelemetry distributed tracing
+  # -----------------------------------------------------------------------
+  tracing:
+    otlp:
+      enabled: false    # Emit OpenTelemetry spans via OTLP/HTTP. Opt-out: no_otel tag.
+      endpoint: ""      # OTLP/HTTP collector endpoint (port 4318). Example: "otel-collector:4318"
+      insecure: false   # Allow plaintext HTTP connections. Set true for in-cluster
+                        # collectors that do not terminate TLS. Never true in prod
+                        # if the collector is outside the cluster network.
 
-# -----------------------------------------------------------------------
-# Tracing: OpenTelemetry distributed tracing
-# -----------------------------------------------------------------------
-tracing:
-  otlp:
-    enabled: false    # Emit OpenTelemetry spans via OTLP/HTTP. Opt-out: no_otel tag.
-    endpoint: ""      # OTLP/HTTP collector endpoint (port 4318). Example: "otel-collector:4318"
-    insecure: false   # Allow plaintext HTTP connections. Set true for in-cluster
-                      # collectors that do not terminate TLS. Never true in prod
-                      # if the collector is outside the cluster network.
-
-# -----------------------------------------------------------------------
-# FIPS: FIPS mode monitoring
-# -----------------------------------------------------------------------
-fips:
-  monitor: false      # Detect and expose FIPS mode status. When true, Keel checks at
-                      # startup that this is a FIPS build running in FIPS 140 mode
-                      # (crypto/fips140.Enabled), and exposes /health/fips and keel_fips_active.
-                      # See docs/FIPS.md for the full FIPS guide.
+  # -----------------------------------------------------------------------
+  # FIPS: FIPS mode monitoring
+  # -----------------------------------------------------------------------
+  fips:
+    monitor: false      # Detect and expose FIPS mode status. When true, Keel checks at
+                        # startup that this is a FIPS build running in FIPS 140 mode
+                        # (crypto/fips140.Enabled), and exposes /health/fips and keel_fips_active.
+                        # See docs/FIPS.md for the full FIPS guide.
 ```
 
 ---
 
 ## 2. Environment Variable Overrides
 
-Every scalar config value has a corresponding `KEEL_*` environment variable. ENV vars are applied last in the merge
-order, so they always win.
+Every config value has a `KEEL_*` environment variable named after its YAML path: upper case, each `.` an `_`
+(`listeners.http.port` is `KEEL_LISTENERS_HTTP_PORT`). ENV vars are applied last in the merge order, so they always
+win. An empty variable counts as unset. A list takes comma-separated items (`a, b`) or a JSON array. A value that does
+not parse as its field's type stops keel from loading, naming the key; on reload, the running configuration stays in
+force.
 
 **Why ENV vars?** They let you change behavior at deploy time — for example, enabling debug logging in staging without
 modifying the config file — and they work naturally with Kubernetes ConfigMaps, Helm `--set`, and CI/CD systems.
 
 | ENV var | YAML path | Default | Notes |
 | --- | --- | --- | --- |
-| `KEEL_CONFIG` | — | `""` | Path to the primary YAML config file |
-| `KEEL_SECRETS` | — | `""` | Path to the secrets YAML file |
-| `KEEL_HTTP_ENABLED` | `listeners.http.enabled` | `true` | |
-| `KEEL_HTTP_PORT` | `listeners.http.port` | `8080` | |
-| `KEEL_HTTPS_ENABLED` | `listeners.https.enabled` | `false` | |
-| `KEEL_HTTPS_PORT` | `listeners.https.port` | `8443` | |
-| `KEEL_H3_ENABLED` | `listeners.h3.enabled` | `false` | |
-| `KEEL_HEALTH_PORT` | `listeners.health.port` | `9091` | |
-| `KEEL_READY_PORT` | `listeners.ready.port` | `9092` | |
-| `KEEL_STARTUP_PORT` | `listeners.startup.port` | `9093` | |
-| `KEEL_ADMIN_PORT` | `listeners.admin.port` | `9999` | |
+| `KEEL_KNOBS_GLOBAL_PATH` | — | `/etc/keel/config.yaml` | Path to the global config file |
+| `KEEL_KNOBS_USER_PATH` | — | `$XDG_CONFIG_HOME/keel/config.yaml` | Path to the user config file |
+| `KEEL_KNOBS_SECRETS_PATH` | — | `""` | Path to the secrets file, readable by its owner only |
+| `KEEL_LISTENERS_HTTP_ENABLED` | `listeners.http.enabled` | `true` | |
+| `KEEL_LISTENERS_HTTP_PORT` | `listeners.http.port` | `8080` | |
+| `KEEL_LISTENERS_HTTPS_ENABLED` | `listeners.https.enabled` | `false` | |
+| `KEEL_LISTENERS_HTTPS_PORT` | `listeners.https.port` | `8443` | |
+| `KEEL_LISTENERS_H3_ENABLED` | `listeners.h3.enabled` | `false` | |
+| `KEEL_LISTENERS_HEALTH_PORT` | `listeners.health.port` | `9091` | |
+| `KEEL_LISTENERS_READY_PORT` | `listeners.ready.port` | `9092` | |
+| `KEEL_LISTENERS_STARTUP_PORT` | `listeners.startup.port` | `9093` | |
+| `KEEL_LISTENERS_ADMIN_PORT` | `listeners.admin.port` | `9999` | |
 | `KEEL_ADMIN_TOKEN` | `admin.token` | `""` | Secret; gates reload and pprof |
 | `KEEL_ADMIN_METRICS_TOKEN` | `admin.metrics_token` | `""` | Secret; empty = /metrics open |
 | `KEEL_ADMIN_PPROF` | `admin.pprof` | `false` | |
-| `KEEL_TLS_CERT` | `tls.cert_file` | `""` | |
-| `KEEL_TLS_KEY` | `tls.key_file` | `""` | |
-| `KEEL_TLS_CLIENT_CA` | `tls.client_ca_file` | `""` | Inbound mTLS CA bundle |
+| `KEEL_TLS_CERT_FILE` | `tls.cert_file` | `""` | |
+| `KEEL_TLS_KEY_FILE` | `tls.key_file` | `""` | |
+| `KEEL_TLS_CLIENT_CA_FILE` | `tls.client_ca_file` | `""` | Inbound mTLS CA bundle |
 | `KEEL_TLS_CLIENT_CERT_NOTICE` | `tls.client_cert_notice` | `false` | |
 | `KEEL_TLS_NOTICE_BASE_URL` | `tls.notice.base_url` | `""` | |
 | `KEEL_TLS_NOTICE_HELP_URL` | `tls.notice.help_url` | `""` | |
 | `KEEL_TLS_NOTICE_CONTACT` | `tls.notice.contact` | `""` | |
-| `KEEL_MIN_HTTP_VERSION` | `security.min_http_version` | `"1.1"` | |
-| `KEEL_ALT_SVC_MAX_AGE` | `security.alt_svc_max_age` | `86400` | |
-| `KEEL_SIDECAR` | `sidecar.enabled` | `false` | |
-| `KEEL_UPSTREAM_URL` | `sidecar.upstream_url` | `""` | |
-| `KEEL_UPSTREAM_H2C` | `sidecar.upstream_h2c` | `false` | Plaintext HTTP/2 to the upstream |
-| `KEEL_UPSTREAM_AUDIENCE` | `sidecar.upstream_audience` | `""` | |
-| `KEEL_UPSTREAM_TLS` | `sidecar.upstream_tls.enabled` | `false` | |
-| `KEEL_UPSTREAM_CA_FILE` | `sidecar.upstream_tls.ca_file` | `""` | |
-| `KEEL_UPSTREAM_CLIENT_CERT` | `sidecar.upstream_tls.client_cert_file` | `""` | |
-| `KEEL_UPSTREAM_CLIENT_KEY` | `sidecar.upstream_tls.client_key_file` | `""` | |
-| `KEEL_LOG_FILE` | `logging.file` | `""` | |
-| `KEEL_LOG_MAX_SIZE_MB` | `logging.rotation.max_size_mb` | `100` | |
-| `KEEL_LOG_MAX_AGE_DAYS` | `logging.rotation.max_age_days` | `30` | |
-| `KEEL_LOG_MAX_BACKUPS` | `logging.rotation.max_backups` | `5` | |
-| `KEEL_LOG_COMPRESS` | `logging.rotation.compress` | `true` | |
+| `KEEL_SECURITY_MIN_HTTP_VERSION` | `security.min_http_version` | `"1.1"` | |
+| `KEEL_SECURITY_ALT_SVC_MAX_AGE` | `security.alt_svc_max_age` | `86400` | |
+| `KEEL_SIDECAR_ENABLED` | `sidecar.enabled` | `false` | |
+| `KEEL_SIDECAR_UPSTREAM_URL` | `sidecar.upstream_url` | `""` | |
+| `KEEL_SIDECAR_UPSTREAM_H2C` | `sidecar.upstream_h2c` | `false` | Plaintext HTTP/2 to the upstream |
+| `KEEL_SIDECAR_UPSTREAM_AUDIENCE` | `sidecar.upstream_audience` | `""` | |
+| `KEEL_SIDECAR_UPSTREAM_TLS_ENABLED` | `sidecar.upstream_tls.enabled` | `false` | |
+| `KEEL_SIDECAR_UPSTREAM_TLS_CA_FILE` | `sidecar.upstream_tls.ca_file` | `""` | |
+| `KEEL_SIDECAR_UPSTREAM_TLS_CLIENT_CERT_FILE` | `sidecar.upstream_tls.client_cert_file` | `""` | |
+| `KEEL_SIDECAR_UPSTREAM_TLS_CLIENT_KEY_FILE` | `sidecar.upstream_tls.client_key_file` | `""` | |
+| `KEEL_LOGGING_FILE` | `logging.file` | `""` | |
+| `KEEL_LOGGING_ROTATION_MAX_SIZE_MB` | `logging.rotation.max_size_mb` | `100` | |
+| `KEEL_LOGGING_ROTATION_MAX_AGE_DAYS` | `logging.rotation.max_age_days` | `30` | |
+| `KEEL_LOGGING_ROTATION_MAX_BACKUPS` | `logging.rotation.max_backups` | `5` | |
+| `KEEL_LOGGING_ROTATION_COMPRESS` | `logging.rotation.compress` | `true` | |
 | `KEEL_AUDIT_ENABLED` | `audit.enabled` | `false` | |
 | `KEEL_AUDIT_FILE` | `audit.file` | `""` | |
-| `KEEL_OIDC_ENABLED` | `authn.oidc.enabled` | `false` | |
-| `KEEL_OIDC_ISSUER` | `authn.oidc.issuer` | `""` | |
-| `KEEL_OIDC_CLIENT_ID` | `authn.oidc.client_id` | `""` | |
-| `KEEL_OIDC_CLIENT_SECRET` | `authn.oidc.client_secret` | `""` | Secret |
-| `KEEL_OIDC_REDIRECT_URL` | `authn.oidc.redirect_url` | `""` | |
-| `KEEL_OIDC_COOKIE_KEY_FILE` | `authn.oidc.cookie_key_file` | `""` | |
-| `KEEL_OIDC_CA_FILE` | `authn.oidc.ca_file` | `""` | |
-| `KEEL_UPSTREAM_DIAL_ATTEMPTS` | `sidecar.retry.dial_attempts` | `3` | |
-| `KEEL_UPSTREAM_DIAL_BACKOFF` | `sidecar.retry.dial_backoff` | `50ms` | |
-| `KEEL_UPSTREAM_HONOR_RETRY_AFTER` | `sidecar.retry.honor_retry_after` | `false` | |
-| `KEEL_OWASP` | `security.owasp_headers` | `true` | |
-| `KEEL_AUTHN` | `authn.enabled` | `true` | |
-| `KEEL_TRUSTED_IDS` | `authn.trusted_ids` | `""` | Comma-separated list |
-| `KEEL_TRUSTED_SIGNERS` | `authn.trusted_signers` | `""` | Comma-separated list |
-| `KEEL_MY_ID` | `authn.my_id` | `""` | |
+| `KEEL_AUTHN_OIDC_ENABLED` | `authn.oidc.enabled` | `false` | |
+| `KEEL_AUTHN_OIDC_ISSUER` | `authn.oidc.issuer` | `""` | |
+| `KEEL_AUTHN_OIDC_CLIENT_ID` | `authn.oidc.client_id` | `""` | |
+| `KEEL_AUTHN_OIDC_CLIENT_SECRET` | `authn.oidc.client_secret` | `""` | Secret |
+| `KEEL_AUTHN_OIDC_REDIRECT_URL` | `authn.oidc.redirect_url` | `""` | |
+| `KEEL_AUTHN_OIDC_COOKIE_KEY_FILE` | `authn.oidc.cookie_key_file` | `""` | |
+| `KEEL_AUTHN_OIDC_CA_FILE` | `authn.oidc.ca_file` | `""` | |
+| `KEEL_SIDECAR_RETRY_DIAL_ATTEMPTS` | `sidecar.retry.dial_attempts` | `3` | |
+| `KEEL_SIDECAR_RETRY_DIAL_BACKOFF` | `sidecar.retry.dial_backoff` | `50ms` | |
+| `KEEL_SIDECAR_RETRY_HONOR_RETRY_AFTER` | `sidecar.retry.honor_retry_after` | `false` | |
+| `KEEL_SECURITY_OWASP_HEADERS` | `security.owasp_headers` | `true` | |
+| `KEEL_AUTHN_ENABLED` | `authn.enabled` | `true` | |
+| `KEEL_AUTHN_TRUSTED_IDS` | `authn.trusted_ids` | `""` | Comma-separated list |
+| `KEEL_AUTHN_TRUSTED_SIGNERS` | `authn.trusted_signers` | `""` | Comma-separated list |
+| `KEEL_AUTHN_MY_ID` | `authn.my_id` | `""` | |
 | `KEEL_AUTHN_AUDIENCE` | `authn.audience` | `""` | |
-| `KEEL_AUTHZ` | `ext_authz.enabled` | `false` | |
-| `KEEL_AUTHZ_ENDPOINT` | `ext_authz.endpoint` | `""` | |
-| `KEEL_AUTHZ_PATH` | `ext_authz.path` | `""` | Unix socket request path |
-| `KEEL_AUTHZ_TIMEOUT` | `ext_authz.timeout` | `500ms` | Duration string |
-| `KEEL_AUTHZ_TRANSPORT` | `ext_authz.transport` | `"http"` | `"http"` or `"opa"` |
-| `KEEL_AUTHZ_FAIL_OPEN` | `ext_authz.fail_open` | `false` | |
-| `KEEL_LOG_JSON` | `logging.json` | `true` | |
-| `KEEL_SHEDDING` | `backpressure.shedding_enabled` | `true` | |
-| `KEEL_HEAP_MAX_BYTES` | `backpressure.heap_max_bytes` | `0` | |
-| `KEEL_MIN_HEADROOM_BYTES` | `backpressure.min_headroom_bytes` | `10485760` | |
-| `KEEL_MAX_HEADER_BYTES` | `security.max_header_bytes` | `65536` | |
-| `KEEL_MAX_REQ_BODY_BYTES` | `security.max_request_body_bytes` | `10485760` | |
-| `KEEL_MAX_RESP_BODY_BYTES` | `security.max_response_body_bytes` | `52428800` | |
-| `KEEL_READ_HEADER_TIMEOUT` | `timeouts.read_header` | `5s` | Duration string, e.g. `"10s"` |
-| `KEEL_READ_TIMEOUT` | `timeouts.read` | `30s` | Duration string |
-| `KEEL_WRITE_TIMEOUT` | `timeouts.write` | `30s` | Duration string |
-| `KEEL_IDLE_TIMEOUT` | `timeouts.idle` | `60s` | Duration string |
-| `KEEL_SHUTDOWN_DRAIN` | `timeouts.shutdown_drain` | `10s` | Duration string |
-| `KEEL_PRESTOP_SLEEP` | `timeouts.prestop_sleep` | `0s` | Duration string |
-| `KEEL_MAX_CONCURRENT` | `limits.max_concurrent` | `0` | 0 = unlimited |
-| `KEEL_QUEUE_DEPTH` | `limits.queue_depth` | `0` | 0 = no queue |
+| `KEEL_EXT_AUTHZ_ENABLED` | `ext_authz.enabled` | `false` | |
+| `KEEL_EXT_AUTHZ_ENDPOINT` | `ext_authz.endpoint` | `""` | |
+| `KEEL_EXT_AUTHZ_PATH` | `ext_authz.path` | `""` | Unix socket request path |
+| `KEEL_EXT_AUTHZ_TIMEOUT` | `ext_authz.timeout` | `500ms` | Duration string |
+| `KEEL_EXT_AUTHZ_TRANSPORT` | `ext_authz.transport` | `"http"` | `"http"` or `"opa"` |
+| `KEEL_EXT_AUTHZ_FAIL_OPEN` | `ext_authz.fail_open` | `false` | |
+| `KEEL_LOGGING_JSON` | `logging.json` | `true` | |
+| `KEEL_BACKPRESSURE_SHEDDING_ENABLED` | `backpressure.shedding_enabled` | `true` | |
+| `KEEL_BACKPRESSURE_HEAP_MAX_BYTES` | `backpressure.heap_max_bytes` | `0` | |
+| `KEEL_BACKPRESSURE_MIN_HEADROOM_BYTES` | `backpressure.min_headroom_bytes` | `10485760` | |
+| `KEEL_SECURITY_MAX_HEADER_BYTES` | `security.max_header_bytes` | `65536` | |
+| `KEEL_SECURITY_MAX_REQUEST_BODY_BYTES` | `security.max_request_body_bytes` | `10485760` | |
+| `KEEL_SECURITY_MAX_RESPONSE_BODY_BYTES` | `security.max_response_body_bytes` | `52428800` | |
+| `KEEL_TIMEOUTS_READ_HEADER` | `timeouts.read_header` | `5s` | Duration string, e.g. `"10s"` |
+| `KEEL_TIMEOUTS_READ` | `timeouts.read` | `30s` | Duration string |
+| `KEEL_TIMEOUTS_WRITE` | `timeouts.write` | `30s` | Duration string |
+| `KEEL_TIMEOUTS_IDLE` | `timeouts.idle` | `60s` | Duration string |
+| `KEEL_TIMEOUTS_SHUTDOWN_DRAIN` | `timeouts.shutdown_drain` | `10s` | Duration string |
+| `KEEL_TIMEOUTS_PRESTOP_SLEEP` | `timeouts.prestop_sleep` | `0s` | Duration string |
+| `KEEL_LIMITS_MAX_CONCURRENT` | `limits.max_concurrent` | `0` | 0 = unlimited |
+| `KEEL_LIMITS_QUEUE_DEPTH` | `limits.queue_depth` | `0` | 0 = no queue |
 
 **Duration string format:** All timeout and duration values accept Go duration strings: `"5s"`, `"1m"`, `"500ms"`,
 `"1h30m"`. Do not use bare integers — they will not parse.
@@ -581,26 +594,28 @@ private keys, signing keys, API tokens) must never be in source control. The sec
 Kubernetes Secrets, Vault agent injection, or a secrets manager, and is never committed to the repo.
 
 **Kubernetes pattern:** The Helm chart creates a Kubernetes Secret from your `values.yaml` secret values, mounts it as a
-volume at `/etc/keel/secrets`, and sets `KEEL_SECRETS` to point to `keel-secrets.yaml` within that mount. The pod YAML
-never contains the raw secret values.
+volume, and an init container copies `keel-secrets.yaml` as keel's user into `/etc/keel/secrets`, mode 0600, the
+owner-only file the secrets layer requires. `KEEL_KNOBS_SECRETS_PATH` points at that copy. The pod YAML never contains
+the raw secret values.
 
 ```yaml
 # keel-secrets.yaml
 # Delivered via Kubernetes Secret bind mount — NEVER committed to source control.
 
-tls:
-  cert_file: /etc/keel/tls/tls.crt       # Path to TLS certificate (on the mounted volume)
-  key_file: /etc/keel/tls/tls.key         # Path to TLS private key
+keel:
+  tls:
+    cert_file: /etc/keel/tls/tls.crt       # Path to TLS certificate (on the mounted volume)
+    key_file: /etc/keel/tls/tls.key         # Path to TLS private key
 
-authn:
-  trusted_signers:
-    - /etc/keel/secrets/signer-a.pem      # Public key of service A, which Keel will accept
-    - /etc/keel/secrets/signer-b.pem      # Public key of service B
-  my_signature_key_file: /etc/keel/secrets/my-signing.key   # Keel's own private key
+  authn:
+    trusted_signers:
+      - /etc/keel/secrets/signer-a.pem      # Public key of service A, which Keel will accept
+      - /etc/keel/secrets/signer-b.pem      # Public key of service B
+    my_signature_key_file: /etc/keel/secrets/my-signing.key   # Keel's own private key
 
-admin:
-  token: <random 32+ bytes>               # /admin/reload, /debug/pprof/
-  metrics_token: <random 32+ bytes>       # optional; Prometheus scrape bearer
+  admin:
+    token: <random 32+ bytes>               # /admin/reload, /debug/pprof/
+    metrics_token: <random 32+ bytes>       # optional; Prometheus scrape bearer
 ```
 
 **`*_file` key convention:** Any config key that ends in `_file` is treated as a filesystem path. Keel reads the file
@@ -647,8 +662,8 @@ Validation checks include:
   they are equal or inverted, the hysteresis mechanism cannot function — Keel would either never shed load or never
   recover from shedding.
 
-- **Unreadable secrets file:** If `KEEL_SECRETS` points to a path that does not exist or is not readable, Keel fails at
-  startup rather than starting without secrets.
+- **Unreadable secrets file:** If `KEEL_KNOBS_SECRETS_PATH` points to a path that does not exist, is not readable, or is
+  readable by anyone but its owner, Keel fails at startup rather than starting without secrets.
 
 - **Compiled-out features in config:** If a feature is enabled in config (e.g., `tracing.otlp.enabled: true`) but the
   binary was built with the corresponding opt-out tag (e.g., `no_otel`), Keel fails at startup with an error indicating

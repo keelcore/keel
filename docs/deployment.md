@@ -601,8 +601,8 @@ services:
       context: ../..
       dockerfile: scripts/deploy/docker/Dockerfile
     environment:
-      KEEL_CONFIG: /etc/keel/keel.yaml
-      KEEL_SECRETS: /etc/keel/secrets/keel-secrets.yaml
+      KEEL_KNOBS_GLOBAL_PATH: /etc/keel/keel.yaml
+      KEEL_KNOBS_SECRETS_PATH: /etc/keel/secrets/keel-secrets.yaml   # mode 0600, owned by keel's user
     volumes:
       - ./tests/fixtures/keel.yaml:/etc/keel/keel.yaml:ro
       - ./tests/fixtures/secrets:/etc/keel/secrets:ro

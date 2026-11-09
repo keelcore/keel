@@ -220,10 +220,14 @@ k8s_host_ports() {
     }' "${REPO_ROOT}/tests/compose/k8s-stack.yaml" | sort -u
 }
 
+# k8s_services: each Deployment, and each init container (a one-shot compose service).
 k8s_services() {
   awk '
-    /^kind:/ { dep = ($2 == "Deployment"); name = ""; next }
+    /^kind:/ { dep = ($2 == "Deployment"); name = ""; init = 0; next }
     dep && /^  name:/ && name == "" { name = $2; print name }
+    dep && /^      initContainers:/ { init = 1; next }
+    init && /^      [a-z]/ { init = 0 }
+    init && /^        - name:/ { print $3 }
   ' "${REPO_ROOT}/tests/compose/k8s-stack.yaml" | sort -u
 }
 

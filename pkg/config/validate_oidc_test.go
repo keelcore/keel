@@ -60,15 +60,17 @@ func TestValidate_OIDC(t *testing.T) {
 }
 
 func TestApplyEnv_OIDC(t *testing.T) {
-	t.Setenv("KEEL_OIDC_ENABLED", "true")
-	t.Setenv("KEEL_OIDC_ISSUER", "https://idp")
-	t.Setenv("KEEL_OIDC_CLIENT_ID", "id")
-	t.Setenv("KEEL_OIDC_CLIENT_SECRET", "s")
-	t.Setenv("KEEL_OIDC_REDIRECT_URL", "https://a/cb")
-	t.Setenv("KEEL_OIDC_COOKIE_KEY_FILE", "/k")
-	t.Setenv("KEEL_OIDC_CA_FILE", "/ca")
-	c := Defaults()
-	applyEnv(&c)
+	t.Setenv("KEEL_AUTHN_OIDC_ENABLED", "true")
+	t.Setenv("KEEL_AUTHN_OIDC_ISSUER", "https://idp")
+	t.Setenv("KEEL_AUTHN_OIDC_CLIENT_ID", "id")
+	t.Setenv("KEEL_AUTHN_OIDC_CLIENT_SECRET", "s")
+	t.Setenv("KEEL_AUTHN_OIDC_REDIRECT_URL", "https://a/cb")
+	t.Setenv("KEEL_AUTHN_OIDC_COOKIE_KEY_FILE", "/k")
+	t.Setenv("KEEL_AUTHN_OIDC_CA_FILE", "/ca")
+	c, err := load("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	o := c.Authn.OIDC
 	if !o.Enabled || o.Issuer != "https://idp" || o.ClientID != "id" || o.ClientSecret != "s" ||
 		o.RedirectURL != "https://a/cb" || o.CookieKeyFile != "/k" || o.CAFile != "/ca" {

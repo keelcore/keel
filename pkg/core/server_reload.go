@@ -18,7 +18,6 @@ func (s *Server) Reload() error {
 	s.reloadMu.Lock()
 	defer s.reloadMu.Unlock()
 	cfg, err := config.Load(s.cfgPaths[0], s.cfgPaths[1])
-	s.logIgnoredEnv(cfg)
 	if err != nil {
 		s.auditEvent(audit.Event{Event: "config_reload", Outcome: "fail", Detail: err.Error()})
 		return fmt.Errorf("load config: %w", err)
@@ -79,15 +78,6 @@ func (s *Server) ReloadHandler() http.Handler {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-}
-
-// logIgnoredEnv warns about each env override config rejected as unparseable
-// (e.g. KEEL_AUTHN=flase): the previous value stays in force, which must not
-// happen silently.
-func (s *Server) logIgnoredEnv(cfg config.Config) {
-	for _, e := range cfg.IgnoredEnv() {
-		s.logger.Warn("env_ignored", map[string]any{"env": e, "reason": "unparseable value; previous value kept"})
-	}
 }
 
 // outcomeOf is an audit outcome for err.

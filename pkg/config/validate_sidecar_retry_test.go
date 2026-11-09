@@ -39,12 +39,14 @@ func TestValidate_SidecarRetry(t *testing.T) {
 	}
 }
 
-// KEEL_UPSTREAM_DIAL_ATTEMPTS / KEEL_UPSTREAM_DIAL_BACKOFF override the YAML values.
+// KEEL_SIDECAR_RETRY_DIAL_ATTEMPTS / KEEL_SIDECAR_RETRY_DIAL_BACKOFF override the YAML values.
 func TestApplyEnv_SidecarRetry(t *testing.T) {
-	t.Setenv("KEEL_UPSTREAM_DIAL_ATTEMPTS", "5")
-	t.Setenv("KEEL_UPSTREAM_DIAL_BACKOFF", "200ms")
-	cfg := Defaults()
-	applyEnv(&cfg)
+	t.Setenv("KEEL_SIDECAR_RETRY_DIAL_ATTEMPTS", "5")
+	t.Setenv("KEEL_SIDECAR_RETRY_DIAL_BACKOFF", "200ms")
+	cfg, err := load("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if cfg.Sidecar.Retry.DialAttempts != 5 || cfg.Sidecar.Retry.DialBackoff.Duration != 200*time.Millisecond {
 		t.Fatalf("env overrides not applied: %+v", cfg.Sidecar.Retry)
 	}

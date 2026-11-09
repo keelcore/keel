@@ -42,13 +42,15 @@ func TestValidate_LogRotation(t *testing.T) {
 }
 
 func TestApplyEnv_LogRotation(t *testing.T) {
-	t.Setenv("KEEL_LOG_FILE", "/var/log/keel.log")
-	t.Setenv("KEEL_LOG_MAX_SIZE_MB", "7")
-	t.Setenv("KEEL_LOG_MAX_AGE_DAYS", "8")
-	t.Setenv("KEEL_LOG_MAX_BACKUPS", "9")
-	t.Setenv("KEEL_LOG_COMPRESS", "false")
-	c := Defaults()
-	applyEnv(&c)
+	t.Setenv("KEEL_LOGGING_FILE", "/var/log/keel.log")
+	t.Setenv("KEEL_LOGGING_ROTATION_MAX_SIZE_MB", "7")
+	t.Setenv("KEEL_LOGGING_ROTATION_MAX_AGE_DAYS", "8")
+	t.Setenv("KEEL_LOGGING_ROTATION_MAX_BACKUPS", "9")
+	t.Setenv("KEEL_LOGGING_ROTATION_COMPRESS", "false")
+	c, err := load("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	r := c.Logging.Rotation
 	if c.Logging.File != "/var/log/keel.log" || r.MaxSizeMB != 7 || r.MaxAgeDays != 8 || r.MaxBackups != 9 || r.Compress {
 		t.Fatalf("env not applied: %q %+v", c.Logging.File, r)

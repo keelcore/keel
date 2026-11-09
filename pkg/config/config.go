@@ -2,13 +2,10 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/keelcore/knobs"
@@ -294,29 +291,6 @@ type Config struct {
 	Tracing      TracingConfig      `yaml:"tracing"`
 	FIPS         FIPSConfig         `yaml:"fips"`
 	Admin        AdminConfig        `yaml:"admin"`
-
-	// ignoredEnv lists env overrides that were set but could not be parsed
-	// ("KEY=value"); the previous value was kept. Not part of the config schema.
-	ignoredEnv []string
-}
-
-// IgnoredEnv returns the env overrides applyEnv rejected as unparseable
-// ("KEY=value"), so the caller can log them — a typo such as KEEL_AUTHN=flase
-// must not silently leave the default in force.
-func (c Config) IgnoredEnv() []string { return c.ignoredEnv }
-
-// envIgnoredSink, while applyEnv runs (under envMu), collects rejected env
-// overrides; nil otherwise, so direct apply* calls record nothing.
-var (
-	envMu          sync.Mutex
-	envIgnoredSink *[]string
-)
-
-// noteIgnoredEnv records an env override that could not be parsed.
-func noteIgnoredEnv(key, value string) {
-	if envIgnoredSink != nil {
-		*envIgnoredSink = append(*envIgnoredSink, key+"="+value)
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -411,23 +385,33 @@ func defaults() Config {
 }
 
 // ---------------------------------------------------------------------------
-// Load — merge order: defaults → config YAML → secrets YAML → ENV vars.
+// Load — keelcore/knobs resolves every layer over the code defaults: the
+// global and user files, the secrets file, env and --knob arguments.
 // ---------------------------------------------------------------------------
 
-// Default loads config using the standard pipeline:
-// defaults → $KEEL_CONFIG file → $KEEL_SECRETS file → env vars → validate.
-// On error it calls log.Fatal; it never returns an error.
+// cliKnobs are the --knob arguments (keel.<path>=<value>): the cli layer of
+// every Load and From, startup and reload alike.
+var cliKnobs []string
+
+// SetKnobs records the --knob arguments for every later Load and From.
+func SetKnobs(args []string) { cliKnobs = args }
+
+// Default loads and validates the configuration from the locations knobs
+// resolves itself. On error it calls log.Fatal; it never returns an error.
 func Default(log *logging.Logger) Config {
-	cfg, err := Load(os.Getenv("KEEL_CONFIG"), os.Getenv("KEEL_SECRETS"))
+	cfg, err := Load("", "")
 	if err != nil {
 		log.Fatal("config_load_failed", map[string]any{"err": err.Error()})
 	}
 	return cfg
 }
 
-// Load runs the merge pipeline (defaults → configPath file → secretsPath file →
-// env vars → validate) and returns any error to the caller.
-// Either path may be empty. Use Default for CLI entry points.
+// Load resolves the configuration through keelcore/knobs and validates it.
+// configPath and secretsPath, when set, name the global and secrets files;
+// empty, knobs resolves them: the path knobs keel.knobs.global_path and
+// keel.knobs.secrets_path (--knob, then KEEL_KNOBS_GLOBAL_PATH and
+// KEEL_KNOBS_SECRETS_PATH), else /etc/keel/config.yaml and no secrets file.
+// Use Default for CLI entry points.
 func Load(configPath, secretsPath string) (Config, error) {
 	cfg, err := load(configPath, secretsPath)
 	if err != nil {
@@ -439,36 +423,40 @@ func Load(configPath, secretsPath string) (Config, error) {
 	return cfg, nil
 }
 
-// From applies environment variable overrides onto c, validates the result,
+// From resolves env and --knob overrides over c, validates the result,
 // and returns it. Intended for library users who supply their own Config.
 func From(c *Config) (Config, error) {
 	cfg := *c
-	applyEnv(&cfg)
+	e, err := newEngine()
+	if err != nil {
+		return cfg, err
+	}
+	_ = e.Add(knobs.Env(os.LookupEnv), knobs.CLI(cliKnobs)) // Add fails only after Resolve
+	if err := resolve(e, &cfg); err != nil {
+		return cfg, err
+	}
 	if err := Validate(cfg); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
 }
 
-// load is the internal merge pipeline: defaults → config YAML → secrets YAML → env vars.
+// load resolves knobs's standard layers over the code defaults.
 func load(configPath, secretsPath string) (Config, error) {
 	cfg := defaults()
-
-	if configPath != "" {
-		if err := applyYAMLFile(configPath, &cfg); err != nil {
-			return cfg, fmt.Errorf("config file: %w", err)
-		}
+	e, err := newEngine()
+	if err != nil {
+		return cfg, err
 	}
-
-	if secretsPath != "" {
-		if err := applyYAMLFile(secretsPath, &cfg); err != nil {
-			return cfg, fmt.Errorf("secrets file: %w", err)
-		}
+	if err := e.AddStandard(knobs.Standard{
+		GlobalPath:  configPath,
+		SecretsPath: secretsPath,
+		Env:         os.LookupEnv, // until knobs reads the environment itself (keelcore/knobs#14)
+		Knobs:       cliKnobs,
+	}); err != nil {
+		return cfg, fmt.Errorf("config: %w", err)
 	}
-
-	applyEnv(&cfg)
-
-	return cfg, nil
+	return cfg, resolve(e, &cfg)
 }
 
 // Validate returns an error if the config contains an invalid combination
@@ -534,344 +522,43 @@ func Validate(cfg Config) error {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// keelcore/knobs — the engine and the values it resolves.
 // ---------------------------------------------------------------------------
 
-func applyYAMLFile(path string, cfg *Config) error {
-	b, err := os.ReadFile(path)
+// newEngine returns a knobs engine for the keel application with the embedded
+// schema attached.
+func newEngine() (*knobs.Engine, error) {
+	e, _ := knobs.New("keel") // a valid application name: New cannot fail
+	if err := e.Attach(knobs.Module{Schema: SchemaYAML}); err != nil {
+		return nil, fmt.Errorf("load schema: %w", err)
+	}
+	return e, nil
+}
+
+// resolve merges every layer of e and writes each resolved value into cfg.
+func resolve(e *knobs.Engine, cfg *Config) error {
+	c, err := e.Resolve()
 	if err != nil {
-		return fmt.Errorf("read %q: %w", path, err)
+		return fmt.Errorf("config: %w", err)
 	}
-	if err := validateAgainstSchema(b); err != nil {
-		return fmt.Errorf("schema %q: %w", path, err)
-	}
-	dec := yaml.NewDecoder(bytes.NewReader(b))
-	dec.KnownFields(true)
-	if err := dec.Decode(cfg); err != nil {
-		if err == io.EOF {
-			return nil // empty file is valid: no overrides
+	for _, v := range c.Values() {
+		if err := decodeValue(v, cfg); err != nil {
+			return fmt.Errorf("config: %s: %w", v.Key, err)
 		}
-		return fmt.Errorf("parse %q: %w", path, err)
 	}
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Schema validation — keelcore/knobs checks each document against the
-// embedded schema.yaml.
-// ---------------------------------------------------------------------------
-
-var (
-	compiledSchema     *knobs.Module
-	compiledSchemaErr  error
-	compiledSchemaOnce sync.Once
-)
-
-// getSchema checks the embedded schema once and returns it as a knobs module.
-func getSchema() (*knobs.Module, error) {
-	compiledSchemaOnce.Do(func() {
-		m := &knobs.Module{Schema: SchemaYAML}
-		if err := schemaEngine().Attach(*m); err != nil {
-			compiledSchemaErr = fmt.Errorf("load schema: %w", err)
-			return
-		}
-		compiledSchema = m
-	})
-	return compiledSchema, compiledSchemaErr
-}
-
-// schemaEngine returns an empty knobs engine for the keel application; "keel"
-// is a valid application name, so New cannot fail.
-func schemaEngine() *knobs.Engine {
-	e, _ := knobs.New("keel")
-	return e
-}
-
-// validateAgainstSchema validates raw YAML bytes against the embedded schema.
-// Empty or whitespace-only input is accepted (no overrides).
-func validateAgainstSchema(b []byte) error {
-	if len(bytes.TrimSpace(b)) == 0 {
-		return nil
+// decodeValue writes one knobs value into cfg through its yaml tags, so the
+// field converts as it does from keel.yaml (a Duration from "5s").
+func decodeValue(v knobs.Value, cfg *Config) error {
+	path := strings.Split(v.Key, ".")[1:] // drop the application root
+	var node interface{} = v.Value
+	for i := len(path) - 1; i >= 0; i-- {
+		node = map[string]interface{}{path[i]: node}
 	}
-	sc, err := getSchema()
-	if err != nil {
-		return err
-	}
-	var doc interface{}
-	if err := yaml.Unmarshal(b, &doc); err != nil {
-		return err
-	}
-	if doc == nil {
-		return nil
-	}
-	m, ok := doc.(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("the document is not a mapping")
-	}
-	e := schemaEngine()
-	_ = e.Attach(*sc)           // getSchema attached this schema without error
-	_ = e.Add(docLayer{doc: m}) // Add fails only after Resolve
-	_, err = e.Resolve()
-	return err
-}
-
-// docLayer is one decoded YAML document, rooted at keel's modules, as a knobs
-// layer: knobs validates each value it sets against the schema.
-type docLayer struct{ doc map[string]interface{} }
-
-func (docLayer) Name() string { return knobs.LayerGlobal }
-
-func (docLayer) Policy() knobs.Policy {
-	return knobs.Policy{RejectSecrets: knobs.CodeSecretInPlainFile}
-}
-
-func (l docLayer) Load(s *knobs.Schemas) ([]knobs.Setting, error) {
-	return docSettings(s, s.App(), l.doc), nil
-}
-
-// docSettings flattens the mapping at prefix into one setting per knob,
-// descending into nested objects; a key the schema does not define is an
-// unknown key.
-func docSettings(s *knobs.Schemas, prefix string, doc map[string]interface{}) []knobs.Setting {
-	var out []knobs.Setting
-	for k, v := range doc {
-		key := prefix + "." + k
-		mod, name, known := s.Lookup(key)
-		sub, isMap := v.(map[string]interface{})
-		switch {
-		case known:
-			out = append(out, knobs.Setting{Key: key, Module: mod, Name: name, Value: v})
-		case !isBranch(s, key):
-			out = append(out, knobs.Setting{Key: key, Err: knobs.CodeUnknownKey})
-		case !isMap:
-			out = append(out, knobs.Setting{Key: key, Err: knobs.CodeInvalidType})
-		default:
-			out = append(out, docSettings(s, key, sub)...)
-		}
-	}
-	return out
-}
-
-// isBranch reports whether key is a nested object holding knobs.
-func isBranch(s *knobs.Schemas, key string) bool {
-	for _, k := range s.Keys() {
-		if strings.HasPrefix(s.App()+"."+k[0]+"."+k[1], key+".") {
-			return true
-		}
-	}
-	return false
-}
-
-// applyEnv overlays environment variables onto cfg. Only vars that are
-// explicitly set (non-empty) override the current value.
-func applyEnv(cfg *Config) {
-	envMu.Lock()
-	defer envMu.Unlock()
-	var ignored []string
-	envIgnoredSink = &ignored
-	defer func() {
-		envIgnoredSink = nil
-		cfg.ignoredEnv = ignored
-	}()
-
-	// Listeners
-	applyBool("KEEL_HTTP_ENABLED", &cfg.Listeners.HTTP.Enabled)
-	applyInt("KEEL_HTTP_PORT", &cfg.Listeners.HTTP.Port)
-	applyBool("KEEL_HTTPS_ENABLED", &cfg.Listeners.HTTPS.Enabled)
-	applyInt("KEEL_HTTPS_PORT", &cfg.Listeners.HTTPS.Port)
-	applyBool("KEEL_H3_ENABLED", &cfg.Listeners.H3.Enabled)
-	applyInt("KEEL_H3_PORT", &cfg.Listeners.H3.Port)
-	applyBool("KEEL_HEALTH_ENABLED", &cfg.Listeners.Health.Enabled)
-	applyInt("KEEL_HEALTH_PORT", &cfg.Listeners.Health.Port)
-	applyBool("KEEL_READY_ENABLED", &cfg.Listeners.Ready.Enabled)
-	applyInt("KEEL_READY_PORT", &cfg.Listeners.Ready.Port)
-	applyBool("KEEL_STARTUP_ENABLED", &cfg.Listeners.Startup.Enabled)
-	applyInt("KEEL_STARTUP_PORT", &cfg.Listeners.Startup.Port)
-	applyBool("KEEL_ADMIN_ENABLED", &cfg.Listeners.Admin.Enabled)
-	applyInt("KEEL_ADMIN_PORT", &cfg.Listeners.Admin.Port)
-
-	// TLS
-	applyString("KEEL_TLS_CERT", &cfg.TLS.CertFile)
-	applyString("KEEL_TLS_KEY", &cfg.TLS.KeyFile)
-	applyString("KEEL_TLS_CLIENT_CA", &cfg.TLS.ClientCAFile)
-	applyString("KEEL_TLS_NOTICE_BASE_URL", &cfg.TLS.Notice.BaseURL)
-	applyString("KEEL_TLS_NOTICE_HELP_URL", &cfg.TLS.Notice.HelpURL)
-	applyString("KEEL_TLS_NOTICE_CONTACT", &cfg.TLS.Notice.Contact)
-	applyBool("KEEL_TLS_CLIENT_CERT_NOTICE", &cfg.TLS.ClientCertNotice)
-	applyString("KEEL_MIN_HTTP_VERSION", &cfg.Security.MinHTTPVersion)
-	applyInt("KEEL_ALT_SVC_MAX_AGE", &cfg.Security.AltSvcMaxAge)
-
-	// Sidecar
-	applyBool("KEEL_SIDECAR", &cfg.Sidecar.Enabled)
-	applyString("KEEL_UPSTREAM_URL", &cfg.Sidecar.UpstreamURL)
-	applyBool("KEEL_UPSTREAM_H2C", &cfg.Sidecar.UpstreamH2C)
-	applyString("KEEL_UPSTREAM_AUDIENCE", &cfg.Sidecar.UpstreamAudience)
-	applyBool("KEEL_UPSTREAM_TLS", &cfg.Sidecar.UpstreamTLS.Enabled)
-	applyString("KEEL_UPSTREAM_CA_FILE", &cfg.Sidecar.UpstreamTLS.CAFile)
-	applyString("KEEL_UPSTREAM_CLIENT_CERT", &cfg.Sidecar.UpstreamTLS.ClientCertFile)
-	applyString("KEEL_UPSTREAM_CLIENT_KEY", &cfg.Sidecar.UpstreamTLS.ClientKeyFile)
-	applyInt("KEEL_UPSTREAM_DIAL_ATTEMPTS", &cfg.Sidecar.Retry.DialAttempts)
-	applyDuration("KEEL_UPSTREAM_DIAL_BACKOFF", &cfg.Sidecar.Retry.DialBackoff)
-	applyBool("KEEL_UPSTREAM_HONOR_RETRY_AFTER", &cfg.Sidecar.Retry.HonorRetryAfter)
-
-	// Security
-	applyBool("KEEL_OWASP", &cfg.Security.OWASPHeaders)
-	applyInt64("KEEL_MAX_REQ_BODY_BYTES", &cfg.Security.MaxRequestBodyBytes)
-	applyInt64("KEEL_MAX_RESP_BODY_BYTES", &cfg.Security.MaxResponseBodyBytes)
-	applyInt("KEEL_MAX_HEADER_BYTES", &cfg.Security.MaxHeaderBytes)
-
-	// Timeouts
-	applyDuration("KEEL_READ_HEADER_TIMEOUT", &cfg.Timeouts.ReadHeader)
-	applyDuration("KEEL_READ_TIMEOUT", &cfg.Timeouts.Read)
-	applyDuration("KEEL_WRITE_TIMEOUT", &cfg.Timeouts.Write)
-	applyDuration("KEEL_IDLE_TIMEOUT", &cfg.Timeouts.Idle)
-	applyDuration("KEEL_SHUTDOWN_DRAIN", &cfg.Timeouts.ShutdownDrain)
-	applyDuration("KEEL_PRESTOP_SLEEP", &cfg.Timeouts.PrestopSleep)
-
-	// Limits
-	applyInt("KEEL_MAX_CONCURRENT", &cfg.Limits.MaxConcurrent)
-	applyInt("KEEL_QUEUE_DEPTH", &cfg.Limits.QueueDepth)
-
-	// Backpressure
-	applyInt64("KEEL_HEAP_MAX_BYTES", &cfg.Backpressure.HeapMaxBytes)
-	applyInt64("KEEL_MIN_HEADROOM_BYTES", &cfg.Backpressure.MinHeadroomBytes)
-	applyFloat64("KEEL_PRESSURE_HIGH", &cfg.Backpressure.HighWatermark)
-	applyFloat64("KEEL_PRESSURE_LOW", &cfg.Backpressure.LowWatermark)
-	applyBool("KEEL_SHEDDING", &cfg.Backpressure.SheddingEnabled)
-
-	// Authn
-	applyBool("KEEL_AUTHN", &cfg.Authn.Enabled)
-	applyString("KEEL_MY_ID", &cfg.Authn.MyID)
-	applyString("KEEL_AUTHN_AUDIENCE", &cfg.Authn.Audience)
-	applyCSV("KEEL_TRUSTED_IDS", &cfg.Authn.TrustedIDs)
-	applyCSV("KEEL_TRUSTED_SIGNERS", &cfg.Authn.TrustedSigners)
-
-	// ExtAuthz
-	applyBool("KEEL_AUTHZ", &cfg.ExtAuthz.Enabled)
-	applyString("KEEL_AUTHZ_ENDPOINT", &cfg.ExtAuthz.Endpoint)
-	applyString("KEEL_AUTHZ_PATH", &cfg.ExtAuthz.Path)
-	applyDuration("KEEL_AUTHZ_TIMEOUT", &cfg.ExtAuthz.Timeout)
-	applyString("KEEL_AUTHZ_TRANSPORT", &cfg.ExtAuthz.Transport)
-	applyBool("KEEL_AUTHZ_FAIL_OPEN", &cfg.ExtAuthz.FailOpen)
-
-	// Admin
-	applyString("KEEL_ADMIN_TOKEN", &cfg.Admin.Token)
-	applyString("KEEL_ADMIN_METRICS_TOKEN", &cfg.Admin.MetricsToken)
-	applyBool("KEEL_ADMIN_PPROF", &cfg.Admin.PProf)
-
-	// Logging
-	applyBool("KEEL_LOG_JSON", &cfg.Logging.JSON)
-	applyString("KEEL_LOG_LEVEL", &cfg.Logging.Level)
-	applyString("KEEL_LOG_FILE", &cfg.Logging.File)
-	applyInt("KEEL_LOG_MAX_SIZE_MB", &cfg.Logging.Rotation.MaxSizeMB)
-	applyInt("KEEL_LOG_MAX_AGE_DAYS", &cfg.Logging.Rotation.MaxAgeDays)
-	applyInt("KEEL_LOG_MAX_BACKUPS", &cfg.Logging.Rotation.MaxBackups)
-	applyBool("KEEL_LOG_COMPRESS", &cfg.Logging.Rotation.Compress)
-
-	// OIDC
-	applyBool("KEEL_OIDC_ENABLED", &cfg.Authn.OIDC.Enabled)
-	applyString("KEEL_OIDC_ISSUER", &cfg.Authn.OIDC.Issuer)
-	applyString("KEEL_OIDC_CLIENT_ID", &cfg.Authn.OIDC.ClientID)
-	applyString("KEEL_OIDC_CLIENT_SECRET", &cfg.Authn.OIDC.ClientSecret)
-	applyString("KEEL_OIDC_REDIRECT_URL", &cfg.Authn.OIDC.RedirectURL)
-	applyString("KEEL_OIDC_COOKIE_KEY_FILE", &cfg.Authn.OIDC.CookieKeyFile)
-	applyString("KEEL_OIDC_CA_FILE", &cfg.Authn.OIDC.CAFile)
-
-	// Audit
-	applyBool("KEEL_AUDIT_ENABLED", &cfg.Audit.Enabled)
-	applyString("KEEL_AUDIT_FILE", &cfg.Audit.File)
-}
-
-// ---------------------------------------------------------------------------
-// ENV primitives
-// ---------------------------------------------------------------------------
-
-func applyBool(key string, dst *bool) {
-	v := os.Getenv(key)
-	if v == "" {
-		return
-	}
-	b, err := strconv.ParseBool(v)
-	if err == nil {
-		*dst = b
-	} else {
-		noteIgnoredEnv(key, v)
-	}
-}
-
-func applyInt(key string, dst *int) {
-	v := os.Getenv(key)
-	if v == "" {
-		return
-	}
-	n, err := strconv.Atoi(v)
-	if err == nil {
-		*dst = n
-	} else {
-		noteIgnoredEnv(key, v)
-	}
-}
-
-func applyInt64(key string, dst *int64) {
-	v := os.Getenv(key)
-	if v == "" {
-		return
-	}
-	n, err := strconv.ParseInt(v, 10, 64)
-	if err == nil {
-		*dst = n
-	} else {
-		noteIgnoredEnv(key, v)
-	}
-}
-
-func applyFloat64(key string, dst *float64) {
-	v := os.Getenv(key)
-	if v == "" {
-		return
-	}
-	f, err := strconv.ParseFloat(v, 64)
-	if err == nil {
-		*dst = f
-	} else {
-		noteIgnoredEnv(key, v)
-	}
-}
-
-func applyString(key string, dst *string) {
-	if v := os.Getenv(key); v != "" {
-		*dst = v
-	}
-}
-
-func applyDuration(key string, dst *Duration) {
-	v := os.Getenv(key)
-	if v == "" {
-		return
-	}
-	d, err := time.ParseDuration(v)
-	if err == nil {
-		*dst = Duration{d}
-	} else {
-		noteIgnoredEnv(key, v)
-	}
-}
-
-func applyCSV(key string, dst *[]string) {
-	v := os.Getenv(key)
-	if v == "" {
-		return
-	}
-	parts := strings.Split(v, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if s := strings.TrimSpace(p); s != "" {
-			out = append(out, s)
-		}
-	}
-	if len(out) > 0 {
-		*dst = out
-	}
+	b, _ := yaml.Marshal(node) // nested maps of scalars and lists always marshal
+	return yaml.Unmarshal(b, cfg)
 }
 
 // ---------------------------------------------------------------------------

@@ -44,8 +44,10 @@ func TestValidate_Audit(t *testing.T) {
 func TestApplyEnv_Audit(t *testing.T) {
 	t.Setenv("KEEL_AUDIT_ENABLED", "true")
 	t.Setenv("KEEL_AUDIT_FILE", "/a.log")
-	c := Defaults()
-	applyEnv(&c)
+	c, err := load("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !c.Audit.Enabled || c.Audit.File != "/a.log" {
 		t.Fatalf("env not applied: %+v", c.Audit)
 	}

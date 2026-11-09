@@ -47,9 +47,13 @@ spec:
           configMap:
             name: {{ include "keel.fullname" . }}-config
         {{- if .Values.keel.secrets.existingSecret }}
-        - name: keel-secrets
+        - name: keel-secrets-source
           secret:
             secretName: {{ .Values.keel.secrets.existingSecret }}
+        # The owner-only copy keel reads (initContainers: keel-secrets).
+        - name: keel-secrets
+          emptyDir:
+            medium: Memory
         {{- end }}
         {{- if .Values.keel.tls.certSecretName }}
         - name: keel-tls
@@ -75,6 +79,32 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
 
+      {{- if .Values.keel.secrets.existingSecret }}
+      # knobs reads a secrets file only when its owner alone may access it; a Secret
+      # volume is root-owned, so copy it as keel's user (65532) into an emptyDir, mode 0600.
+      initContainers:
+        - name: keel-secrets
+          image: {{ .Values.keel.secrets.initImage | quote }}
+          command:
+            - sh
+            - -c
+            - cp /secrets-source/keel-secrets.yaml /secrets/keel-secrets.yaml && chmod 0600 /secrets/keel-secrets.yaml
+          securityContext:
+            runAsUser: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: keel-secrets-source
+              mountPath: /secrets-source
+              readOnly: true
+            - name: keel-secrets
+              mountPath: /secrets
+      {{- end }}
+
       containers:
 
         # ── Keel container ────────────────────────────────────────────────────
@@ -94,10 +124,10 @@ spec:
           {{- end }}
 
           env:
-            - name: KEEL_CONFIG
+            - name: KEEL_KNOBS_GLOBAL_PATH
               value: /etc/keel/keel.yaml
             {{- if .Values.keel.secrets.existingSecret }}
-            - name: KEEL_SECRETS
+            - name: KEEL_KNOBS_SECRETS_PATH
               value: {{ .Values.keel.secrets.mountPath }}/keel-secrets.yaml
             {{- end }}
             {{- with .Values.keel.extraEnv }}

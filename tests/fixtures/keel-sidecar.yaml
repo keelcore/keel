@@ -2,52 +2,53 @@
 # keel as a sidecar in front of the mock upstream (tests/mockupstream), for the
 # sidecar resilience tests in tests/compose. Mounted at /etc/keel/keel-sidecar.yaml.
 
-listeners:
-  http:
-    enabled: true
-    port: 8180
-  https:
-    enabled: false
-  h3:
-    enabled: false
-  health:
-    enabled: true
-    port: 9191
-  ready:
-    enabled: true
-    port: 9192
-  startup:
-    enabled: false
-  admin:
-    enabled: true
-    port: 9199
+keel:
+  listeners:
+    http:
+      enabled: true
+      port: 8180
+    https:
+      enabled: false
+    h3:
+      enabled: false
+    health:
+      enabled: true
+      port: 9191
+    ready:
+      enabled: true
+      port: 9192
+    startup:
+      enabled: false
+    admin:
+      enabled: true
+      port: 9199
 
-metrics:
-  prometheus: true
+  metrics:
+    prometheus: true
 
-authn:
-  enabled: false
-  my_id: test-sidecar
-  my_signature_key_file: "/etc/keel/certs/sidecar-sign.key"
-
-timeouts:
-  # read bounds the request context. The dial-retry window (0.5s + 1s) fits inside
-  # write, so a request whose every dial fails still gets its 502.
-  read: 20s
-  # write bounds a hung upstream: the proxy answers 502 at 90% of it.
-  write: 3s
-
-sidecar:
-  enabled: true
-  upstream_url: "http://mockupstream:9300"
-  # Probe often: readiness then recovers within a second of startup and of each
-  # failure-mode test (health feeds /readyz only; proxying never waits on it).
-  upstream_health_interval: 1s
-  circuit_breaker:
-    # Failure-mode tests run back to back; an open breaker would mask later ones.
+  authn:
     enabled: false
-  retry:
-    dial_attempts: 3
-    dial_backoff: 500ms
-    # The Retry-After tests use delays inside timeouts.write (honored) and past it (passed through).
-    honor_retry_after: true
+    my_id: test-sidecar
+    my_signature_key_file: "/etc/keel/certs/sidecar-sign.key"
+
+  timeouts:
+    # read bounds the request context. The dial-retry window (0.5s + 1s) fits inside
+    # write, so a request whose every dial fails still gets its 502.
+    read: 20s
+    # write bounds a hung upstream: the proxy answers 502 at 90% of it.
+    write: 3s
+
+  sidecar:
+    enabled: true
+    upstream_url: "http://mockupstream:9300"
+    # Probe often: readiness then recovers within a second of startup and of each
+    # failure-mode test (health feeds /readyz only; proxying never waits on it).
+    upstream_health_interval: 1s
+    circuit_breaker:
+      # Failure-mode tests run back to back; an open breaker would mask later ones.
+      enabled: false
+    retry:
+      dial_attempts: 3
+      dial_backoff: 500ms
+      # The Retry-After tests use delays inside timeouts.write (honored) and past it (passed through).
+      honor_retry_after: true

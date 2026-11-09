@@ -46,13 +46,26 @@ spec:
     metadata:
       labels: { app: keel }
     spec:
+      # knobs reads a secrets file only when its owner alone may access it; a Secret
+      # volume is root-owned, so copy it as keel's user (65532) into an emptyDir, mode 0600.
+      initContainers:
+        - name: keel-secrets
+          image: alpine:3.22@sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034
+          command:
+            - sh
+            - -c
+            - cp /etc/keel/keel-secrets.yaml /secrets/keel-secrets.yaml && chmod 0600 /secrets/keel-secrets.yaml
+          securityContext: { runAsUser: 65532, runAsGroup: 65532, runAsNonRoot: true }
+          volumeMounts:
+            - { name: fixtures, mountPath: /etc/keel, readOnly: true }
+            - { name: secrets, mountPath: /secrets }
       containers:
         - name: keel
           image: docker.io/library/keel:test-max
           imagePullPolicy: Never
           env:
-            - { name: KEEL_CONFIG, value: /etc/keel/keel.yaml }
-            - { name: KEEL_SECRETS, value: /etc/keel/keel-secrets.yaml }
+            - { name: KEEL_KNOBS_GLOBAL_PATH, value: /etc/keel/keel.yaml }
+            - { name: KEEL_KNOBS_SECRETS_PATH, value: /etc/keel-secrets/keel-secrets.yaml }
           ports:
             - { containerPort: 8080, hostPort: 8080, protocol: TCP }
             - { containerPort: 8443, hostPort: 8443, protocol: TCP }
@@ -63,7 +76,10 @@ spec:
             - { containerPort: 9999, hostPort: 9999, protocol: TCP }
           volumeMounts:
             - { name: fixtures, mountPath: /etc/keel, readOnly: true }
+            - { name: secrets, mountPath: /etc/keel-secrets, readOnly: true }
       volumes:
+        - name: secrets
+          emptyDir: { medium: Memory }
         - name: fixtures
           secret:
             secretName: keel-fixtures
@@ -141,7 +157,7 @@ spec:
           image: docker.io/library/keel:test-max
           imagePullPolicy: Never
           env:
-            - { name: KEEL_CONFIG, value: /etc/keel/keel-sidecar.yaml }
+            - { name: KEEL_KNOBS_GLOBAL_PATH, value: /etc/keel/keel-sidecar.yaml }
           ports:
             - { containerPort: 8180, hostPort: 8180, protocol: TCP }
             - { containerPort: 9192, hostPort: 9192, protocol: TCP }
@@ -215,7 +231,7 @@ spec:
           image: docker.io/library/keel:test-max
           imagePullPolicy: Never
           env:
-            - { name: KEEL_CONFIG, value: /etc/keel/keel-oidc.yaml }
+            - { name: KEEL_KNOBS_GLOBAL_PATH, value: /etc/keel/keel-oidc.yaml }
           ports:
             - { containerPort: 8280, hostPort: 8280, protocol: TCP }
             - { containerPort: 9292, hostPort: 9292, protocol: TCP }

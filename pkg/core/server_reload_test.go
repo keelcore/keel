@@ -48,6 +48,21 @@ func TestReload_MissingConfigFile_ReturnsError(t *testing.T) {
 	}
 }
 
+// Reload fails closed on an unparseable env override and keeps the running config.
+func TestReload_MalformedEnv_KeepsConfig(t *testing.T) {
+	t.Setenv("KEEL_AUTHN_ENABLED", "flase")
+	running := config.Defaults()
+	log := logging.New(logging.Config{Out: io.Discard})
+	s := NewServer(log, running)
+
+	if err := s.Reload(); err == nil {
+		t.Fatal("expected error for KEEL_AUTHN_ENABLED=flase, got nil")
+	}
+	if s.Cfg().Authn.Enabled != running.Authn.Enabled {
+		t.Error("a failed reload changed the running config")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Cfg — returns consistent snapshot
 // ---------------------------------------------------------------------------
@@ -141,7 +156,7 @@ func TestReload_CertLoader_ReloadFails_Warns(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "keel.yaml")
 	// Reference non-existent cert/key so certLoader.Reload will fail.
-	yaml := fmt.Sprintf("tls:\n  cert_file: %s\n  key_file: %s\n",
+	yaml := fmt.Sprintf("keel:\n  tls:\n    cert_file: %s\n    key_file: %s\n",
 		filepath.Join(dir, "missing.crt"),
 		filepath.Join(dir, "missing.key"))
 	if err := os.WriteFile(cfgPath, []byte(yaml), 0o600); err != nil {

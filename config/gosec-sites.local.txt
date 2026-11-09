@@ -7,7 +7,6 @@ G704	pkg/core/mw/oidc.go	req, err := http.NewRequestWithContext(ctx, http.Method
 G704	pkg/core/mw/oidc.go	resp, err := o.client.Do(req)	sends the discovery request built from the configured issuer
 G704	pkg/core/mw/authn_jwks.go	resp, err := client.Get(rawURL) // URL is from trusted operator config	JWKS URL is operator configuration
 G402	pkg/core/sidecar/proxy.go	tlsCfg.InsecureSkipVerify = true // operator-configured	only when the operator sets sidecar.upstream_tls.insecure_skip_verify
-G703	pkg/config/config.go	b, err := os.ReadFile(path)	config file path is the operator's KEEL_CONFIG or KEEL_SECRETS
 G703	pkg/apps/myapp/config.go	b, err := os.ReadFile(path)	example app: config file path from its operator
 G705	pkg/core/acme/manager.go	_, _ = io.WriteString(w, v.(string))	ACME key authorization, served as application/octet-stream (RFC 8555 §8.3)
 G705	pkg/core/protonotice/reject.go	_, _ = w.Write(body)	JSON problem body (RFC 9457), not HTML

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"go.yaml.in/yaml/v3"
@@ -57,10 +56,10 @@ func TestDurationUnmarshalYAML_NonString(t *testing.T) {
 // Default — success path and Fatal path (via injectable ExitFn).
 // ---------------------------------------------------------------------------
 
-// Default with no config/secrets env vars returns a validated config.
+// Default with no config/secrets path knobs returns a validated config.
 func TestDefault_Success(t *testing.T) {
-	t.Setenv("KEEL_CONFIG", "")
-	t.Setenv("KEEL_SECRETS", "")
+	t.Setenv("KEEL_KNOBS_GLOBAL_PATH", "")
+	t.Setenv("KEEL_KNOBS_SECRETS_PATH", "")
 	exited := false
 	log := logging.New(logging.Config{Out: io.Discard})
 	log.ExitFn = func(int) { exited = true }
@@ -76,8 +75,8 @@ func TestDefault_Success(t *testing.T) {
 // Default with a bad config path triggers the Fatal branch (ExitFn invoked).
 func TestDefault_FatalOnLoadError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist.yaml")
-	t.Setenv("KEEL_CONFIG", missing)
-	t.Setenv("KEEL_SECRETS", "")
+	t.Setenv("KEEL_KNOBS_GLOBAL_PATH", missing)
+	t.Setenv("KEEL_KNOBS_SECRETS_PATH", "")
 	exitCode := -1
 	log := logging.New(logging.Config{Out: io.Discard})
 	log.ExitFn = func(code int) { exitCode = code }
@@ -95,7 +94,7 @@ func TestDefault_FatalOnLoadError(t *testing.T) {
 func TestLoad_ValidateError(t *testing.T) {
 	// HTTPS enabled, no cert, ACME disabled → Validate rejects.
 	path := filepath.Join(t.TempDir(), "keel.yaml")
-	if err := os.WriteFile(path, []byte("listeners:\n  https:\n    enabled: true\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("keel:\n  listeners:\n    https:\n      enabled: true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Load(path, "")
@@ -118,84 +117,79 @@ func TestFrom_ValidateError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// load / applyYAMLFile — secrets-file and parse error branches.
+// load — secrets-file and decode error branches.
 // ---------------------------------------------------------------------------
 
-// Load with a missing secrets file surfaces the "secrets file" error branch.
+// Load with a missing secrets file fails in the secrets layer.
 func TestLoad_SecretsFileError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "no-secrets.yaml")
 	_, err := Load("", missing)
 	if err == nil {
 		t.Fatal("expected secrets-file error, got nil")
 	}
-	if !strings.Contains(err.Error(), "secrets file") {
+	if !strings.Contains(err.Error(), "(secrets)") {
 		t.Errorf("expected secrets-file error, got %v", err)
 	}
 }
 
-// applyYAMLFile with schema-valid YAML that fails strict decode (a duration
-// field carrying a non-duration string) surfaces the parse error branch.
-func TestApplyYAMLFile_ParseError(t *testing.T) {
+// A schema-valid value that does not decode into its field (a duration field
+// carrying a non-duration string) fails, naming the key.
+func TestLoad_DecodeError(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bad-duration.yaml")
-	if err := os.WriteFile(path, []byte("timeouts:\n  read: \"notaduration\"\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("keel:\n  timeouts:\n    read: \"notaduration\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := defaults()
-	err := applyYAMLFile(path, &cfg)
-	if err == nil {
-		t.Fatal("expected parse error, got nil")
-	}
-	if !strings.Contains(err.Error(), "parse") {
-		t.Errorf("expected parse error, got %v", err)
+	_, err := Load(path, "")
+	if err == nil || !strings.Contains(err.Error(), "keel.timeouts.read") {
+		t.Fatalf("expected a decode error naming keel.timeouts.read, got %v", err)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// validateAgainstSchema — yaml.Unmarshal error branch.
-// ---------------------------------------------------------------------------
-
-// validateAgainstSchema with non-empty but unparseable YAML (unterminated flow
-// sequence) fails at yaml.Unmarshal rather than at schema validation.
-func TestValidateAgainstSchema_UnmarshalError(t *testing.T) {
-	if err := validateAgainstSchema([]byte("[a, b")); err == nil {
+// Non-empty but unparseable YAML (an unterminated flow sequence) fails.
+func TestLoad_UnmarshalError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bad.yaml")
+	if err := os.WriteFile(path, []byte("[a, b"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path, ""); err == nil {
 		t.Error("expected unmarshal error for unterminated flow sequence, got nil")
 	}
 }
 
-// ---------------------------------------------------------------------------
-// getSchema — error branches.
-//
-// getSchema memoises via sync.Once, so these tests reset the compilation state
-// (and restore a good schema afterwards) to drive each error path in turn.
-// ---------------------------------------------------------------------------
-
-func withFreshSchema(t *testing.T) {
-	t.Helper()
-	origYAML := SchemaYAML
-	reset := func() {
-		compiledSchemaOnce = sync.Once{}
-		compiledSchema = nil
-		compiledSchemaErr = nil
+// An unparseable --knob argument fails before any layer resolves.
+func TestLoad_MalformedKnobArgument(t *testing.T) {
+	SetKnobs([]string{"keel.listeners.http.port"})
+	t.Cleanup(func() { SetKnobs(nil) })
+	if _, err := Load("", ""); err == nil {
+		t.Fatal("expected error for a --knob without =, got nil")
 	}
-	t.Cleanup(func() {
-		SchemaYAML = origYAML
-		reset()
-		// Recompile the real schema so subsequent tests see a valid one.
-		_, _ = getSchema()
-	})
-	reset()
 }
 
-// A malformed embedded schema fails at yaml.Unmarshal; validateAgainstSchema
-// then surfaces the same getSchema error.
-func TestGetSchema_BadEmbeddedSchema(t *testing.T) {
-	withFreshSchema(t)
+// ---------------------------------------------------------------------------
+// newEngine — a bad embedded schema.
+// ---------------------------------------------------------------------------
+
+// withBadSchema replaces the embedded schema for one test.
+func withBadSchema(t *testing.T) {
+	t.Helper()
+	origYAML := SchemaYAML
+	t.Cleanup(func() { SchemaYAML = origYAML })
 	SchemaYAML = []byte("[unterminated")
-	if _, err := getSchema(); err == nil {
-		t.Fatal("expected parse error for bad embedded schema, got nil")
+}
+
+// A bad embedded schema fails Load before any layer resolves.
+func TestLoad_BadEmbeddedSchema(t *testing.T) {
+	withBadSchema(t)
+	if _, err := Load("", ""); err == nil || !strings.Contains(err.Error(), "load schema") {
+		t.Fatalf("expected a load-schema error, got %v", err)
 	}
-	// Drives the getSchema-error branch inside validateAgainstSchema (cached err).
-	if err := validateAgainstSchema([]byte("logging:\n  json: true\n")); err == nil {
-		t.Error("expected schema error from validateAgainstSchema, got nil")
+}
+
+// A bad embedded schema fails From before any override is read.
+func TestFrom_BadEmbeddedSchema(t *testing.T) {
+	withBadSchema(t)
+	c := Defaults()
+	if _, err := From(&c); err == nil {
+		t.Fatal("expected schema error from From, got nil")
 	}
 }

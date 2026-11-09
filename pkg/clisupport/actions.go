@@ -19,6 +19,23 @@ var (
 	flagCheckShred     = flag.Bool("check-shred", false, "print machine-readable JSON security profile and exit")
 )
 
+// knobList collects repeated --knob keel.<path>=<value> arguments.
+type knobList []string
+
+func (k *knobList) String() string { return strings.Join(*k, ",") }
+
+func (k *knobList) Set(v string) error {
+	*k = append(*k, v)
+	return nil
+}
+
+// flagKnobs is the cli layer of the configuration (keelconfig.SetKnobs).
+var flagKnobs knobList
+
+func init() {
+	flag.Var(&flagKnobs, "knob", "set a config value, keel.<path>=<value> (repeatable)")
+}
+
 // Seams for testability; default to the real library funcs (production
 // behavior unchanged). Overridden in tests to exercise error/tag branches.
 var (
@@ -103,6 +120,7 @@ func tryValidateConfig(log *logging.Logger) keelconfig.Config {
 // For library users who load their own config between flag checks.
 func TryVersion(log *logging.Logger) {
 	flag.Parse()
+	keelconfig.SetKnobs(flagKnobs)
 	tryVersion(log)
 	tryCheckIntegrity(log)
 	tryCheckShred(log)
@@ -120,6 +138,7 @@ func TryValidateApp(log *logging.Logger) {
 // loaded keel config for normal startup. Many flags cause process exit.
 func ProcessArgs(log *logging.Logger) keelconfig.Config {
 	flag.Parse()
+	keelconfig.SetKnobs(flagKnobs)
 	tryVersion(log)
 	tryCheckIntegrity(log)
 	tryCheckShred(log)

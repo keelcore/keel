@@ -168,11 +168,12 @@ These are the minimum required by the OpenTelemetry HTTP semantic conventions.
 ### 2.4 Configuration
 
 ```yaml
-tracing:
-  otlp:
-    enabled: true
-    endpoint: "otel-collector:4318"   # OTLP/HTTP collector endpoint (port 4318)
-    insecure: true                    # true = plaintext HTTP; false = HTTPS (default false)
+keel:
+  tracing:
+    otlp:
+      enabled: true
+      endpoint: "otel-collector:4318"   # OTLP/HTTP collector endpoint (port 4318)
+      insecure: true                    # true = plaintext HTTP; false = HTTPS (default false)
 ```
 
 Keel uses the **OTLP/HTTP** exporter (not gRPC). The standard OTLP/HTTP port is **4318**; the gRPC port 4317
@@ -332,11 +333,12 @@ All metric names are prefixed with `metrics.statsd.prefix` (default: `keel`). Fo
 **Configuration:**
 
 ```yaml
-metrics:
-  statsd:
-    enabled: true
-    endpoint: "localhost:8125"   # UDP address of your StatsD server
-    prefix: keel
+keel:
+  metrics:
+    statsd:
+      enabled: true
+      endpoint: "localhost:8125"   # UDP address of your StatsD server
+      prefix: keel
 ```
 
 Keel emits in **DogStatsD format** — tags are appended as `|#key:value,key:value`. This is compatible with
@@ -478,11 +480,12 @@ preserved by setting `cfg.Out = nil` to signal Reconfigure.
 ### 5.5 Remote Log Sink
 
 ```yaml
-logging:
-  remote_sink:
-    enabled: true
-    endpoint: "logs.example.com:514"
-    protocol: http    # "http" (default) or "syslog"
+keel:
+  logging:
+    remote_sink:
+      enabled: true
+      endpoint: "logs.example.com:514"
+      protocol: http    # "http" (default) or "syslog"
 ```
 
 **Build-time opt-out:** `no_remotelog`

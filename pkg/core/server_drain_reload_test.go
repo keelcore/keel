@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -49,21 +48,6 @@ func TestReload_WaitsForStartup(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("Reload did not proceed after startup released the lock")
-	}
-}
-
-// Ignored env overrides are logged as env_ignored with key and value.
-func TestLogIgnoredEnv(t *testing.T) {
-	t.Setenv("KEEL_AUTHN", "flase")
-	cfg, err := config.Load("", "")
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	var out bytes.Buffer
-	s := NewServer(logging.New(logging.Config{Out: &out, JSON: true}), cfg)
-	s.logIgnoredEnv(cfg)
-	if !strings.Contains(out.String(), `"msg":"env_ignored"`) || !strings.Contains(out.String(), "KEEL_AUTHN=flase") {
-		t.Fatalf("missing env_ignored log: %s", out.String())
 	}
 }
 

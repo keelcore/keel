@@ -12,105 +12,153 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// getSchema
+// newEngine
 // ---------------------------------------------------------------------------
 
-// getSchema returns a non-nil schema and no error for the embedded schema.yaml.
-func TestGetSchema_ReturnsSchemaNonNil(t *testing.T) {
-	sc, err := getSchema()
-	if err != nil {
-		t.Fatalf("getSchema: %v", err)
-	}
-	if sc == nil {
-		t.Error("expected non-nil schema")
-	}
-}
-
-// getSchema is idempotent (sync.Once): calling it twice returns the same result.
-func TestGetSchema_Idempotent(t *testing.T) {
-	sc1, err1 := getSchema()
-	sc2, err2 := getSchema()
-	if err1 != nil || err2 != nil {
-		t.Fatalf("getSchema errors: %v / %v", err1, err2)
-	}
-	if sc1 != sc2 {
-		t.Error("expected same schema pointer on second call (sync.Once)")
+// newEngine attaches the embedded schema.yaml without error.
+func TestNewEngine_AttachesEmbeddedSchema(t *testing.T) {
+	if _, err := newEngine(); err != nil {
+		t.Fatalf("newEngine: %v", err)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// validateAgainstSchema
+// Load — one config file, rooted at keel
 // ---------------------------------------------------------------------------
 
-// validateAgainstSchema accepts empty input.
-func TestValidateAgainstSchema_EmptyInput(t *testing.T) {
-	if err := validateAgainstSchema([]byte{}); err != nil {
+// loadFile writes body to a config file and loads it.
+func loadFile(t *testing.T, body string) (Config, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Load(path, "")
+}
+
+// Load accepts an empty config file.
+func TestLoad_EmptyInput(t *testing.T) {
+	if _, err := loadFile(t, ""); err != nil {
 		t.Errorf("expected nil for empty input, got %v", err)
 	}
 }
 
-// validateAgainstSchema accepts whitespace-only input.
-func TestValidateAgainstSchema_WhitespaceOnly(t *testing.T) {
-	if err := validateAgainstSchema([]byte("   \n  ")); err != nil {
+// Load accepts a whitespace-only config file.
+func TestLoad_WhitespaceOnly(t *testing.T) {
+	if _, err := loadFile(t, "   \n  "); err != nil {
 		t.Errorf("expected nil for whitespace-only input, got %v", err)
 	}
 }
 
-// validateAgainstSchema accepts a valid minimal YAML document.
-func TestValidateAgainstSchema_ValidMinimalYAML(t *testing.T) {
-	yaml := []byte("logging:\n  json: true\n")
-	if err := validateAgainstSchema(yaml); err != nil {
-		t.Errorf("expected nil for valid YAML, got %v", err)
+// Load accepts a valid minimal document.
+func TestLoad_ValidMinimalYAML(t *testing.T) {
+	cfg, err := loadFile(t, "keel:\n  logging:\n    json: true\n")
+	if err != nil || !cfg.Logging.JSON {
+		t.Errorf("expected logging.json=true, got %v / %v", cfg.Logging.JSON, err)
 	}
 }
 
-// validateAgainstSchema rejects YAML with unknown top-level keys.
-func TestValidateAgainstSchema_UnknownKey(t *testing.T) {
-	yaml := []byte("not_a_real_key: true\n")
-	if err := validateAgainstSchema(yaml); err == nil {
+// Load rejects an unknown key.
+func TestLoad_UnknownKey(t *testing.T) {
+	if _, err := loadFile(t, "keel:\n  not_a_real_key: true\n"); err == nil {
 		t.Error("expected error for unknown key, got nil")
 	}
 }
 
-// validateAgainstSchema rejects YAML with a value that violates a constraint
-// (e.g. a port value that is a string instead of integer).
-func TestValidateAgainstSchema_TypeViolation(t *testing.T) {
-	yaml := []byte("listeners:\n  http:\n    port: \"not-a-number\"\n")
-	if err := validateAgainstSchema(yaml); err == nil {
+// Load rejects a document without the keel root.
+func TestLoad_NoKeelRoot(t *testing.T) {
+	if _, err := loadFile(t, "logging:\n  json: true\n"); err == nil {
+		t.Error("expected error for a document not rooted at keel, got nil")
+	}
+}
+
+// Load rejects a value that violates a constraint (a string port).
+func TestLoad_TypeViolation(t *testing.T) {
+	if _, err := loadFile(t, "keel:\n  listeners:\n    http:\n      port: \"not-a-number\"\n"); err == nil {
 		t.Error("expected error for type violation, got nil")
 	}
 }
 
-// validateAgainstSchema with a YAML null document (only "~" or "null") returns nil.
-func TestValidateAgainstSchema_NullDocument(t *testing.T) {
-	// A YAML null document unmarshals to nil, which is accepted.
-	if err := validateAgainstSchema([]byte("~\n")); err != nil {
+// Load accepts a YAML null document.
+func TestLoad_NullDocument(t *testing.T) {
+	if _, err := loadFile(t, "~\n"); err != nil {
 		t.Errorf("expected nil for null YAML document, got %v", err)
 	}
 }
 
-// validateAgainstSchema with invalid (non-parseable) YAML returns an error.
-func TestValidateAgainstSchema_InvalidYAML(t *testing.T) {
+// Load rejects invalid (non-parseable) YAML.
+func TestLoad_InvalidYAML(t *testing.T) {
 	// Tabs at the start of a YAML mapping value are invalid in strict YAML.
-	invalid := []byte("key:\t value\n")
-	if err := validateAgainstSchema(invalid); err == nil {
+	if _, err := loadFile(t, "key:\t value\n"); err == nil {
 		t.Error("expected error for invalid YAML, got nil")
 	}
 }
 
-// validateAgainstSchema rejects a document that is not a mapping.
-func TestValidateAgainstSchema_NotAMapping(t *testing.T) {
-	err := validateAgainstSchema([]byte("- logging\n"))
-	if err == nil || !strings.Contains(err.Error(), "not a mapping") {
-		t.Errorf("expected not-a-mapping error, got %v", err)
+// Load rejects a document that is not a mapping.
+func TestLoad_NotAMapping(t *testing.T) {
+	if _, err := loadFile(t, "- logging\n"); err == nil {
+		t.Error("expected error for a document that is not a mapping, got nil")
 	}
 }
 
-// validateAgainstSchema rejects a scalar where the schema has a nested object.
-func TestValidateAgainstSchema_ScalarForObject(t *testing.T) {
-	err := validateAgainstSchema([]byte("listeners:\n  http: 8080\n"))
+// Load rejects a scalar where the schema has a nested object.
+func TestLoad_ScalarForObject(t *testing.T) {
+	_, err := loadFile(t, "keel:\n  listeners:\n    http: 8080\n")
 	if err == nil || !strings.Contains(err.Error(), knobs.CodeInvalidType) {
 		t.Errorf("expected %s error, got %v", knobs.CodeInvalidType, err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Load — layers knobs resolves itself
+// ---------------------------------------------------------------------------
+
+// writeFile writes body to name in a temp dir with mode, and returns its path.
+func writeFile(t *testing.T, name, body string, mode os.FileMode) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(body), mode); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// With no path given, the global file comes from KEEL_KNOBS_GLOBAL_PATH.
+func TestLoad_GlobalPathKnobFromEnv(t *testing.T) {
+	t.Setenv("KEEL_KNOBS_GLOBAL_PATH", writeFile(t, "config.yaml", "keel:\n  logging:\n    level: debug\n", 0o600))
+	cfg, err := Load("", "")
+	if err != nil || cfg.Logging.Level != "debug" {
+		t.Fatalf("Load = %q, %v; want level debug from the global file", cfg.Logging.Level, err)
+	}
+}
+
+// A --knob argument overrides the same key from env.
+func TestLoad_KnobArgumentOverridesEnv(t *testing.T) {
+	t.Setenv("KEEL_LOGGING_LEVEL", "warn")
+	SetKnobs([]string{"keel.logging.level=debug"})
+	t.Cleanup(func() { SetKnobs(nil) })
+	cfg, err := Load("", "")
+	if err != nil || cfg.Logging.Level != "debug" {
+		t.Fatalf("Load = %q, %v; want level debug from --knob", cfg.Logging.Level, err)
+	}
+}
+
+// An owner-only secrets file is read, and overrides the config file.
+func TestLoad_SecretsFile(t *testing.T) {
+	cfgPath := writeFile(t, "config.yaml", "keel:\n  admin:\n    token: from-config\n", 0o600)
+	secrets := writeFile(t, "secrets.yaml", "keel:\n  admin:\n    token: from-secrets\n", 0o600)
+	cfg, err := Load(cfgPath, secrets)
+	if err != nil || cfg.Admin.Token != "from-secrets" {
+		t.Fatalf("Load = %q, %v; want the token from the secrets file", cfg.Admin.Token, err)
+	}
+}
+
+// A secrets file others may read is refused.
+func TestLoad_SecretsFileNotOwnerOnly(t *testing.T) {
+	secrets := writeFile(t, "secrets.yaml", "keel:\n  admin:\n    token: s\n", 0o644)
+	_, err := Load("", secrets)
+	if err == nil || !strings.Contains(err.Error(), knobs.CodeSecretsFilePermissions) {
+		t.Fatalf("Load = %v, want %s", err, knobs.CodeSecretsFilePermissions)
 	}
 }
 
@@ -130,7 +178,7 @@ func TestLoad_MissingFile_ReturnsError(t *testing.T) {
 func TestLoad_ValidFile_ReturnsConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "keel.yaml")
-	if err := os.WriteFile(path, []byte("logging:\n  json: true\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("keel:\n  logging:\n    json: true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(path, "")
@@ -146,7 +194,7 @@ func TestLoad_ValidFile_ReturnsConfig(t *testing.T) {
 func TestLoad_InvalidYAML_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "keel.yaml")
-	if err := os.WriteFile(path, []byte("not_valid_key: true\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("keel:\n  not_valid_key: true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err := Load(path, "")
@@ -254,116 +302,85 @@ func TestLoad_EmptyYAMLFile(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// applyEnv — env var override functions
+// env — overrides read by keelcore/knobs, one variable per schema
+// path (listeners.http.port is KEEL_LISTENERS_HTTP_PORT).
 // ---------------------------------------------------------------------------
 
-// applyBool sets the field when the env var is a valid bool string.
-func TestApplyBool_ValidBool(t *testing.T) {
-	t.Setenv("KEEL_TEST_BOOL_APPLY", "true")
-	var v bool
-	applyBool("KEEL_TEST_BOOL_APPLY", &v)
-	if !v {
-		t.Error("expected applyBool to set true")
+// Load sets each field from the variable named after its schema path.
+func TestEnv_SchemaPathNames(t *testing.T) {
+	t.Setenv("KEEL_LISTENERS_HTTP_PORT", "9999")
+	t.Setenv("KEEL_SECURITY_MAX_REQUEST_BODY_BYTES", "1048576")
+	t.Setenv("KEEL_BACKPRESSURE_HIGH_WATERMARK", "0.85")
+	t.Setenv("KEEL_LOGGING_LEVEL", "debug")
+	t.Setenv("KEEL_TIMEOUTS_READ", "5s")
+	t.Setenv("KEEL_AUTHN_TRUSTED_IDS", "a, b , c")
+	c, err := load("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Listeners.HTTP.Port != 9999 || c.Security.MaxRequestBodyBytes != 1048576 ||
+		c.Backpressure.HighWatermark != 0.85 || c.Logging.Level != "debug" ||
+		c.Timeouts.Read.Duration != 5*time.Second || strings.Join(c.Authn.TrustedIDs, ",") != "a,b,c" {
+		t.Fatalf("env not applied: %+v", c)
 	}
 }
 
-// applyBool ignores invalid bool strings.
-func TestApplyBool_InvalidBool_NoChange(t *testing.T) {
-	t.Setenv("KEEL_TEST_BOOL_INVALID", "not-a-bool")
-	v := true
-	applyBool("KEEL_TEST_BOOL_INVALID", &v)
-	if !v {
-		t.Error("expected applyBool to leave value unchanged for invalid input")
+// Load leaves a field alone when its variable is empty.
+func TestEnv_EmptyIsUnset(t *testing.T) {
+	t.Setenv("KEEL_LOGGING_LEVEL", "")
+	c, err := load("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Logging.Level != Defaults().Logging.Level {
+		t.Errorf("Level = %q, want the default", c.Logging.Level)
 	}
 }
 
-// applyInt sets the field when the env var is a valid integer string.
-func TestApplyInt_ValidInt(t *testing.T) {
-	t.Setenv("KEEL_TEST_INT_APPLY", "9999")
-	var v int
-	applyInt("KEEL_TEST_INT_APPLY", &v)
-	if v != 9999 {
-		t.Errorf("expected 9999, got %d", v)
+// A flat pre-knobs name such as KEEL_HTTP_PORT names no schema path and has no effect.
+func TestEnv_FlatNameHasNoEffect(t *testing.T) {
+	t.Setenv("KEEL_HTTP_PORT", "9999")
+	c, err := load("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Listeners.HTTP.Port != Defaults().Listeners.HTTP.Port {
+		t.Errorf("Port = %d, want the default", c.Listeners.HTTP.Port)
 	}
 }
 
-// applyInt64 sets the field from env var.
-func TestApplyInt64_ValidInt64(t *testing.T) {
-	t.Setenv("KEEL_TEST_INT64_APPLY", "1048576")
-	var v int64
-	applyInt64("KEEL_TEST_INT64_APPLY", &v)
-	if v != 1048576 {
-		t.Errorf("expected 1048576, got %d", v)
+// An unparseable value fails closed, naming the key it was meant for.
+func TestEnv_Malformed_FailsClosed(t *testing.T) {
+	for name, tc := range map[string]struct{ env, value, key string }{
+		"bool":     {"KEEL_AUTHN_ENABLED", "flase", "keel.authn.enabled"},
+		"int":      {"KEEL_LISTENERS_HTTP_PORT", "eighty", "keel.listeners.http.port"},
+		"number":   {"KEEL_BACKPRESSURE_HIGH_WATERMARK", "high", "keel.backpressure.high_watermark"},
+		"duration": {"KEEL_TIMEOUTS_SHUTDOWN_DRAIN", "soon", "shutdown_drain"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(tc.env, tc.value)
+			_, err := load("", "")
+			if err == nil || !strings.Contains(err.Error(), tc.key) {
+				t.Fatalf("load = %v, want an error naming %s", err, tc.key)
+			}
+		})
 	}
 }
 
-// applyFloat64 sets the field from env var.
-func TestApplyFloat64_ValidFloat(t *testing.T) {
-	t.Setenv("KEEL_TEST_FLOAT_APPLY", "0.85")
-	var v float64
-	applyFloat64("KEEL_TEST_FLOAT_APPLY", &v)
-	if v != 0.85 {
-		t.Errorf("expected 0.85, got %f", v)
+// From fails closed on an unparseable env override.
+func TestFrom_MalformedEnv_FailsClosed(t *testing.T) {
+	t.Setenv("KEEL_LISTENERS_HTTP_PORT", "eighty")
+	c := Defaults()
+	if _, err := From(&c); err == nil {
+		t.Fatal("expected From to fail on KEEL_LISTENERS_HTTP_PORT=eighty")
 	}
 }
 
-// applyString sets the field when the env var is non-empty.
-func TestApplyString_NonEmpty(t *testing.T) {
-	t.Setenv("KEEL_TEST_STRING_APPLY", "hello")
-	var v string
-	applyString("KEEL_TEST_STRING_APPLY", &v)
-	if v != "hello" {
-		t.Errorf("expected 'hello', got %q", v)
-	}
-}
-
-// applyString does nothing when the env var is empty.
-func TestApplyString_Empty_NoChange(t *testing.T) {
-	t.Setenv("KEEL_TEST_STRING_EMPTY", "")
-	v := "original"
-	applyString("KEEL_TEST_STRING_EMPTY", &v)
-	if v != "original" {
-		t.Errorf("expected 'original' unchanged, got %q", v)
-	}
-}
-
-// applyDuration sets the field from env var.
-func TestApplyDuration_ValidDuration(t *testing.T) {
-	t.Setenv("KEEL_TEST_DUR_APPLY", "5s")
-	var v Duration
-	applyDuration("KEEL_TEST_DUR_APPLY", &v)
-	if v.Duration.Seconds() != 5 {
-		t.Errorf("expected 5s, got %v", v)
-	}
-}
-
-// applyDuration ignores invalid duration strings.
-func TestApplyDuration_InvalidDuration_NoChange(t *testing.T) {
-	t.Setenv("KEEL_TEST_DUR_INVALID", "not-a-duration")
-	v := DurationOf(0)
-	applyDuration("KEEL_TEST_DUR_INVALID", &v)
-	if v.Duration != 0 {
-		t.Errorf("expected zero duration unchanged, got %v", v)
-	}
-}
-
-// applyCSV splits comma-separated values and sets the slice.
-func TestApplyCSV_ValidCSV(t *testing.T) {
-	t.Setenv("KEEL_TEST_CSV_APPLY", "a, b , c")
-	var v []string
-	applyCSV("KEEL_TEST_CSV_APPLY", &v)
-	if len(v) != 3 {
-		t.Errorf("expected 3 values, got %d: %v", len(v), v)
-	}
-}
-
-// applyCSV does nothing when env var is empty.
-func TestApplyCSV_Empty_NoChange(t *testing.T) {
-	t.Setenv("KEEL_TEST_CSV_EMPTY", "")
-	v := []string{"existing"}
-	applyCSV("KEEL_TEST_CSV_EMPTY", &v)
-	if len(v) != 1 || v[0] != "existing" {
-		t.Errorf("expected unchanged slice, got %v", v)
+// Load fails closed on an unparseable env override instead of keeping the default.
+func TestLoad_MalformedEnv_FailsClosed(t *testing.T) {
+	t.Setenv("KEEL_AUTHN_ENABLED", "flase")
+	if _, err := Load("", ""); err == nil {
+		t.Fatal("expected Load to fail on KEEL_AUTHN_ENABLED=flase")
 	}
 }
 

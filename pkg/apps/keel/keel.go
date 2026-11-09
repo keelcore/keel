@@ -26,11 +26,8 @@ func Run(log *logging.Logger) int {
 		log = logging.New(logging.Config{JSON: true})
 	}
 	cfg := clisupport.ProcessArgs(log)
-	srv := core.NewServer(
-		log, cfg, core.WithDefaultRegistrar(),
-		// The same files startup read, so SIGHUP and /admin/reload re-read them.
-		core.WithConfigPaths(os.Getenv("KEEL_CONFIG"), os.Getenv("KEEL_SECRETS")),
-	)
+	// No config paths: SIGHUP and /admin/reload resolve the same layers startup did.
+	srv := core.NewServer(log, cfg, core.WithDefaultRegistrar())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

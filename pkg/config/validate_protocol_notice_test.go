@@ -52,14 +52,16 @@ func TestValidate_ProtocolNotice(t *testing.T) {
 }
 
 func TestApplyEnv_ProtocolNotice(t *testing.T) {
-	t.Setenv("KEEL_MIN_HTTP_VERSION", "2")
-	t.Setenv("KEEL_ALT_SVC_MAX_AGE", "60")
+	t.Setenv("KEEL_SECURITY_MIN_HTTP_VERSION", "2")
+	t.Setenv("KEEL_SECURITY_ALT_SVC_MAX_AGE", "60")
 	t.Setenv("KEEL_TLS_NOTICE_BASE_URL", "https://n.example")
 	t.Setenv("KEEL_TLS_NOTICE_HELP_URL", "https://h.example")
 	t.Setenv("KEEL_TLS_NOTICE_CONTACT", "ops@example.com")
 	t.Setenv("KEEL_TLS_CLIENT_CERT_NOTICE", "true")
-	c := Defaults()
-	applyEnv(&c)
+	c, err := load("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if c.Security.MinHTTPVersion != "2" || c.Security.AltSvcMaxAge != 60 || !c.TLS.ClientCertNotice ||
 		c.TLS.Notice != (NoticeConfig{BaseURL: "https://n.example", HelpURL: "https://h.example", Contact: "ops@example.com"}) {
 		t.Fatalf("env not applied: %+v %+v", c.Security, c.TLS)

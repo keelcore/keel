@@ -190,7 +190,7 @@ func TestLoad_ValidConfigFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(f.Name())
-	_, _ = f.WriteString("listeners:\n  http:\n    enabled: false\n")
+	_, _ = f.WriteString("keel:\n  listeners:\n    http:\n      enabled: false\n")
 	f.Close()
 
 	cfg, err := config.Load(f.Name(), "")
@@ -208,7 +208,7 @@ func TestLoad_ValidSecretsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(f.Name())
-	_, _ = f.WriteString("authn:\n  my_id: myservice\n")
+	_, _ = f.WriteString("keel:\n  authn:\n    my_id: myservice\n")
 	f.Close()
 
 	cfg, err := config.Load("", f.Name())
@@ -248,7 +248,7 @@ func TestLoad_ValidationError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Remove(f.Name())
-	_, _ = f.WriteString("listeners:\n  https:\n    enabled: true\n")
+	_, _ = f.WriteString("keel:\n  listeners:\n    https:\n      enabled: true\n")
 	f.Close()
 
 	_, err = config.Load(f.Name(), "")
@@ -262,8 +262,8 @@ func TestLoad_ValidationError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFrom_EnvOverridesPort(t *testing.T) {
-	t.Setenv("KEEL_HTTP_PORT", "19080")
-	defer os.Unsetenv("KEEL_HTTP_PORT")
+	t.Setenv("KEEL_LISTENERS_HTTP_PORT", "19080")
+	defer os.Unsetenv("KEEL_LISTENERS_HTTP_PORT")
 
 	base := config.Defaults()
 	cfg, err := config.From(&base)
@@ -287,8 +287,8 @@ func TestFrom_ValidationError(t *testing.T) {
 func TestFrom_DoesNotMutateInput(t *testing.T) {
 	base := config.Defaults()
 	original := base.Listeners.HTTP.Port
-	t.Setenv("KEEL_HTTP_PORT", "19081")
-	defer os.Unsetenv("KEEL_HTTP_PORT")
+	t.Setenv("KEEL_LISTENERS_HTTP_PORT", "19081")
+	defer os.Unsetenv("KEEL_LISTENERS_HTTP_PORT")
 
 	_, _ = config.From(&base)
 	if base.Listeners.HTTP.Port != original {
@@ -301,12 +301,12 @@ func TestFrom_DoesNotMutateInput(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestApplyEnv_Bool_True(t *testing.T) {
-	t.Setenv("KEEL_HTTPS_ENABLED", "true")
-	defer os.Unsetenv("KEEL_HTTPS_ENABLED")
-	t.Setenv("KEEL_TLS_CERT", "c.pem")
-	defer os.Unsetenv("KEEL_TLS_CERT")
-	t.Setenv("KEEL_TLS_KEY", "k.pem")
-	defer os.Unsetenv("KEEL_TLS_KEY")
+	t.Setenv("KEEL_LISTENERS_HTTPS_ENABLED", "true")
+	defer os.Unsetenv("KEEL_LISTENERS_HTTPS_ENABLED")
+	t.Setenv("KEEL_TLS_CERT_FILE", "c.pem")
+	defer os.Unsetenv("KEEL_TLS_CERT_FILE")
+	t.Setenv("KEEL_TLS_KEY_FILE", "k.pem")
+	defer os.Unsetenv("KEEL_TLS_KEY_FILE")
 
 	base := config.Defaults()
 	cfg, err := config.From(&base)
@@ -318,24 +318,19 @@ func TestApplyEnv_Bool_True(t *testing.T) {
 	}
 }
 
-func TestApplyEnv_Bool_Invalid_IsIgnored(t *testing.T) {
-	t.Setenv("KEEL_HTTP_ENABLED", "notabool")
-	defer os.Unsetenv("KEEL_HTTP_ENABLED")
+func TestApplyEnv_Bool_Invalid_FailsClosed(t *testing.T) {
+	t.Setenv("KEEL_LISTENERS_HTTP_ENABLED", "notabool")
+	defer os.Unsetenv("KEEL_LISTENERS_HTTP_ENABLED")
 
 	base := config.Defaults()
-	cfg, err := config.From(&base)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// invalid bool is silently ignored; default (true) is retained
-	if !cfg.Listeners.HTTP.Enabled {
-		t.Error("HTTP should retain default true when env value is invalid")
+	if _, err := config.From(&base); err == nil {
+		t.Error("expected an error for an invalid bool env value")
 	}
 }
 
 func TestApplyEnv_Int_Valid(t *testing.T) {
-	t.Setenv("KEEL_HEALTH_PORT", "19091")
-	defer os.Unsetenv("KEEL_HEALTH_PORT")
+	t.Setenv("KEEL_LISTENERS_HEALTH_PORT", "19091")
+	defer os.Unsetenv("KEEL_LISTENERS_HEALTH_PORT")
 
 	base := config.Defaults()
 	cfg, err := config.From(&base)
@@ -347,23 +342,19 @@ func TestApplyEnv_Int_Valid(t *testing.T) {
 	}
 }
 
-func TestApplyEnv_Int_Invalid_IsIgnored(t *testing.T) {
-	t.Setenv("KEEL_HEALTH_PORT", "notanint")
-	defer os.Unsetenv("KEEL_HEALTH_PORT")
+func TestApplyEnv_Int_Invalid_FailsClosed(t *testing.T) {
+	t.Setenv("KEEL_LISTENERS_HEALTH_PORT", "notanint")
+	defer os.Unsetenv("KEEL_LISTENERS_HEALTH_PORT")
 
 	base := config.Defaults()
-	cfg, err := config.From(&base)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.Listeners.Health.Port != ports.HEALTH {
-		t.Errorf("health port should retain default %d, got %d", ports.HEALTH, cfg.Listeners.Health.Port)
+	if _, err := config.From(&base); err == nil {
+		t.Error("expected an error for an invalid int env value")
 	}
 }
 
 func TestApplyEnv_Int64_Valid(t *testing.T) {
-	t.Setenv("KEEL_MAX_REQ_BODY_BYTES", "1048576")
-	defer os.Unsetenv("KEEL_MAX_REQ_BODY_BYTES")
+	t.Setenv("KEEL_SECURITY_MAX_REQUEST_BODY_BYTES", "1048576")
+	defer os.Unsetenv("KEEL_SECURITY_MAX_REQUEST_BODY_BYTES")
 
 	base := config.Defaults()
 	cfg, err := config.From(&base)
@@ -375,24 +366,19 @@ func TestApplyEnv_Int64_Valid(t *testing.T) {
 	}
 }
 
-func TestApplyEnv_Int64_Invalid_IsIgnored(t *testing.T) {
-	t.Setenv("KEEL_MAX_REQ_BODY_BYTES", "bad")
-	defer os.Unsetenv("KEEL_MAX_REQ_BODY_BYTES")
+func TestApplyEnv_Int64_Invalid_FailsClosed(t *testing.T) {
+	t.Setenv("KEEL_SECURITY_MAX_REQUEST_BODY_BYTES", "bad")
+	defer os.Unsetenv("KEEL_SECURITY_MAX_REQUEST_BODY_BYTES")
 
 	base := config.Defaults()
-	orig := base.Security.MaxRequestBodyBytes
-	cfg, err := config.From(&base)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.Security.MaxRequestBodyBytes != orig {
-		t.Error("invalid int64 env should be ignored")
+	if _, err := config.From(&base); err == nil {
+		t.Error("expected an error for an invalid int64 env value")
 	}
 }
 
 func TestApplyEnv_Float64_Valid(t *testing.T) {
-	t.Setenv("KEEL_PRESSURE_HIGH", "0.90")
-	defer os.Unsetenv("KEEL_PRESSURE_HIGH")
+	t.Setenv("KEEL_BACKPRESSURE_HIGH_WATERMARK", "0.90")
+	defer os.Unsetenv("KEEL_BACKPRESSURE_HIGH_WATERMARK")
 
 	base := config.Defaults()
 	cfg, err := config.From(&base)
@@ -404,24 +390,19 @@ func TestApplyEnv_Float64_Valid(t *testing.T) {
 	}
 }
 
-func TestApplyEnv_Float64_Invalid_IsIgnored(t *testing.T) {
-	t.Setenv("KEEL_PRESSURE_HIGH", "bad")
-	defer os.Unsetenv("KEEL_PRESSURE_HIGH")
+func TestApplyEnv_Float64_Invalid_FailsClosed(t *testing.T) {
+	t.Setenv("KEEL_BACKPRESSURE_HIGH_WATERMARK", "bad")
+	defer os.Unsetenv("KEEL_BACKPRESSURE_HIGH_WATERMARK")
 
 	base := config.Defaults()
-	orig := base.Backpressure.HighWatermark
-	cfg, err := config.From(&base)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.Backpressure.HighWatermark != orig {
-		t.Error("invalid float64 env should be ignored")
+	if _, err := config.From(&base); err == nil {
+		t.Error("expected an error for an invalid float64 env value")
 	}
 }
 
 func TestApplyEnv_String_Set(t *testing.T) {
-	t.Setenv("KEEL_LOG_LEVEL", "debug")
-	defer os.Unsetenv("KEEL_LOG_LEVEL")
+	t.Setenv("KEEL_LOGGING_LEVEL", "debug")
+	defer os.Unsetenv("KEEL_LOGGING_LEVEL")
 
 	base := config.Defaults()
 	cfg, err := config.From(&base)
@@ -434,8 +415,8 @@ func TestApplyEnv_String_Set(t *testing.T) {
 }
 
 func TestApplyEnv_Duration_Valid(t *testing.T) {
-	t.Setenv("KEEL_READ_TIMEOUT", "45s")
-	defer os.Unsetenv("KEEL_READ_TIMEOUT")
+	t.Setenv("KEEL_TIMEOUTS_READ", "45s")
+	defer os.Unsetenv("KEEL_TIMEOUTS_READ")
 
 	base := config.Defaults()
 	cfg, err := config.From(&base)
@@ -447,24 +428,19 @@ func TestApplyEnv_Duration_Valid(t *testing.T) {
 	}
 }
 
-func TestApplyEnv_Duration_Invalid_IsIgnored(t *testing.T) {
-	t.Setenv("KEEL_READ_TIMEOUT", "notaduration")
-	defer os.Unsetenv("KEEL_READ_TIMEOUT")
+func TestApplyEnv_Duration_Invalid_FailsClosed(t *testing.T) {
+	t.Setenv("KEEL_TIMEOUTS_READ", "notaduration")
+	defer os.Unsetenv("KEEL_TIMEOUTS_READ")
 
 	base := config.Defaults()
-	orig := base.Timeouts.Read.Duration
-	cfg, err := config.From(&base)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.Timeouts.Read.Duration != orig {
-		t.Error("invalid duration env should be ignored")
+	if _, err := config.From(&base); err == nil {
+		t.Error("expected an error for an invalid duration env value")
 	}
 }
 
 func TestApplyEnv_CSV_Multi(t *testing.T) {
-	t.Setenv("KEEL_TRUSTED_IDS", "svc-a, svc-b , svc-c")
-	defer os.Unsetenv("KEEL_TRUSTED_IDS")
+	t.Setenv("KEEL_AUTHN_TRUSTED_IDS", "svc-a, svc-b , svc-c")
+	defer os.Unsetenv("KEEL_AUTHN_TRUSTED_IDS")
 
 	base := config.Defaults()
 	cfg, err := config.From(&base)
@@ -480,8 +456,8 @@ func TestApplyEnv_CSV_Multi(t *testing.T) {
 }
 
 func TestApplyEnv_CSV_AllEmpty_IsIgnored(t *testing.T) {
-	t.Setenv("KEEL_TRUSTED_IDS", " , , ")
-	defer os.Unsetenv("KEEL_TRUSTED_IDS")
+	t.Setenv("KEEL_AUTHN_TRUSTED_IDS", " , , ")
+	defer os.Unsetenv("KEEL_AUTHN_TRUSTED_IDS")
 
 	base := config.Defaults()
 	cfg, err := config.From(&base)
@@ -594,7 +570,7 @@ func TestLoad_NestedUnknownFieldRejected(t *testing.T) {
 		t.Fatalf("create temp: %v", err)
 	}
 	defer os.Remove(f.Name())
-	if _, err := f.WriteString("listeners:\n  http:\n    typo_port: 8080\n"); err != nil {
+	if _, err := f.WriteString("keel:\n  listeners:\n    http:\n      typo_port: 8080\n"); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	f.Close()
@@ -624,70 +600,70 @@ func writeConfig(t *testing.T, content string) string {
 }
 
 func TestLoad_SchemaPortOutOfRange(t *testing.T) {
-	_, err := config.Load(writeConfig(t, "listeners:\n  http:\n    port: 0\n"), "")
+	_, err := config.Load(writeConfig(t, "keel:\n  listeners:\n    http:\n      port: 0\n"), "")
 	if err == nil {
 		t.Fatal("expected error for port 0, got nil")
 	}
 }
 
 func TestLoad_SchemaPortUpperBound(t *testing.T) {
-	_, err := config.Load(writeConfig(t, "listeners:\n  http:\n    port: 65536\n"), "")
+	_, err := config.Load(writeConfig(t, "keel:\n  listeners:\n    http:\n      port: 65536\n"), "")
 	if err == nil {
 		t.Fatal("expected error for port 65536, got nil")
 	}
 }
 
 func TestLoad_SchemaWatermarkOutOfRange(t *testing.T) {
-	_, err := config.Load(writeConfig(t, "backpressure:\n  high_watermark: 1.5\n"), "")
+	_, err := config.Load(writeConfig(t, "keel:\n  backpressure:\n    high_watermark: 1.5\n"), "")
 	if err == nil {
 		t.Fatal("expected error for watermark > 1.0, got nil")
 	}
 }
 
 func TestLoad_SchemaNegativeMaxConcurrent(t *testing.T) {
-	_, err := config.Load(writeConfig(t, "limits:\n  max_concurrent: -1\n"), "")
+	_, err := config.Load(writeConfig(t, "keel:\n  limits:\n    max_concurrent: -1\n"), "")
 	if err == nil {
 		t.Fatal("expected error for negative max_concurrent, got nil")
 	}
 }
 
 func TestLoad_SchemaInvalidXFFMode(t *testing.T) {
-	_, err := config.Load(writeConfig(t, "sidecar:\n  xff_mode: passthrough\n"), "")
+	_, err := config.Load(writeConfig(t, "keel:\n  sidecar:\n    xff_mode: passthrough\n"), "")
 	if err == nil {
 		t.Fatal("expected error for unknown xff_mode, got nil")
 	}
 }
 
 func TestLoad_SchemaInvalidLoggingLevel(t *testing.T) {
-	_, err := config.Load(writeConfig(t, "logging:\n  level: trace\n"), "")
+	_, err := config.Load(writeConfig(t, "keel:\n  logging:\n    level: trace\n"), "")
 	if err == nil {
 		t.Fatal("expected error for unknown logging.level, got nil")
 	}
 }
 
 func TestLoad_SchemaInvalidExtAuthzTransport(t *testing.T) {
-	_, err := config.Load(writeConfig(t, "ext_authz:\n  transport: grpc\n"), "")
+	_, err := config.Load(writeConfig(t, "keel:\n  ext_authz:\n    transport: grpc\n"), "")
 	if err == nil {
 		t.Fatal("expected error for unknown ext_authz.transport, got nil")
 	}
 }
 
 func TestLoad_SchemaInvalidRemoteSinkProtocol(t *testing.T) {
-	_, err := config.Load(writeConfig(t, "logging:\n  remote_sink:\n    protocol: grpc\n"), "")
+	_, err := config.Load(writeConfig(t, "keel:\n  logging:\n    remote_sink:\n      protocol: grpc\n"), "")
 	if err == nil {
 		t.Fatal("expected error for unknown remote_sink.protocol, got nil")
 	}
 }
 
 func TestLoad_SchemaFailureThresholdZero(t *testing.T) {
-	_, err := config.Load(writeConfig(t, "sidecar:\n  circuit_breaker:\n    failure_threshold: 0\n"), "")
+	_, err := config.Load(writeConfig(t, "keel:\n  sidecar:\n    circuit_breaker:\n      failure_threshold: 0\n"), "")
 	if err == nil {
 		t.Fatal("expected error for failure_threshold 0, got nil")
 	}
 }
 
 func TestLoad_SchemaValidConfigPassesValidation(t *testing.T) {
-	_, err := config.Load(writeConfig(t, "logging:\n  level: debug\n"), "")
+	_, err := config.Load(writeConfig(t, "keel:\n  logging:\n    level: debug\n"), "")
 	if err != nil {
 		t.Fatalf("valid config should pass schema validation, got: %v", err)
 	}

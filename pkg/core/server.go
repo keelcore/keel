@@ -169,7 +169,6 @@ func (s *Server) Run(ctx context.Context) {
 	// Startup reads s.cfg throughout; a reload (SIGHUP or /admin/reload) arriving
 	// meanwhile waits on reloadMu until startup completes instead of racing it.
 	s.reloadMu.Lock()
-	s.logIgnoredEnv(s.cfg)
 	if err := acmeValidate(s.cfg); err != nil {
 		s.logger.Fatal("acme_config_invalid", map[string]any{"err": err.Error()})
 	}

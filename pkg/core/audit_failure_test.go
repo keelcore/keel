@@ -157,7 +157,7 @@ func TestReload_AuditFailureWarns(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "audit.log")
 	yaml := filepath.Join(dir, "keel.yaml")
-	body := "audit:\n  enabled: true\n  file: " + filepath.Join(dir, "missing", "audit.log") + "\n"
+	body := "keel:\n  audit:\n    enabled: true\n    file: " + filepath.Join(dir, "missing", "audit.log") + "\n"
 	if err := os.WriteFile(yaml, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

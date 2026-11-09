@@ -24,7 +24,7 @@ setup() {
 minimal_config() {
   local f
   f="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n' > "${f}"
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n' > "${f}"
   printf '%s' "${f}"
 }
 
@@ -68,8 +68,8 @@ minimal_config() {
 @test "--validate with invalid config exits non-zero" {
   local bad_config
   bad_config="$(mktemp)"
-  printf 'listeners:\n  https:\n    enabled: true\n' > "${bad_config}"
-  run env KEEL_CONFIG="${bad_config}" keel-min --validate
+  printf 'keel:\n  listeners:\n    https:\n      enabled: true\n' > "${bad_config}"
+  run env KEEL_KNOBS_GLOBAL_PATH="${bad_config}" keel-min --validate
   rm -f "${bad_config}"
   [ "${status}" -ne 0 ]
 }
@@ -87,7 +87,7 @@ minimal_config() {
 @test "SIGTERM causes clean shutdown (exit 0)" {
   local config_file pid
   config_file="$(minimal_config)"
-  KEEL_CONFIG="${config_file}" keel-min &
+  KEEL_KNOBS_GLOBAL_PATH="${config_file}" keel-min &
   pid="${!}"
   sleep 0.3
   kill -TERM "${pid}"
@@ -100,7 +100,7 @@ minimal_config() {
 @test "SIGHUP reloads without crashing; SIGTERM then exits 0" {
   local config_file pid
   config_file="$(minimal_config)"
-  KEEL_CONFIG="${config_file}" keel-min &
+  KEEL_KNOBS_GLOBAL_PATH="${config_file}" keel-min &
   pid="${!}"
   sleep 0.3
   kill -HUP "${pid}"
@@ -125,8 +125,8 @@ cert_dir() {
 @test "HTTP listener: GET / returns 'keel: ok'" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: true\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: false\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
   local body
@@ -140,8 +140,8 @@ cert_dir() {
 @test "health listener: GET /healthz returns 'ok'" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: true\n  ready:\n    enabled: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: true\n    ready:\n      enabled: false\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9091
   local body
@@ -155,8 +155,8 @@ cert_dir() {
 @test "ready listener: GET /readyz returns 'ready'" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: true\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9092
   local body
@@ -173,9 +173,9 @@ cert_dir() {
   [ -f "${cert_dir}/server.crt" ] || skip "TLS certs not found; run 'make generate-certs' first"
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n' \
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    https:\n      enabled: true\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: false\n  tls:\n    cert_file: %s\n    key_file: %s\n' \
     "${cert_dir}/server.crt" "${cert_dir}/server.key" > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8443
   local body
@@ -193,10 +193,10 @@ cert_dir() {
   [ -f "${cert_dir}/server.crt" ] || skip "TLS certs not found; run 'make generate-certs' first"
   local cfg pid bin max_ver min_ver
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  h3:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n' \
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    https:\n      enabled: true\n    h3:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: false\n  tls:\n    cert_file: %s\n    key_file: %s\n' \
     "${cert_dir}/server.crt" "${cert_dir}/server.key" > "${cfg}"
   for bin in keel-max keel-min; do
-    KEEL_CONFIG="${cfg}" "${bin}" > "${BATS_TEST_TMPDIR}/${bin}.log" 2>&1 &
+    KEEL_KNOBS_GLOBAL_PATH="${cfg}" "${bin}" > "${BATS_TEST_TMPDIR}/${bin}.log" 2>&1 &
     pid="${!}"
     wait_for_keel_listener "${BATS_TEST_TMPDIR}/${bin}.log" 8443
     if [ "${bin}" = 'keel-max' ]; then
@@ -218,9 +218,9 @@ cert_dir() {
   [ -f "${cert_dir}/client.crt" ] || skip "TLS certs not found; run 'make generate-certs' first"
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\ntls:\n  cert_file: %s\n  key_file: %s\n  client_ca_file: %s\n' \
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    https:\n      enabled: true\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: false\n  tls:\n    cert_file: %s\n    key_file: %s\n    client_ca_file: %s\n' \
     "${cert_dir}/server.crt" "${cert_dir}/server.key" "${cert_dir}/ca.crt" > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8443
   local anon authed
@@ -241,8 +241,8 @@ cert_dir() {
 @test "HTTP response includes X-Request-ID header" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: true\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: false\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
   local headers
@@ -256,8 +256,8 @@ cert_dir() {
 @test "HTTP response includes traceparent header" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: true\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: false\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
   local headers
@@ -275,8 +275,8 @@ cert_dir() {
 @test "admin /version returns 200 with JSON version field" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n    admin:\n      enabled: true\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9999
   local body
@@ -291,8 +291,8 @@ cert_dir() {
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nadmin:\n  pprof: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n    admin:\n      enabled: true\n  admin:\n    pprof: true\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9999
   local anon authed
@@ -309,8 +309,8 @@ cert_dir() {
   local cfg pid log status
   cfg="$(mktemp)"
   log="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nadmin:\n  pprof: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min > "${log}" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n    admin:\n      enabled: true\n  admin:\n    pprof: true\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min > "${log}" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${log}" 9999
   status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 -H 'Authorization: Bearer bats-admin-token' http://127.0.0.1:9999/debug/pprof/)"
@@ -325,8 +325,8 @@ cert_dir() {
 @test "POST /admin/reload requires the admin token" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n    admin:\n      enabled: true\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" KEEL_ADMIN_TOKEN='bats-admin-token' keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9999
   local anon authed
@@ -355,8 +355,8 @@ cert_dir() {
   fi
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nmetrics:\n  prometheus: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n    admin:\n      enabled: true\n  metrics:\n    prometheus: false\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9999
   local status
@@ -371,8 +371,8 @@ cert_dir() {
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nmetrics:\n  prometheus: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n    admin:\n      enabled: true\n  metrics:\n    prometheus: true\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 9999
   local status
@@ -388,8 +388,8 @@ cert_dir() {
   local cfg pid alive
   cfg="$(mktemp)"
   # otlptracehttp dials lazily: binary must start without a live collector.
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntracing:\n  otlp:\n    enabled: true\n    endpoint: "localhost:4318"\n    insecure: true\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-max &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  tracing:\n    otlp:\n      enabled: true\n      endpoint: "localhost:4318"\n      insecure: true\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max &
   pid="${!}"
   sleep 0.4
   kill -0 "${pid}" 2>/dev/null
@@ -415,8 +415,8 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 @test "prestop_sleep delays shutdown by at least configured duration" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntimeouts:\n  prestop_sleep: 300ms\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  timeouts:\n    prestop_sleep: 300ms\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min &
   pid="${!}"
   sleep 0.4
   local t_start t_end elapsed
@@ -444,8 +444,8 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   fi
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n  admin:\n    enabled: true\nlogging:\n  level: warn\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n    admin:\n      enabled: true\n  logging:\n    level: warn\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min &
   pid="${!}"
   sleep 0.4
   kill -HUP "${pid}"
@@ -481,10 +481,10 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   sleep 0.2
 
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\nlogging:\n  remote_sink:\n    enabled: true\n    endpoint: "http://127.0.0.1:%s/ingest"\n    protocol: http\n' \
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  logging:\n    remote_sink:\n      enabled: true\n      endpoint: "http://127.0.0.1:%s/ingest"\n      protocol: http\n' \
     "${sink_port}" > "${cfg}"
 
-  KEEL_CONFIG="${cfg}" keel-max &
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max &
   pid="${!}"
   sleep 0.5
 
@@ -525,10 +525,10 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   token="${hdr}.${pay}.${sig}"
 
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: true\n    port: %s\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: true\n  trusted_signers_file: %s\n' \
+  printf 'keel:\n  listeners:\n    http:\n      enabled: true\n      port: %s\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: true\n    trusted_signers_file: %s\n' \
     "${keel_port}" "${signers_file}" > "${cfg}"
 
-  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" "${keel_port}"
 
@@ -563,10 +563,10 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   sleep 0.2
 
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\nlogging:\n  remote_sink:\n    enabled: true\n    endpoint: "127.0.0.1:%s"\n    protocol: syslog\n' \
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  logging:\n    remote_sink:\n      enabled: true\n      endpoint: "127.0.0.1:%s"\n      protocol: syslog\n' \
     "${syslog_port}" > "${cfg}"
 
-  KEEL_CONFIG="${cfg}" keel-max &
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max &
   pid="${!}"
   sleep 0.5
 
@@ -588,8 +588,8 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 @test "prestop_sleep: 0s default shutdown completes in under 1 second" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min &
   pid="${!}"
   sleep 0.4
   local t_start t_end elapsed
@@ -609,8 +609,8 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 @test "fips.monitor: keel-min with monitor=true exits non-zero (FIPS not compiled in)" {
   local cfg
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\nfips:\n  monitor: true\n' > "${cfg}"
-  run env -u GOFIPS140 -u GODEBUG KEEL_CONFIG="${cfg}" keel-min
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  fips:\n    monitor: true\n' > "${cfg}"
+  run env -u GOFIPS140 -u GODEBUG KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min
   rm -f "${cfg}"
   [ "${status}" -ne 0 ]
 }
@@ -626,8 +626,8 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    challenge_port: 5080\n    domains: [test.example.com]\n    email: test@example.com\n    ca_url: "http://127.0.0.1:19991/dead"\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    https:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  tls:\n    acme:\n      enabled: true\n      challenge_port: 5080\n      domains: [test.example.com]\n      email: test@example.com\n      ca_url: "http://127.0.0.1:19991/dead"\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 5080
   local status
@@ -643,8 +643,8 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    challenge_port: 5080\n    domains: [test.example.com]\n    email: test@example.com\n    ca_url: "http://127.0.0.1:19991/dead"\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    https:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  tls:\n    acme:\n      enabled: true\n      challenge_port: 5080\n      domains: [test.example.com]\n      email: test@example.com\n      ca_url: "http://127.0.0.1:19991/dead"\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 5080
   local status
@@ -695,10 +695,10 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 
   cache_dir="$(mktemp -d)"
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    domains: [localhost]\n    email: test@example.com\n    ca_url: "https://127.0.0.1:14000/dir"\n    ca_cert_file: "%s"\n    cache_dir: "%s"\n    challenge_port: 5080\n' \
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    https:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  tls:\n    acme:\n      enabled: true\n      domains: [localhost]\n      email: test@example.com\n      ca_url: "https://127.0.0.1:14000/dir"\n      ca_cert_file: "%s"\n      cache_dir: "%s"\n      challenge_port: 5080\n' \
     "${ca_cert}" "${cache_dir}" > "${cfg}"
 
-  KEEL_CONFIG="${cfg}" keel-max > /tmp/keel-acme.log 2>&1 &
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max > /tmp/keel-acme.log 2>&1 &
   pid="${!}"
 
   # Poll for cert.crt up to 10 s.
@@ -743,10 +743,10 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
     > /dev/null 2>&1
 
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: false\n  https:\n    enabled: false\n  health:\n    enabled: false\n  ready:\n    enabled: false\ntls:\n  acme:\n    enabled: true\n    challenge_port: 5080\n    domains: [localhost]\n    email: test@example.com\n    ca_url: "http://127.0.0.1:19991/dead"\n    cache_dir: "%s"\n' \
+  printf 'keel:\n  listeners:\n    http:\n      enabled: false\n    https:\n      enabled: false\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  tls:\n    acme:\n      enabled: true\n      challenge_port: 5080\n      domains: [localhost]\n      email: test@example.com\n      ca_url: "http://127.0.0.1:19991/dead"\n      cache_dir: "%s"\n' \
     "${cache_dir}" > "${cfg}"
 
-  KEEL_CONFIG="${cfg}" keel-max > /tmp/keel-acme-reuse.log 2>&1 &
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max > /tmp/keel-acme-reuse.log 2>&1 &
   pid="${!}"
   sleep 0.5
 
@@ -783,18 +783,18 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
   http_port=19882
   health_port=19883
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: true\n    port: %s\n  health:\n    enabled: true\n    port: %s\n  ready:\n    enabled: false\n' \
+  printf 'keel:\n  listeners:\n    http:\n      enabled: true\n      port: %s\n    health:\n      enabled: true\n      port: %s\n    ready:\n      enabled: false\n' \
     "${http_port}" "${health_port}" > "${cfg}"
 
   # First instance holds both ports.
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/holder.log" 2>&1 &
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/holder.log" 2>&1 &
   holder="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/holder.log" "${http_port}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/holder.log" "${health_port}"
 
   # Second instance cannot bind either port; every listener is attempted, both
   # failures are reported, and it exits on its own (124 = still running).
-  run run_bounded 10 env KEEL_CONFIG="${cfg}" keel-min
+  run run_bounded 10 env KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min
 
   kill -TERM "${holder}" 2>/dev/null || true
   wait "${holder}" 2>/dev/null || true
@@ -812,15 +812,15 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%d\n", time() * 1000'; }
 # ---------------------------------------------------------------------------
 
 # start_protocol_keel BIN EXTRA_YAML: keel with HTTP (8080) and HTTPS (8443), authn off,
-# EXTRA_YAML appended; waits for both listeners. Sets PROTO_PID and PROTO_LOG.
+# EXTRA_YAML (indented under keel:) appended; waits for both listeners. Sets PROTO_PID and PROTO_LOG.
 start_protocol_keel() {
   local -r bin="${1}" extra="${2}" certs="$(cert_dir)"
   [ -f "${certs}/server.crt" ] || skip "TLS certs not found; run 'make generate-certs' first"
   PROTO_CFG="$(mktemp)"
   PROTO_LOG="${BATS_TEST_TMPDIR}/keel-proto.log"
-  printf 'listeners:\n  http:\n    enabled: true\n  https:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\nlogging:\n  json: true\ntls:\n  cert_file: %s\n  key_file: %s\n%s' \
+  printf 'keel:\n  listeners:\n    http:\n      enabled: true\n    https:\n      enabled: true\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: false\n  logging:\n    json: true\n  tls:\n    cert_file: %s\n    key_file: %s\n%s' \
     "${certs}/server.crt" "${certs}/server.key" "${extra}" > "${PROTO_CFG}"
-  KEEL_CONFIG="${PROTO_CFG}" KEEL_H3_ENABLED="${KEEL_H3_ENABLED:-false}" "${bin}" > "${PROTO_LOG}" 2>&1 &
+  KEEL_KNOBS_GLOBAL_PATH="${PROTO_CFG}" KEEL_LISTENERS_H3_ENABLED="${KEEL_LISTENERS_H3_ENABLED:-false}" "${bin}" > "${PROTO_LOG}" 2>&1 &
   PROTO_PID="${!}"
   wait_for_keel_listener "${PROTO_LOG}" 8080
   wait_for_keel_listener "${PROTO_LOG}" 8443
@@ -875,7 +875,7 @@ stop_protocol_keel() {
 
 @test "protocol: min_http_version 2 rejects HTTP/1.1 with KEEL-PROTO-007 and serves HTTP/2" {
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
-  start_protocol_keel keel-max $'security:\n  min_http_version: "2"\n'
+  start_protocol_keel keel-max $'  security:\n    min_http_version: "2"\n'
   local h1 h2
   h1="$(curl -s -D - -o /dev/null --http1.1 --max-time 2 --cacert "$(cert_dir)/ca.crt" https://127.0.0.1:8443/)"
   h2="$(curl -s -o /dev/null -w '%{http_code} %{http_version}' --http2 --max-time 2 --cacert "$(cert_dir)/ca.crt" https://127.0.0.1:8443/)"
@@ -898,7 +898,7 @@ stop_protocol_keel() {
   local certs
   certs="$(cert_dir)"
   [ -f "${certs}/client.crt" ] || skip "TLS certs not found; run 'make generate-certs' first"
-  start_protocol_keel keel-min "$(printf '  client_ca_file: %s\n  client_cert_notice: true\n' "${certs}/ca.crt")"
+  start_protocol_keel keel-min "$(printf '    client_ca_file: %s\n    client_cert_notice: true\n' "${certs}/ca.crt")"
   local anon authed
   anon="$(curl -s -D - -o /dev/null --max-time 2 --cacert "${certs}/ca.crt" https://127.0.0.1:8443/)"
   authed="$(curl -s --max-time 2 --cacert "${certs}/ca.crt" --cert "${certs}/client.crt" --key "${certs}/client.key" https://127.0.0.1:8443/)"
@@ -911,7 +911,7 @@ stop_protocol_keel() {
 @test "protocol: Alt-Svc advertises HTTP/3 only when listeners.h3 is enabled" {
   command -v keel-max > /dev/null 2>&1 || skip "keel-max binary not in dist/"
   local with without
-  KEEL_H3_ENABLED=true start_protocol_keel keel-max ''
+  KEEL_LISTENERS_H3_ENABLED=true start_protocol_keel keel-max ''
   with="$(curl -s -D - -o /dev/null --max-time 2 --cacert "$(cert_dir)/ca.crt" https://127.0.0.1:8443/)"
   stop_protocol_keel
   start_protocol_keel keel-max ''
@@ -929,8 +929,8 @@ stop_protocol_keel() {
   local cfg pid log backups
   cfg="$(mktemp)"
   log="${BATS_TEST_TMPDIR}/keel-file.log"
-  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\nlogging:\n  json: true\n  file: %s\n  rotation:\n    compress: false\n' "${log}" > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: true\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: false\n  logging:\n    json: true\n    file: %s\n    rotation:\n      compress: false\n' "${log}" > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
   curl -s -o /dev/null --max-time 2 http://127.0.0.1:8080/before
@@ -960,10 +960,10 @@ stop_protocol_keel() {
   local cfg pid audit_log
   cfg="$(mktemp)"
   audit_log="${BATS_TEST_TMPDIR}/audit.log"
-  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: true\n  trusted_signers:\n    - 0123456789abcdef0123456789abcdef\naudit:\n  enabled: true\n  file: %s\n' "${audit_log}" > "${cfg}"
+  printf 'keel:\n  listeners:\n    http:\n      enabled: true\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: true\n    trusted_signers:\n      - 0123456789abcdef0123456789abcdef\n  audit:\n    enabled: true\n    file: %s\n' "${audit_log}" > "${cfg}"
   local round
   for round in 1 2; do
-    KEEL_CONFIG="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+    KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-max > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
     pid="${!}"
     wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
     curl -s -o /dev/null --max-time 2 http://127.0.0.1:8080/
@@ -988,14 +988,14 @@ stop_protocol_keel() {
   [[ "${output}" == *'altered'* ]] || false
 }
 
-@test "SIGHUP re-reads the KEEL_CONFIG file" {
+@test "SIGHUP re-reads the global config file" {
   local cfg pid
   cfg="$(mktemp)"
-  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\nlogging:\n  level: info\n' > "${cfg}"
-  KEEL_CONFIG="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
+  printf 'keel:\n  listeners:\n    http:\n      enabled: true\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: false\n  logging:\n    level: info\n' > "${cfg}"
+  KEEL_KNOBS_GLOBAL_PATH="${cfg}" keel-min > "${BATS_TEST_TMPDIR}/keel.log" 2>&1 &
   pid="${!}"
   wait_for_keel_listener "${BATS_TEST_TMPDIR}/keel.log" 8080
-  printf 'listeners:\n  http:\n    enabled: true\n  health:\n    enabled: false\n  ready:\n    enabled: false\nauthn:\n  enabled: false\nlogging:\n  level: warn\n' > "${cfg}"
+  printf 'keel:\n  listeners:\n    http:\n      enabled: true\n    health:\n      enabled: false\n    ready:\n      enabled: false\n  authn:\n    enabled: false\n  logging:\n    level: warn\n' > "${cfg}"
   kill -HUP "${pid}"
   sleep 0.3
   kill -USR1 "${pid}"

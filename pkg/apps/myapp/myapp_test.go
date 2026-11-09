@@ -13,13 +13,13 @@ import (
 func TestRun_ServerStartup(t *testing.T) {
 	t.Setenv("APP_CONFIG", "")
 	t.Setenv("APP_SECRETS", "")
-	t.Setenv("KEEL_HTTPS_ENABLED", "false")
-	t.Setenv("KEEL_H3_ENABLED", "false")
-	t.Setenv("KEEL_HTTP_PORT", "18080")
-	t.Setenv("KEEL_HEALTH_PORT", "19091")
-	t.Setenv("KEEL_READY_PORT", "19092")
-	t.Setenv("KEEL_STARTUP_PORT", "19093")
-	t.Setenv("KEEL_ADMIN_PORT", "19999")
+	t.Setenv("KEEL_LISTENERS_HTTPS_ENABLED", "false")
+	t.Setenv("KEEL_LISTENERS_H3_ENABLED", "false")
+	t.Setenv("KEEL_LISTENERS_HTTP_PORT", "18080")
+	t.Setenv("KEEL_LISTENERS_HEALTH_PORT", "19091")
+	t.Setenv("KEEL_LISTENERS_READY_PORT", "19092")
+	t.Setenv("KEEL_LISTENERS_STARTUP_PORT", "19093")
+	t.Setenv("KEEL_LISTENERS_ADMIN_PORT", "19999")
 	t.Setenv("KEEL_TEST_SHUTDOWN_AFTER", "100ms")
 
 	if got := Run(); got != 0 {

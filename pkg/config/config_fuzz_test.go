@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-func FuzzApplyYAMLFile(f *testing.F) {
-	f.Add([]byte("logging:\n  level: debug\n"))
-	f.Add([]byte("listeners:\n  http:\n    enabled: true\n    port: 8080\n"))
+func FuzzLoadFile(f *testing.F) {
+	f.Add([]byte("keel:\n  logging:\n    level: debug\n"))
+	f.Add([]byte("keel:\n  listeners:\n    http:\n      enabled: true\n      port: 8080\n"))
 	f.Add([]byte("unknown_field: 1\n"))
 	f.Add([]byte("a: &a [*a]\n"))
 	f.Add([]byte(""))
@@ -21,7 +21,6 @@ func FuzzApplyYAMLFile(f *testing.F) {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cfg := Defaults()
-		_ = applyYAMLFile(path, &cfg)
+		_, _ = load(path, "")
 	})
 }

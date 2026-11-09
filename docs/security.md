@@ -137,11 +137,12 @@ Supported algorithms:
 `trusted_signers` entries:
 
 ```yaml
-authn:
-  trusted_signers:
-    - "my-shared-secret-for-hs256"           # Bare string → HS256 shared secret
-    - /path/to/rs256-public-key.pem          # File path → RSA/EC public key loaded from disk
-    - https://auth.example.com/.well-known/jwks.json   # JWKs URL → fetched + cached
+keel:
+  authn:
+    trusted_signers:
+      - "my-shared-secret-for-hs256"           # Bare string → HS256 shared secret
+      - /path/to/rs256-public-key.pem          # File path → RSA/EC public key loaded from disk
+      - https://auth.example.com/.well-known/jwks.json   # JWKs URL → fetched + cached
 ```
 
 **JWKs URL behavior:** When an entry starts with `https://`, Keel fetches the JWK Set from that URL and
@@ -166,15 +167,16 @@ Non-empty means only tokens whose `sub` claim appears in the list are accepted �
 valid.
 
 ```yaml
-authn:
-  trusted_ids:
-    - service-a          # Only accept tokens from service-a or service-b
-    - service-b
+keel:
+  authn:
+    trusted_ids:
+      - service-a          # Only accept tokens from service-a or service-b
+      - service-b
 ```
 
 #### Inbound mTLS (transport gate)
 
-Set `tls.client_ca_file` (env `KEEL_TLS_CLIENT_CA`; Helm `keel.tls.clientCASecretName`, a Secret with `ca.crt`) and
+Set `tls.client_ca_file` (env `KEEL_TLS_CLIENT_CA_FILE`; Helm `keel.tls.clientCASecretName`, a Secret with `ca.crt`) and
 the HTTPS and H3 listeners require every client to present a certificate that chains to one of those CAs; the handshake
 fails otherwise. This is a transport-level gate only: the certificate's Subject or SANs are **not** mapped to a principal
 and are not checked against `trusted_ids`. Per-caller identity comes from JWT authn above. Plain HTTP is unaffected.
@@ -394,12 +396,13 @@ next hop. Keel strips these automatically regardless of any `header_policy` conf
 **Custom forwarding rules:**
 
 ```yaml
-sidecar:
-  header_policy:
-    forward:
-      - X-Custom-Header    # Explicitly forward this header to the upstream
-    strip:
-      - X-Internal-Token   # Strip this header before forwarding
+keel:
+  sidecar:
+    header_policy:
+      forward:
+        - X-Custom-Header    # Explicitly forward this header to the upstream
+      strip:
+        - X-Internal-Token   # Strip this header before forwarding
 ```
 
 ### 5.2 X-Forwarded-For Policy
@@ -498,13 +501,14 @@ establish a TLS connection with optional mutual TLS (mTLS).
 **Configuration:**
 
 ```yaml
-sidecar:
-  upstream_url: https://legacy-api.internal:8443
-  upstream_tls:
-    enabled: true
-    ca_file: /etc/keel/secrets/upstream-ca.crt    # Custom CA to verify upstream cert
-    client_cert_file: /etc/keel/secrets/client.crt # Keel's client cert for mTLS
-    client_key_file: /etc/keel/secrets/client.key  # Keel's client private key
+keel:
+  sidecar:
+    upstream_url: https://legacy-api.internal:8443
+    upstream_tls:
+      enabled: true
+      ca_file: /etc/keel/secrets/upstream-ca.crt    # Custom CA to verify upstream cert
+      client_cert_file: /etc/keel/secrets/client.crt # Keel's client cert for mTLS
+      client_key_file: /etc/keel/secrets/client.key  # Keel's client private key
 ```
 
 **`ca_file`:** If the upstream's TLS certificate was issued by a private CA (not a public CA like Let's
@@ -631,10 +635,11 @@ allows the request.
 For lowest-latency in-pod decisions (e.g., OPA running as a sidecar), use a unix socket:
 
 ```yaml
-ext_authz:
-  endpoint: "unix:///run/opa/opa.sock"
-  path: "/v1/data/authz/allow"
-  transport: "opa"
+keel:
+  ext_authz:
+    endpoint: "unix:///run/opa/opa.sock"
+    path: "/v1/data/authz/allow"
+    transport: "opa"
 ```
 
 The `endpoint` field carries the socket path. The `path` field is the HTTP request path sent over the socket.
@@ -643,17 +648,18 @@ There is no TCP overhead.
 ### 6.4 Configuration Reference
 
 ```yaml
-ext_authz:
-  enabled: false                              # off by default
-  endpoint: "http://authz-service:8080/check" # or unix:///path/to/socket
-  path: ""                                    # request path for unix socket endpoints
-  transport: "http"                           # "http" or "opa"
-  timeout: "500ms"
-  fail_open: false                            # deny on error (safest default)
+keel:
+  ext_authz:
+    enabled: false                              # off by default
+    endpoint: "http://authz-service:8080/check" # or unix:///path/to/socket
+    path: ""                                    # request path for unix socket endpoints
+    transport: "http"                           # "http" or "opa"
+    timeout: "500ms"
+    fail_open: false                            # deny on error (safest default)
 ```
 
-ENV var overrides: `KEEL_AUTHZ`, `KEEL_AUTHZ_ENDPOINT`, `KEEL_AUTHZ_PATH`, `KEEL_AUTHZ_TIMEOUT`,
-`KEEL_AUTHZ_TRANSPORT`, `KEEL_AUTHZ_FAIL_OPEN`.
+ENV var overrides: `KEEL_EXT_AUTHZ_ENABLED`, `KEEL_EXT_AUTHZ_ENDPOINT`, `KEEL_EXT_AUTHZ_PATH`, `KEEL_EXT_AUTHZ_TIMEOUT`,
+`KEEL_EXT_AUTHZ_TRANSPORT`, `KEEL_EXT_AUTHZ_FAIL_OPEN`.
 
 ### 6.5 Binary Footprint
 

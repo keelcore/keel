@@ -40,6 +40,21 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 - Config files are validated against `pkg/config/schema.yaml` by `github.com/keelcore/knobs` v0.8.4 (JSON Schema via
   `santhosh-tekuri/jsonschema/v6`), replacing the direct `santhosh-tekuri/jsonschema/v5` dependency (#39, stage 1).
+- **Breaking:** `github.com/keelcore/knobs` resolves the whole configuration (#39, stage 2,
+  `docs/config-reference.md`):
+  - **Layers:** the code defaults, then the global file (`/etc/keel/config.yaml`), the user file
+    (`$XDG_CONFIG_HOME/keel/config.yaml`), the secrets file, env, and the new repeatable `--knob keel.<path>=<value>`.
+  - **Files:** every config and secrets file is rooted at `keel:`.
+  - **Paths:** `KEEL_KNOBS_GLOBAL_PATH`, `KEEL_KNOBS_USER_PATH` and `KEEL_KNOBS_SECRETS_PATH` replace `KEEL_CONFIG` and
+    `KEEL_SECRETS`.
+  - **Secrets:** the secrets file must be readable by its owner only (mode 0600). The Helm chart copies its Secret into
+    an owner-only file with an init container (`keel.secrets.initImage`).
+  - **Env names:** one variable per schema path: `listeners.http.port` is `KEEL_LISTENERS_HTTP_PORT`, `tls.cert_file` is
+    `KEEL_TLS_CERT_FILE`, `authn.enabled` is `KEEL_AUTHN_ENABLED`, lists included. The 71 flat names that differ
+    (`KEEL_HTTP_PORT`, `KEEL_TLS_CERT`, `KEEL_AUTHN`, ...) have no effect.
+- **Breaking:** an unparseable environment value fails the config load, naming the key, instead of being ignored;
+  a reload with one keeps the running configuration. `Config.IgnoredEnv()` and the `env_ignored` log line are
+  removed (#39, stage 2).
 - `docs/ROADMAP.md` lists planned work only: OIDC browser login, the audit log and the shared outbound TLS policy
   are in this release.
 - **Breaking:** make targets are verb-first (standards), for example `make build-min`, `make test-container-stack`,
