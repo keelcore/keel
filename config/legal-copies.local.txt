@@ -1,0 +1,2 @@
+LICENSE	pkg/clisupport/LICENSE
+TRADEMARK.md	pkg/clisupport/TRADEMARK.md

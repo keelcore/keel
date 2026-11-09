@@ -89,6 +89,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- `config/legal-copies.local.txt` lists keel's legal-file copies (`pkg/clisupport/LICENSE`, `TRADEMARK.md`), so
+  `make check-legal-drift` and the commit hook check them against their sources again (#38).
 - Release: Sign Artifacts hands `dist/` back to the runner user again (`export DIST_OWNER` in the Makefile), so
   uploading the root-owned signature bundles no longer fails with `EACCES`.
 - `.gitignore` covers `target/`, where the test targets write coverage and test results.
