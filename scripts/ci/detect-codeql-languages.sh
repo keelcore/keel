@@ -3,6 +3,7 @@
 # The CodeQL languages this repository holds, as a JSON list in the workflow output `languages`
 # (codeql.yml). Detected from repo-owned tracked files; config/codeql.local.txt (one language per
 # line, # comments) replaces the detection.
+# Environment: GITHUB_OUTPUT (default empty).
 # Project hook: detect-codeql-languages.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -22,6 +23,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 # shellcheck source=../lib/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 
+declare -rx GITHUB_OUTPUT="${GITHUB_OUTPUT:-}"
 readonly OVERRIDE='config/codeql.local.txt'
 
 function main() {
@@ -31,7 +33,7 @@ function main() {
   local json
   json="$(languages | to_json)"
   log "languages=${json}"
-  [ -z "${GITHUB_OUTPUT:-}" ] || printf 'languages=%s\n' "${json}" >> "${GITHUB_OUTPUT}"
+  [ -z "${GITHUB_OUTPUT}" ] || printf 'languages=%s\n' "${json}" >> "${GITHUB_OUTPUT}"
 }
 
 function log() {

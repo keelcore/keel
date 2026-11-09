@@ -399,7 +399,7 @@ function check_required_files() {
 
 # Rule 8: targets are verb-first, <verb>-<object>[-<qualifier>], from a fixed list; single-word
 # aggregates are the exceptions.
-readonly TARGET_VERBS='apply|bootstrap|build|check|clean|create|deploy|detect|format|generate|help|install|lint|load|login|merge|migrate|publish|pull|push|refresh|report|run|set|setup|sign|teardown|test|update|upload|verify|wait'
+readonly TARGET_VERBS='apply|bootstrap|build|check|clean|create|deploy|detect|ensure|format|generate|help|install|lint|load|login|merge|migrate|publish|pull|push|refresh|report|run|set|setup|sign|teardown|test|update|upload|verify|wait'
 readonly TARGET_AGGREGATES='audit|build|clean|format|help|lint|test'
 
 function check_target_names() {

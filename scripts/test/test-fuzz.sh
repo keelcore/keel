@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/test/test-fuzz.sh
 # Run every Fuzz* target for FUZZTIME (default 10s). A repo with no fuzz target has nothing to do.
+# Environment: FUZZTIME (default 10s).
 # Project hook: test-fuzz.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -20,7 +21,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 # shellcheck source=../lib/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 
-readonly FUZZ_TIME="${FUZZTIME:-10s}"
+declare -rx FUZZTIME="${FUZZTIME:-10s}"
+readonly FUZZ_TIME="${FUZZTIME}"
 
 function main() {
   exec 5>&1

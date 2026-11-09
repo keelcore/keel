@@ -12,6 +12,7 @@
 #   RELEASE_TAG   — git tag to upload to, e.g. v1.2.3  (required)
 #                   If not a v* tag (e.g. triggered from a branch via
 #                   workflow_dispatch), a tag is synthesized from git describe.
+# Environment: PROVENANCE_BUNDLE (default empty).
 # Project hook: upload-release.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -33,6 +34,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 
 # shellcheck source=../lib/parallel.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parallel.sh"
+
+declare -rx PROVENANCE_BUNDLE="${PROVENANCE_BUNDLE:-}"
 
 PROJECT="$(project_name)"
 readonly PROJECT
@@ -112,7 +115,7 @@ function stage_scorecard_assets() {
     [ -f "${bundle}" ] || continue
     cp -p "${bundle}" "${bundle%.bundle}.sigstore.json"
   done
-  if [ -n "${PROVENANCE_BUNDLE:-}" ]; then
+  if [ -n "${PROVENANCE_BUNDLE}" ]; then
     local provenance="${PROVENANCE_BUNDLE}"
     if [ -d "${provenance}" ]; then
       provenance="$(find "${provenance}" -type f | head -n 1)"

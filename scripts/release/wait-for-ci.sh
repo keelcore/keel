@@ -7,6 +7,10 @@
 # Usage: wait-for-ci.sh [COMMIT]   (default: HEAD)
 #
 # Env: GITHUB_REPOSITORY (else config/release-repo.local.txt), CI_WAIT_SECONDS (interval; default 30).
+# Environment: GITHUB_REF_NAME (default empty).
+# Environment: GITHUB_REF_TYPE (default empty).
+# Environment: GITHUB_RUN_ID (default 0).
+# Environment: CI_WAIT_SECONDS (default 30).
 # Project hook: wait-for-ci.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -24,11 +28,15 @@ set -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 # shellcheck source=../lib/tool-config.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/tool-config.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/tool-config.sh"
 
+declare -rx CI_WAIT_SECONDS="${CI_WAIT_SECONDS:-30}"
+declare -rx GITHUB_RUN_ID="${GITHUB_RUN_ID:-0}"
+declare -rx GITHUB_REF_TYPE="${GITHUB_REF_TYPE:-}"
+declare -rx GITHUB_REF_NAME="${GITHUB_REF_NAME:-}"
 readonly MAX_EMPTY_LOOKS=10
 readonly MAX_READ_FAILURES=10
-readonly WAIT_SECONDS="${CI_WAIT_SECONDS:-30}"
+readonly WAIT_SECONDS="${CI_WAIT_SECONDS}"
 COMMIT=''
 
 function main() {
@@ -89,8 +97,8 @@ function parse_args() {
 # in a tag's workflow, the runs of that tag.
 function other_runs() {
   local tag=''
-  [ "${GITHUB_REF_TYPE:-}" != 'tag' ] || tag="${GITHUB_REF_NAME:-}"
-  jq -c --argjson self "${GITHUB_RUN_ID:-0}" --arg tag "${tag}" \
+  [ "${GITHUB_REF_TYPE}" != 'tag' ] || tag="${GITHUB_REF_NAME}"
+  jq -c --argjson self "${GITHUB_RUN_ID}" --arg tag "${tag}" \
     '.workflow_runs[] | select(.id != $self) | select($tag == "" or .head_branch != $tag)'
 }
 

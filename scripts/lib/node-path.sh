@@ -21,7 +21,7 @@
 # helper does not log — callers decide what to say to the user.
 
 # shellcheck source=paths-ensure.sh
-. "$(dirname "${BASH_SOURCE[0]}")/paths-ensure.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/paths-ensure.sh"
 
 # node_path_ensure: idempotent; safe to call multiple times.
 function node_path_ensure() {

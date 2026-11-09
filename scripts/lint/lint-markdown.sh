@@ -25,11 +25,11 @@ set -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 # shellcheck source=lib/node-path.sh
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/node-path.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/node-path.sh"
 # shellcheck source=lib/paths.sh
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 # shellcheck source=../lib/markdownlint.sh
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/markdownlint.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/markdownlint.sh"
 
 function main() {
   exec 5>&1

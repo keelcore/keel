@@ -6,6 +6,8 @@
 # Required environment variables:
 #   GITHUB_TOKEN   — GHCR write token (GITHUB_TOKEN in Actions)
 #   GITHUB_ACTOR   — registry username (github.actor in Actions)
+# Environment: GITHUB_TOKEN (default empty).
+# Environment: GITHUB_ACTOR (default empty).
 # Project hook: login-ghcr.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -22,6 +24,8 @@ set -o pipefail
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
+declare -rx GITHUB_ACTOR="${GITHUB_ACTOR:-}"
+declare -rx GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 readonly REGISTRY='ghcr.io'
 
 function main() {

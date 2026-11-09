@@ -9,6 +9,7 @@
 #
 # Input:  ${COVERAGE_DIR:-target/coverage}/*.lcov  (one per language)
 # Output: ${COVERAGE_DIR}/lcov.info                (merged) + a per-language table
+# Environment: COVERAGE_DIR (default target/coverage).
 # Project hook: merge-coverage.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -19,7 +20,7 @@ set -o pipefail
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
-readonly COVERAGE_DIR="${COVERAGE_DIR:-target/coverage}"
+declare -rx COVERAGE_DIR="${COVERAGE_DIR:-target/coverage}"
 readonly MERGED="${COVERAGE_DIR}/lcov.info"
 
 function log() {

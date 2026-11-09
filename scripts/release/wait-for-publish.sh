@@ -5,7 +5,9 @@
 # serve, so each publish job ends here. It gives up after WAIT_TIMEOUT seconds (default 1800).
 #
 # Usage: wait-for-publish.sh npm|pypi|go   (make wait-for-publish ARGS=...)
-# Tag: GITHUB_REF_NAME, else INPUT_TAG.
+# Tag: release_tag (scripts/lib/release-tag.sh): INPUT_TAG, else GITHUB_REF_NAME on a tag push.
+# Environment: WAIT_INTERVAL (default 15).
+# Environment: WAIT_TIMEOUT (default 1800).
 # Project hook: wait-for-publish.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -21,16 +23,21 @@ set -o pipefail
 
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+# shellcheck source=../lib/release-tag.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/release-tag.sh"
 
-readonly INTERVAL="${WAIT_INTERVAL:-15}"
-readonly TIMEOUT="${WAIT_TIMEOUT:-1800}"
+declare -rx WAIT_TIMEOUT="${WAIT_TIMEOUT:-1800}"
+declare -rx WAIT_INTERVAL="${WAIT_INTERVAL:-15}"
+readonly INTERVAL="${WAIT_INTERVAL}"
+readonly TIMEOUT="${WAIT_TIMEOUT}"
 readonly PYPI_ACCEPT='Accept: application/vnd.pypi.integrity.v1+json'
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
   run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
-  local -r tag="$(resolve_tag)"
+  local tag
+  tag="$(release_tag)"
   "wait_${1}" "${tag}"
   log "✅ ${1}: ${tag} is fully published"
 }
@@ -48,12 +55,6 @@ function validate_args() {
       exit 1
       ;;
   esac
-}
-
-function resolve_tag() {
-  local -r tag="${GITHUB_REF_NAME:-${INPUT_TAG:-}}"
-  [ -n "${tag}" ] || { log '❌ Cannot resolve tag: GITHUB_REF_NAME and INPUT_TAG are both unset'; exit 1; }
-  printf '%s' "${tag}"
 }
 
 # wait_for URL [CURL_ARG...]: the response body, once URL serves one.

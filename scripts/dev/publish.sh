@@ -16,10 +16,14 @@
 # Env: GITHUB_TOKEN and GITHUB_ACTOR (registry login for push and merge; GitHub Actions sets
 # GITHUB_ACTOR).
 #
+# Environment: DOCKER_CONFIG (default empty).
+# Environment: GITHUB_ACTOR (default empty).
+# Environment: GITHUB_STEP_SUMMARY (default empty).
+# Environment: GITHUB_TOKEN (default empty).
 # Project hook: after each mode, `bash scripts/dev/publish.local.sh MODE` runs when the repository
 # holds it (resolved from the repository root, never canonical) — e.g. to check the published
-# packages. In local mode GITHUB_TOKEN is exported only when the login needs it (the developer's gh
-# credential, read once).
+# packages. In local mode the login uses GITHUB_TOKEN, else the developer's gh credential (read once,
+# not exported).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -34,6 +38,10 @@ set -o pipefail
 # shellcheck source=../lib/dev-image.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/dev-image.sh"
 
+declare -rx GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+declare -rx GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-}"
+declare -rx GITHUB_ACTOR="${GITHUB_ACTOR:-}"
+declare -rx DOCKER_CONFIG="${DOCKER_CONFIG:-}"
 readonly LOCAL_HOOK='scripts/dev/publish.local.sh'
 
 function main() {
@@ -73,7 +81,7 @@ function validate_args() {
 }
 
 function registry_login() {
-  [ -z "${DOCKER_CONFIG:-}" ] || mkdir -p "${DOCKER_CONFIG}"
+  [ -z "${DOCKER_CONFIG}" ] || mkdir -p "${DOCKER_CONFIG}"
   printf '%s' "${GITHUB_TOKEN:?GITHUB_TOKEN is required}" \
     | docker login "$(dev_registry | cut -d/ -f1)" -u "${GITHUB_ACTOR:?GITHUB_ACTOR is required}" --password-stdin
 }
@@ -136,9 +144,9 @@ function merge_image() {
   local digest
   digest="$(docker buildx imagetools inspect "${tag}" --format '{{json .Manifest}}' | jq -r '.digest')"
   [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || { log "❌ no digest for ${tag}"; exit 1; }
-  KEELCORE_DEV_ENV='GITHUB_ACTOR' bash scripts/dev/run.sh bash scripts/dev/sign-dev-image.sh "${tag%:*}@${digest}"
+  bash scripts/dev/run.sh bash scripts/dev/sign-dev-image.sh "${tag%:*}@${digest}"
   log "✅ ${tag}@${digest}"
-  [ -z "${GITHUB_STEP_SUMMARY:-}" ] || printf '`%s`: `%s@%s`\n' "$(dev_ref_file "${name}")" "${tag}" "${digest}" \
+  [ -z "${GITHUB_STEP_SUMMARY}" ] || printf '`%s`: `%s@%s`\n' "$(dev_ref_file "${name}")" "${tag}" "${digest}" \
     >> "${GITHUB_STEP_SUMMARY}"
 }
 
@@ -150,10 +158,9 @@ function local_login() {
     log "✅ ${host}: container already logged in"
     return 0
   fi
-  GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}"
-  export GITHUB_TOKEN
   local token user
   token="${GITHUB_TOKEN}"
+  [ -n "${token}" ] || token="$(gh auth token)"
   user="$(curl -fsSL --connect-timeout 30 --speed-limit 1024 --speed-time 60 -H "Authorization: Bearer ${token}" https://api.github.com/user | jq -r .login)"
   printf '%s' "${token}" | container registry login "${host}" -u "${user}" --password-stdin
 }

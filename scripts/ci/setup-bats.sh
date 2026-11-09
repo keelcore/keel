@@ -5,6 +5,7 @@
 # publishes no assets to checksum). No-op if the pinned version is present.
 # Then runs scripts/ci/setup-bats.local.sh if present, allowing each consumer to
 # install extra tools its BATS suites need without modifying the canonical script.
+# Environment: KEELCORE_IMAGE_BUILD (default empty); set while a tool image is built.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -16,6 +17,7 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+declare -rx KEELCORE_IMAGE_BUILD="${KEELCORE_IMAGE_BUILD:-}"
 readonly BATS_VERSION='1.14.0'
 readonly BATS_COMMIT='eb7f42f8d608ac693d7a4b67474f6714ea68cfc5'
 readonly BATS_REPO='https://github.com/bats-core/bats-core.git'
@@ -79,7 +81,7 @@ function install_bats_pinned() {
 # (containers/*/Containerfile sets KEELCORE_IMAGE_BUILD); anywhere else the tool is already in the
 # image, and a missing or different version is an error, never an install.
 function require_image_build() {
-  [ -n "${KEELCORE_IMAGE_BUILD:-}" ] && return 0
+  [ -n "${KEELCORE_IMAGE_BUILD}" ] && return 0
   log "❌ bats ${BATS_VERSION} is not in this tool image; tools install only when the image is built"
   exit 1
 }

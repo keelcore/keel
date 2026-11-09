@@ -3,4 +3,7 @@
 # The versioned pre-commit hook. `make install-hooks` sets `core.hooksPath scripts/hooks`, a path
 # git resolves from the root of whichever working tree commits: a clone, each worktree and a
 # submodule checkout all run this file from their own tree, with no per-checkout install.
+# KEELCORE_DEV_IN_HOOK=1 tells the tool-image scripts (scripts/lib/dev-image.sh) they run in a commit: run.sh
+# never builds there.
+export KEELCORE_DEV_IN_HOOK=1
 exec bash "$(git rev-parse --show-toplevel)/scripts/run-pre-commit.sh" "$@"

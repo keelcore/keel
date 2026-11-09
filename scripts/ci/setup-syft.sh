@@ -7,6 +7,7 @@
 #
 # Pinned version: v1.42.1
 # Update SYFT_VERSION and the SYFT_SHA256_* sums together when bumping (make update-pins does).
+# Environment: KEELCORE_IMAGE_BUILD (default empty); set while a tool image is built.
 # Project hook: setup-syft.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -23,6 +24,7 @@ set -o pipefail
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
+declare -rx KEELCORE_IMAGE_BUILD="${KEELCORE_IMAGE_BUILD:-}"
 readonly SYFT_VERSION='1.55.0'
 readonly SYFT_SHA256_AMD64='bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d'
 readonly SYFT_SHA256_ARM64='929bd163db2d7cd2255d3bcb8967208079813d7b46b0c952f7b794d8e2c7d304'
@@ -114,7 +116,7 @@ function install_syft() {
 # (containers/*/Containerfile sets KEELCORE_IMAGE_BUILD); anywhere else the tool is already in the
 # image, and a missing or different version is an error, never an install.
 function require_image_build() {
-  [ -n "${KEELCORE_IMAGE_BUILD:-}" ] && return 0
+  [ -n "${KEELCORE_IMAGE_BUILD}" ] && return 0
   log "❌ syft v${SYFT_VERSION} is not in this tool image; tools install only when the image is built"
   exit 1
 }

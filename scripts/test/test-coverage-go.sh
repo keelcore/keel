@@ -9,6 +9,8 @@
 #
 # Output: ${COVERAGE_DIR:-target/coverage}/go.lcov  (SF: entries are repo-relative
 # filesystem paths, so they bucket by extension in the aggregate.)
+# Environment: COVERAGE_DIR (default target/coverage).
+# Environment: GO_COVERAGE_IGNORE_REGEX (default /cmd/).
 # Project hook: test-coverage-go.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -28,13 +30,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 # shellcheck source=../lib/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 
-readonly COVERAGE_DIR="${COVERAGE_DIR:-target/coverage}"
+declare -rx COVERAGE_DIR="${COVERAGE_DIR:-target/coverage}"
 readonly GO_LCOV="${COVERAGE_DIR}/go.lcov"
 # Entry points (cmd/*/main.go) are exercised only via the built binary and its
 # BATS/integration tests, which are not coverage-instrumented — excluded by
 # default so the per-file rule stays on library code, mirroring the Rust scope's
 # src/bin/ exclusion. Override with GO_COVERAGE_IGNORE_REGEX.
-readonly GO_COVERAGE_IGNORE_REGEX="${GO_COVERAGE_IGNORE_REGEX:-/cmd/}"
+declare -rx GO_COVERAGE_IGNORE_REGEX="${GO_COVERAGE_IGNORE_REGEX:-/cmd/}"
 
 function log() {
   printf '%s\n' "${1:-}" | tee -a '/tmp/keel_coverage_go.log' >&5

@@ -8,6 +8,10 @@
 #   PR_TITLE           — pull request title
 #   PR_BODY            — pull request body
 #   PR_AUTHOR          — pull request author login
+# Environment: PR_AUTHOR (default empty).
+# Environment: GITHUB_HEAD_REF (default empty).
+# Environment: PR_TITLE (default empty).
+# Environment: PR_BODY (default empty).
 # Project hook: check-pr-policy.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -25,6 +29,10 @@ set -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 # Conventional commit types allowed in PR titles.
+declare -rx PR_BODY="${PR_BODY:-}"
+declare -rx PR_TITLE="${PR_TITLE:-}"
+declare -rx GITHUB_HEAD_REF="${GITHUB_HEAD_REF:-}"
+declare -rx PR_AUTHOR="${PR_AUTHOR:-}"
 readonly CONVENTIONAL_TYPES='feat|fix|docs|chore|refactor|test|ci|perf|build|revert|dependabot'
 
 # Branch naming pattern: type/short-description or username/short-description
@@ -46,12 +54,12 @@ function main() {
 }
 
 function check_branch_name() {
-  local -r branch="${GITHUB_HEAD_REF:-}"
+  local -r branch="${GITHUB_HEAD_REF}"
   if [ -z "${branch}" ]; then
     log '⚠️  GITHUB_HEAD_REF not set; skipping branch name check'
     return 0
   fi
-  if [ "${PR_AUTHOR:-}" = 'dependabot[bot]' ]; then
+  if [ "${PR_AUTHOR}" = 'dependabot[bot]' ]; then
     log "Checking branch name: ${branch}"
     log '  ✅ Branch name valid (dependabot exemption)'
     return 0
@@ -65,7 +73,7 @@ function check_branch_name() {
 }
 
 function check_pr_title() {
-  local -r title="${PR_TITLE:-}"
+  local -r title="${PR_TITLE}"
   if [ -z "${title}" ]; then
     log '⚠️  PR_TITLE not set; skipping title check'
     return 0
@@ -83,7 +91,7 @@ function check_pr_title() {
 }
 
 function check_pr_body() {
-  local -r body="${PR_BODY:-}"
+  local -r body="${PR_BODY}"
   if [ -z "${body}" ]; then
     log '  ❌ PR body is empty; a description is required'
     return 1

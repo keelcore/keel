@@ -13,6 +13,8 @@
 #
 # The chart version stored in Chart.yaml is overridden at package time
 # with the semver tag so chart version == app version always.
+# Environment: GITHUB_TOKEN (default empty).
+# Environment: GITHUB_ACTOR (default empty).
 # Project hook: push-helm-chart.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -32,6 +34,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 # shellcheck source=../lib/tool-config.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 
+declare -rx GITHUB_ACTOR="${GITHUB_ACTOR:-}"
+declare -rx GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 readonly REGISTRY='ghcr.io'
 OWNER="$(release_repo)"
 OWNER="${OWNER%%/*}"

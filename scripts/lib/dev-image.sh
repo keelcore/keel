@@ -9,39 +9,56 @@
 # image it builds on. Published images are tagged ctx-<hash>, and containers/NAME/image.ref names the
 # one built from each commit (scripts/dev/update-dev-image-ref.sh):
 #   ghcr.io/keelcore/<repo>-<name>:ctx-<hash>
+#
+# Environment: KEELCORE_DEV_IN_HOOK (default empty; scripts/hooks/pre-commit sets 1: run.sh never builds
+# in a commit), KEELCORE_BUILD_CPUS (default 4) and KEELCORE_BUILD_MEMORY (default 8g), the image
+# builder's size, KEELCORE_DEV_BUILDER_TIMEOUT (default 300) seconds per builder step,
+# KEELCORE_DEV_REGISTRY (default ghcr.io/keelcore), KEELCORE_DEV_REPO (default empty; run.sh passes the
+# repository name into a tool image), KEELCORE_DEV_PULL_TIMEOUT (default 1800) seconds per pull or build,
+# KEELCORE_DEV_PROGRESS_SECONDS (default 30) between progress lines.
 
 # shellcheck source=progress.sh
-. "$(dirname "${BASH_SOURCE[0]}")/progress.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/progress.sh"
+
+# shellcheck source=container-system.sh
+source "$(dirname "${BASH_SOURCE[0]}")/container-system.sh"
+
+declare -rx KEELCORE_DEV_IN_HOOK="${KEELCORE_DEV_IN_HOOK:-}"
+declare -rx KEELCORE_BUILD_CPUS="${KEELCORE_BUILD_CPUS:-4}"
+declare -rx KEELCORE_BUILD_MEMORY="${KEELCORE_BUILD_MEMORY:-8g}"
+declare -rx KEELCORE_DEV_BUILDER_TIMEOUT="${KEELCORE_DEV_BUILDER_TIMEOUT:-300}"
+declare -rx KEELCORE_DEV_REGISTRY="${KEELCORE_DEV_REGISTRY:-ghcr.io/keelcore}"
+declare -rx KEELCORE_DEV_REPO="${KEELCORE_DEV_REPO:-}"
+declare -rx KEELCORE_DEV_PULL_TIMEOUT="${KEELCORE_DEV_PULL_TIMEOUT:-1800}"
+declare -rx KEELCORE_DEV_PROGRESS_SECONDS="${KEELCORE_DEV_PROGRESS_SECONDS:-30}"
 
 # Inside a git hook, git exports the hook's repository layout (GIT_INDEX_FILE=.git/index, and
 # GIT_DIR / GIT_WORK_TREE in some cases) as paths relative to that repository. These scripts run
 # git in other repositories too (the .standards submodule, snapshots under /tmp), where those
 # paths are wrong: drop them, so every git call reads the repository it is pointed at. The
 # context hash reads tracked and untracked files from the working tree, so it is the same either
-# way. KEELCORE_DEV_IN_HOOK records that this runs inside a hook (run.sh never builds there).
-if [ -n "${GIT_INDEX_FILE:-}" ]; then
-  export KEELCORE_DEV_IN_HOOK=1
-fi
-unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_PREFIX GIT_OBJECT_DIRECTORY \
-  GIT_ALTERNATE_OBJECT_DIRECTORIES
+# way. A caller that imports GIT_INDEX_FILE (update-dev-image-ref.sh: the commit's own index, read
+# only in this repository) keeps it: an import is read-only.
+[[ "$(declare -p GIT_INDEX_FILE 2> /dev/null)" == 'declare -rx '* ]] || unset GIT_INDEX_FILE
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_PREFIX GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
 
 # dev_builder_args: Apple `container build` sizing for the builder it starts (2 CPUs / 2 GB by default,
 # too small for the tool images): KEELCORE_BUILD_CPUS (4) and KEELCORE_BUILD_MEMORY (8g).
 function dev_builder_args() {
-  printf '%s\n' --cpus "${KEELCORE_BUILD_CPUS:-4}" --memory "${KEELCORE_BUILD_MEMORY:-8g}"
+  printf '%s\n' --cpus "${KEELCORE_BUILD_CPUS}" --memory "${KEELCORE_BUILD_MEMORY}"
 }
 
 # dev_ensure_builder: an Apple `container` builder already running at another size keeps that size
 # (the flags only size a builder `container build` starts): restart it at dev_builder_args' size.
 function dev_ensure_builder() {
-  local -r cpus="${KEELCORE_BUILD_CPUS:-4}" mem="${KEELCORE_BUILD_MEMORY:-8g}"
+  local -r cpus="${KEELCORE_BUILD_CPUS}" mem="${KEELCORE_BUILD_MEMORY}"
   local want_mb have
   case "${mem}" in
     *[gG]) want_mb=$(( ${mem%[gG]} * 1024 )) ;;
     *[mM]) want_mb="${mem%[mM]}" ;;
     *) want_mb="${mem}" ;;
   esac
-  local -r limit="${KEELCORE_DEV_BUILDER_TIMEOUT:-300}" status="$(mktemp)"
+  local -r limit="${KEELCORE_DEV_BUILDER_TIMEOUT}" status="$(mktemp)"
   DEV_WATCH_OUT="${status}" dev_watch 'checking the image builder' "${limit}" container builder status \
     || { rm -f "${status}"; exit 1; }
   have="$(awk 'NR == 2 && $3 == "running" { print $5 " " $6 }' "${status}")"
@@ -54,7 +71,7 @@ function dev_ensure_builder() {
 
 # dev_registry: where images are published (KEELCORE_DEV_REGISTRY overrides).
 function dev_registry() {
-  printf '%s' "${KEELCORE_DEV_REGISTRY:-ghcr.io/keelcore}"
+  printf '%s' "${KEELCORE_DEV_REGISTRY}"
 }
 
 # dev_repo_name DIR: DIR's repository name, as an image-name component — the same for every
@@ -62,7 +79,7 @@ function dev_registry() {
 # (<repo>/.git, or <superproject>/.git/modules/<name> for a submodule).
 function dev_repo_name() {
   # Inside a tool image the repository is mounted at /work: scripts/dev/run.sh passes its name.
-  if [ -n "${KEELCORE_DEV_REPO:-}" ] && [ "$(cd "${1}" && pwd -P)" = "$(git rev-parse --show-toplevel)" ]; then
+  if [ -n "${KEELCORE_DEV_REPO}" ] && [ "$(cd "${1}" && pwd -P)" = "$(git rev-parse --show-toplevel)" ]; then
     printf '%s\n' "${KEELCORE_DEV_REPO}"
     return 0
   fi
@@ -90,19 +107,20 @@ function dev_has_base() {
   grep -qE '^ARG BASE_DEV_IMAGE' "${1}/$(dev_containerfile "${2}")"
 }
 
-# dev_context_files DIR NAME: the Containerfile and every file it COPYs from the build context.
+# dev_context_files DIR NAME [staged]: the Containerfile and every file it COPYs from the build context:
+# the files the index holds with staged, else the tree's.
 function dev_context_files() {
-  local -r dir="${1}"
+  local -r dir="${1}" from="${3:-}"
   local cf
   cf="$(dev_containerfile "${2}")"
   printf '%s\n' "${cf}"
-  dev_context_read "${dir}" "${cf}" | awk '
+  dev_context_read "${dir}" "${cf}" "${from}" | awk '
     { line = line $0 }
     /\\$/ { sub(/\\$/, " ", line); next }
     { print line; line = "" }
   ' | awk '$1 == "COPY" && $2 !~ /^--from=/ { for (i = 2; i < NF; i++) print $i }' \
     | while IFS= read -r src; do
-        if [ -n "${DEV_CONTEXT_STAGED:-}" ]; then
+        if [ "${from}" = 'staged' ]; then
           (cd "${dir}" && git ls-files -c -- "${src%/}")
         else
           (cd "${dir}" && git ls-files -co --exclude-standard -- "${src%/}")
@@ -110,31 +128,31 @@ function dev_context_files() {
       done | sort -u
 }
 
-# dev_context_read DIR FILE: FILE as the context sees it: staged with DEV_CONTEXT_STAGED, else the tree's.
+# dev_context_read DIR FILE [staged]: FILE as the context sees it: the index's with staged, else the tree's.
 function dev_context_read() {
-  if [ -n "${DEV_CONTEXT_STAGED:-}" ]; then
+  if [ "${3:-}" = 'staged' ]; then
     git -C "${1}" show ":${2}"
   else
     cat "${1}/${2}"
   fi
 }
 
-# dev_context_blob DIR FILE: FILE's blob hash, staged or in the tree as dev_context_read.
+# dev_context_blob DIR FILE [staged]: FILE's blob hash, from the index or the tree as dev_context_read.
 function dev_context_blob() {
-  if [ -n "${DEV_CONTEXT_STAGED:-}" ]; then
+  if [ "${3:-}" = 'staged' ]; then
     git -C "${1}" rev-parse ":${2}"
   else
     (cd "${1}" && git hash-object -- "${2}")
   fi
 }
 
-# dev_context_hash DIR NAME [BASE]: one hash over DIR's NAME build context (and BASE, the
+# dev_context_hash DIR NAME [BASE [staged]]: one hash over DIR's NAME build context (and BASE, the
 # reference of the image it builds on).
 function dev_context_hash() {
-  local -r dir="${1}" name="${2}" base="${3:-}"
+  local -r dir="${1}" name="${2}" base="${3:-}" from="${4:-}"
   {
-    dev_context_files "${dir}" "${name}" | while IFS= read -r f; do
-      printf '%s %s\n' "$(dev_context_blob "${dir}" "${f}")" "${f}"
+    dev_context_files "${dir}" "${name}" "${from}" | while IFS= read -r f; do
+      printf '%s %s\n' "$(dev_context_blob "${dir}" "${f}" "${from}")" "${f}"
     done
     [ -z "${base}" ] || printf 'base %s\n' "${base}"
   } | git hash-object --stdin | cut -c1-16
@@ -146,14 +164,15 @@ function dev_base_ref() {
   head -1 "${1}/.standards/$(dev_ref_file dev)"
 }
 
-# dev_tree_hash DIR NAME: the context hash of DIR's NAME image, with the base it builds on.
+# dev_tree_hash DIR NAME [staged]: the context hash of DIR's NAME image, with the base it builds on.
 function dev_tree_hash() {
-  dev_context_hash "${1}" "${2}" "$(dev_base_ref "${1}" "${2}")"
+  dev_context_hash "${1}" "${2}" "$(dev_base_ref "${1}" "${2}")" "${3:-}"
 }
 
-# dev_pin_ref DIR NAME: the name of the image built from NAME's context: REPOSITORY:ctx-HASH.
+# dev_pin_ref DIR NAME [staged]: the name of the image built from NAME's context: REPOSITORY:ctx-HASH, the
+# context as the index holds it with staged (the commit being made), else as the tree holds it.
 function dev_pin_ref() {
-  printf '%s:ctx-%s' "$(dev_repository "${1}" "${2}")" "$(dev_tree_hash "${1}" "${2}")"
+  printf '%s:ctx-%s' "$(dev_repository "${1}" "${2}")" "$(dev_tree_hash "${1}" "${2}" "${3:-}")"
 }
 
 # dev_published_ref REPOSITORY HASH: REPOSITORY:ctx-HASH when the registry holds it (registry metadata
@@ -173,17 +192,12 @@ function dev_published_ref() {
   printf '%s:ctx-%s' "${repository}" "${hash}"
 }
 
-# runtime: the container runtime of this host.
-function runtime() {
-  if [ "$(uname -s)" = 'Darwin' ]; then printf 'container'; else printf 'docker'; fi
-}
-
 # pull_image REF: fetch REF. Apple container's default progress prints nothing without a terminal, so
 # it asks for plain lines; docker prints them either way.
 function pull_image() {
   local -a progress=()
   [ "$(runtime)" != 'container' ] || progress=(--progress plain)
-  dev_watch "pulling ${1}" "${KEELCORE_DEV_PULL_TIMEOUT:-1800}" \
+  dev_watch "pulling ${1}" "${KEELCORE_DEV_PULL_TIMEOUT}" \
     "$(runtime)" image pull ${progress[@]+"${progress[@]}"} "${1}"
 }
 
@@ -194,7 +208,7 @@ function pull_image() {
 function dev_watch() {
   local -r label="${1}" limit="${2}"
   shift 2
-  local -r every="${KEELCORE_DEV_PROGRESS_SECONDS:-30}" out="$(mktemp)"
+  local -r every="${KEELCORE_DEV_PROGRESS_SECONDS}" out="$(mktemp)"
   "$@" > "${out}" 2>&1 &
   local -r pid="${!}" started="${SECONDS}"
   local shown=0 next=$(( SECONDS + every )) rc=0

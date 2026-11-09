@@ -7,6 +7,8 @@
 #
 # Usage: publish-github-release.sh TAG DIR   (in the dev image: make publish-github-release TAG=vX.Y.Z)
 # Env: GITHUB_TOKEN (contents: write), GITHUB_REPOSITORY (owner/repo).
+# Environment: GITHUB_REPOSITORY (default empty).
+# Environment: GITHUB_TOKEN (default empty).
 # Project hook: publish-github-release.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -23,6 +25,8 @@ set -o pipefail
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
+declare -rx GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+declare -rx GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
 readonly API='https://api.github.com'
 
 function main() {

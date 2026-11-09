@@ -23,6 +23,9 @@
 # Env: ACTIONS_ID_TOKEN_REQUEST_URL / _TOKEN (keyless signing in GitHub Actions); GITHUB_REPOSITORY
 # (owner/repo: its build attestations); GITHUB_TOKEN (optional: the attestation API's rate limit).
 # RELEASE_LICENSE: the SPDX license id for the SBOMs when package.json / pyproject.toml do not name one.
+# Environment: GITHUB_TOKEN (default empty).
+# Environment: GITHUB_REPOSITORY (default empty).
+# Environment: RELEASE_LICENSE (default empty).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -38,6 +41,9 @@ set -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/scorecard-assets.sh"
 
 # A newly published version can take minutes to appear in a registry.
+declare -rx RELEASE_LICENSE="${RELEASE_LICENSE:-}"
+declare -rx GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
+declare -rx GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 readonly FETCH_TRIES=30
 readonly FETCH_DELAY=30
 readonly LOCAL_HOOK='scripts/release/build-release-assets.local.sh'
@@ -55,7 +61,8 @@ function main() {
   local -r version="${tag#v}"
   local name license
   name="$(project_name "${tag}")"
-  license="${RELEASE_LICENSE:-$(project_license "${tag}")}"
+  license="${RELEASE_LICENSE}"
+  [ -n "${license}" ] || license="$(project_license "${tag}")"
   mkdir -p "${dir}"
   local -a artifacts=()
   local f
@@ -239,7 +246,7 @@ function fetch_github_attestations() {
   local digest body
   digest="$(sha256sum "${file}" | cut -d' ' -f1)"
   local -a auth=()
-  [ -z "${GITHUB_TOKEN:-}" ] || auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  [ -z "${GITHUB_TOKEN}" ] || auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
   body="$(curl -fsSL --connect-timeout 30 --speed-limit 1024 --speed-time 60 ${auth[@]+"${auth[@]}"} -H 'Accept: application/vnd.github+json' \
     "https://api.github.com/repos/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}/attestations/sha256:${digest}" \
     2> /dev/null || true)"

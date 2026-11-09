@@ -8,6 +8,8 @@
 #
 # Exit 0 if every commit has at least one Signed-off-by line.
 # Exit 1 and print offending commits if any are missing it.
+# Environment: BASE_SHA (default empty).
+# Environment: HEAD_SHA (default empty).
 # Project hook: check-dco.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -24,6 +26,8 @@ set -o pipefail
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
+declare -rx HEAD_SHA="${HEAD_SHA:-}"
+declare -rx BASE_SHA="${BASE_SHA:-}"
 readonly LOG_FILE='/tmp/keel_dco_check.log'
 
 function log() {

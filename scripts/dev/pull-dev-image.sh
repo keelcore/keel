@@ -19,7 +19,7 @@ set -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 # shellcheck source=../lib/dev-image.sh
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/dev-image.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/dev-image.sh"
 
 readonly IMAGE_REF='containers/dev/image.ref'
 

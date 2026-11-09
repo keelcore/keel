@@ -20,6 +20,9 @@ set -o pipefail
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
+# shellcheck source=../lib/container-system.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/container-system.sh"
+
 readonly CONTAINER_LATEST='https://api.github.com/repos/apple/container/releases/latest'
 readonly CONTAINER_SIGNER='Developer ID Installer: Apple Inc. - Containerization (UPBK2H6LZM)'
 readonly CURL_RETRY=(--retry 5 --retry-delay 10 --retry-all-errors --connect-timeout 30 --speed-limit 1024 --speed-time 60)
@@ -32,7 +35,7 @@ function main() {
   run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
   require_platform
   install_container
-  start_system
+  start_container_system
 }
 
 function log() {
@@ -117,17 +120,6 @@ function install_container() {
     exit 1
   fi
   log "✅ container ${version} installed"
-}
-
-# start_system: a running system is left as it is, so its image builder and build cache survive; a stopped one
-# is started, installing its default kernel when it has none.
-function start_system() {
-  if container system status > /dev/null 2>&1; then
-    log '✅ container system already running'
-    return 0
-  fi
-  container system start --enable-kernel-install
-  log '✅ container system running, with its kernel'
 }
 
 main "${@:-}"

@@ -5,7 +5,9 @@
 # executes the output (scripts/test/test-native.sh): it installs no toolchain.
 #
 # Output, under target/native/<os>-<arch>/:
-#   tests/<pkg>.test[.exe] + tests.tsv   one Go test binary per package with tests
+#   tests/<pkg>[.exe] + tests.tsv        one Go test binary per package with tests; tests.tsv rows are
+#                                        DIR<TAB>BINARY, DIR relative to the repository (. and _root for
+#                                        the module root)
 #   bats/                                the bats the tool image carries
 # plus whatever scripts/test/build-native.local.sh OS ARCH OUT EXT builds for this platform.
 
@@ -55,21 +57,44 @@ function validate_args() {
   esac
 }
 
-# build_tests OS ARCH OUT EXT: a test binary per package that has tests, and tests.tsv.
+# build_tests OS ARCH OUT EXT: a test binary per package that has tests, and tests.tsv: each package's
+# directory relative to the repository (. for the module root) and its binary.
 function build_tests() {
   local -r os="${1}" arch="${2}" out="${3}" ext="${4}"
   local pkg dir bin
   : > "${out}/tests.tsv"
   while IFS= read -r pkg; do
     [ -n "${pkg}" ] || continue
-    dir="$(go list -f '{{.Dir}}' "${pkg}")"
-    dir="${dir#"${PWD}/"}"
-    bin="tests/$(printf '%s' "${dir}" | tr '/' '_')${ext}"
+    dir="$(package_dir "$(go list -f '{{.Dir}}' "${pkg}")")"
+    bin="tests/$(binary_name "${dir}")${ext}"
     [ -n "$(go list -f '{{join .TestGoFiles ""}}{{join .XTestGoFiles ""}}' "${pkg}")" ] || continue
     GOOS="${os}" GOARCH="${arch}" CGO_ENABLED=0 go test -c -o "${out}/${bin}" "${pkg}"
     printf '%s\t%s\n' "${dir}" "${bin}" >> "${out}/tests.tsv"
   done < <(go_pkgs)
   log "✅ $(wc -l < "${out}/tests.tsv" | tr -d ' ') test binaries for ${os}/${arch}"
+}
+
+# package_dir DIR: DIR relative to the repository, . for the module root; a directory outside it fails.
+function package_dir() {
+  local -r dir="${1}"
+  case "${dir}" in
+    "${PWD}") printf '.' ;;
+    "${PWD}"/*) printf '%s' "${dir#"${PWD}/"}" ;;
+    *)
+      log "❌ package directory outside the repository: ${dir}"
+      return 1
+      ;;
+  esac
+}
+
+# binary_name DIR: the test binary's name for package directory DIR. The module root is _root: go skips
+# directories whose names start with _, so no subpackage's name does.
+function binary_name() {
+  if [ "${1}" = '.' ]; then
+    printf '_root'
+  else
+    printf '%s' "${1}" | tr '/' '_'
+  fi
 }
 
 function copy_bats() {

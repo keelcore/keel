@@ -2,6 +2,9 @@
 # tool-config.sh
 # Tool settings: the default in .standards/config (config/ in the standards repo itself), and a
 # config/<name>.local.txt owned by the repository. Source this file; do not execute directly.
+# Environment: GITHUB_REPOSITORY (default empty); owner/name, set on GitHub Actions.
+
+declare -rx GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
 
 function config_default_dir() {
   if [ -d .standards/config ]; then printf '.standards/config'; else printf 'config'; fi
@@ -57,7 +60,7 @@ function release_files() {
 
 # release_repo: owner/name, from the workflow context, else config/release-repo.local.txt.
 function release_repo() {
-  if [ -n "${GITHUB_REPOSITORY:-}" ]; then
+  if [ -n "${GITHUB_REPOSITORY}" ]; then
     printf '%s' "${GITHUB_REPOSITORY}"
   else
     config_replace release-repo

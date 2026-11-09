@@ -23,6 +23,16 @@
 # `ARG BASE_DEV_IMAGE` gets the .standards dev image as that argument.
 # Runtime: Apple `container` on macOS, docker on Linux.
 # Inside the image (KEELCORE_DEV_IMAGE set) the command runs directly.
+# Environment passed into the image: each name the script COMMAND runs imports (governance/bash.md R37),
+# with the files it sources, its project hook and the scripts it runs by path (env_import_chain), when set;
+# every GITHUB_*, RUNNER_* and ACTIONS_* variable and CI (the Actions context: npm and cosign build provenance
+# from it; the OIDC token request); and TZ. By name, in a private --env-file removed after the run: no value
+# from this environment reaches the runtime's arguments or the file, which holds only run.sh's own
+# KEELCORE_DEV_REPO and DOCKER_CONFIG (the mounted login) as values. A COMMAND that runs no script gets the
+# Actions context and TZ.
+# Environment: DOCKER_CONFIG (default empty).
+# Environment: KEELCORE_DEV_BUILD_TIMEOUT (default 3600).
+# Environment: KEELCORE_DEV_MEMORY (default 4g).
 # Project hook: run.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -42,14 +52,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 # shellcheck source=../lib/dev-image.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/dev-image.sh"
 
-# Environment passed into the container: every GITHUB_*, RUNNER_* and ACTIONS_* variable (the
-# Actions context: npm and cosign build provenance from it; the OIDC token request), plus CI,
-# PR metadata, coverage settings, and any names a project lists in KEELCORE_DEV_ENV.
-SNAPSHOT=''
+# shellcheck source=../lib/env-imports.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/env-imports.sh"
 
-readonly PASS_ENV="TZ CI PR_TITLE PR_BODY PR_AUTHOR BASE_SHA HEAD_SHA COVERAGE_DIR COVERAGE_THRESHOLD COVERAGE_BASE_FILE COVERAGE_PR_FILE
-  GO_COVERAGE_IGNORE_REGEX CARGO_COVERAGE_FEATURES CARGO_COVERAGE_IGNORE_REGEX
-  ${KEELCORE_DEV_ENV:-}"
+declare -rx KEELCORE_DEV_MEMORY="${KEELCORE_DEV_MEMORY:-4g}"
+declare -rx KEELCORE_DEV_BUILD_TIMEOUT="${KEELCORE_DEV_BUILD_TIMEOUT:-3600}"
+declare -rx DOCKER_CONFIG="${DOCKER_CONFIG:-}"
+
+# Set by run_in, removed on exit: the snapshot a submodule or worktree runs in, and the env file.
+SNAPSHOT=''
+ENV_FILE=''
 
 function main() {
   local mode='ro' name='dev'
@@ -159,7 +171,7 @@ function build_image() {
     while IFS= read -r opt; do args+=("${opt}"); done < <(dev_builder_args)
   fi
   log "🔨 Building image ${tag}..."
-  dev_watch "building ${tag}" "${KEELCORE_DEV_BUILD_TIMEOUT:-3600}" "$(runtime)" "${args[@]}" "${dir}"
+  dev_watch "building ${tag}" "${KEELCORE_DEV_BUILD_TIMEOUT}" "$(runtime)" "${args[@]}" "${dir}"
 }
 
 # fetch_image NAME: NAME's image on this machine, built or pulled, ready for runs that follow.
@@ -245,8 +257,34 @@ function sync_back() {
 # or rw) and its output directories writable, working directory the same relative path as here.
 # A submodule (its git directory lives in the superproject) is mounted as a standalone snapshot
 # (/tmp); a writable run's edits are copied back.
-function remove_snapshot() {
+function remove_run_files() {
   [ -z "${SNAPSHOT}" ] || rm -rf "${SNAPSHOT}" || true
+  [ -z "${ENV_FILE}" ] || rm -f "${ENV_FILE}" || true
+}
+
+# command_script COMMAND...: the script COMMAND runs: PATH.sh, or bash [OPTION...] PATH.sh; nothing for any
+# other command, bash -c included.
+function command_script() {
+  if [ "${1:-}" = 'bash' ]; then
+    shift
+    while [[ "${1:-}" == -* ]]; do
+      [ "${1}" != '-c' ] || return 0
+      shift
+    done
+  fi
+  [[ "${1:-}" != *.sh ]] || printf '%s' "${1}"
+}
+
+# passed_names SCRIPT: the names passed into the image, each set here: SCRIPT's imports (env_import_chain; none
+# without a script), the Actions context and TZ. DOCKER_CONFIG and KEELCORE_DEV_REPO are run.sh's own values.
+function passed_names() {
+  local chain='' name
+  [ -z "${1}" ] || chain="$(env_import_chain "${1}")" || return 1
+  { printf '%s\n' "${chain}" CI TZ; compgen -e | grep -E '^(GITHUB|RUNNER|ACTIONS)_' || true; } | sort -u \
+    | while IFS= read -r name; do
+      case "${name}" in '' | DOCKER_CONFIG | KEELCORE_DEV_REPO) continue ;; esac
+      [ -z "${!name+set}" ] || printf '%s\n' "${name}"
+    done
 }
 
 function run_in() {
@@ -255,25 +293,30 @@ function run_in() {
   local here src name
   here="$(git rev-parse --show-toplevel)"
   src="${here}"
+  trap remove_run_files EXIT
+  # The environment, by name, in a private file (mktemp: mode 600): the runtime copies each value from this
+  # process, so none (tokens included) reaches its arguments or the file.
+  ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/keelcore-run-env.XXXXXX")"
+  passed_names "$(command_script "$@")" > "${ENV_FILE}"
+  printf 'KEELCORE_DEV_REPO=%s\n' "$(dev_repo_name "${here}")" >> "${ENV_FILE}"
   # A submodule or worktree: its .git is a file pointing at a git directory outside it.
   if [ -f "${here}/.git" ]; then
     src="$(snapshot "${here}")"
     SNAPSHOT="${src}"
-    trap remove_snapshot EXIT
   fi
   # git reports the physical path (macOS /tmp and /var are symlinks into /private).
   local rel
   rel="$(pwd -P)"
   rel="${rel#"${here}"}"
-  local -a args=(run --rm -i -v "${src}:/work:${mode}" -w "/work${rel}")
-  args+=(-e "KEELCORE_DEV_REPO=$(dev_repo_name "${here}")")
+  local -a args=(run --rm -i -v "${src}:/work:${mode}" -w "/work${rel}" --env-file "${ENV_FILE}")
   # The job's registry login (DOCKER_CONFIG, one login per job), read-only: tools in the image reuse
   # it instead of logging in themselves.
-  if [ -n "${DOCKER_CONFIG:-}" ] && [ -d "${DOCKER_CONFIG}" ]; then
-    args+=(-v "${DOCKER_CONFIG}:/run/keelcore-docker-config:ro" -e 'DOCKER_CONFIG=/run/keelcore-docker-config')
+  if [ -n "${DOCKER_CONFIG}" ] && [ -d "${DOCKER_CONFIG}" ]; then
+    args+=(-v "${DOCKER_CONFIG}:/run/keelcore-docker-config:ro")
+    printf 'DOCKER_CONFIG=/run/keelcore-docker-config\n' >> "${ENV_FILE}"
   fi
   # Apple container caps a container at 1 GB unless told otherwise (docker does not cap).
-  [ "$(runtime)" = 'container' ] && args+=(-m "${KEELCORE_DEV_MEMORY:-4g}")
+  [ "$(runtime)" = 'container' ] && args+=(-m "${KEELCORE_DEV_MEMORY}")
   local out
   if [ "${mode}" = 'ro' ]; then
     while IFS= read -r out; do
@@ -284,14 +327,6 @@ function run_in() {
   # A TTY only when both ends are terminals: git runs hooks with stdin from /dev/null, and a TTY
   # on a non-terminal stdin fails (Apple container: "Operation not supported by device").
   [ -t 0 ] && [ -t 1 ] && args+=(-t)
-  # By name (-e NAME): the runtime copies the value from this process's environment, so no value
-  # (tokens included) appears in the runtime's argument list.
-  for name in ${PASS_ENV} $(compgen -e | grep -E '^(GITHUB|RUNNER|ACTIONS)_' || true); do
-    if [ -n "${!name:-}" ]; then
-      export "${name?}"
-      args+=(-e "${name}")
-    fi
-  done
   # GitHub Actions file commands: the event payload (read) and the output / summary files (append).
   local file fmode mounted=" "
   for name in GITHUB_EVENT_PATH GITHUB_OUTPUT GITHUB_STEP_SUMMARY; do
@@ -303,13 +338,11 @@ function run_in() {
     [ "${name}" = 'GITHUB_EVENT_PATH' ] && fmode='ro'
     args+=(-v "$(dirname "${file}"):$(dirname "${file}"):${fmode}")
   done
-  if [ "${src}" != "${here}" ]; then
-    local rc=0
-    "$(runtime)" "${args[@]}" "${image}" "$@" || rc=$?
-    [ "${mode}" != 'rw' ] || sync_back "${src}" "${here}"
-    return "${rc}"
-  fi
-  exec "$(runtime)" "${args[@]}" "${image}" "$@"
+  # Not exec: the env file and the snapshot are removed when the command ends.
+  local rc=0
+  "$(runtime)" "${args[@]}" "${image}" "$@" || rc=$?
+  [ "${src}" = "${here}" ] || [ "${mode}" != 'rw' ] || sync_back "${src}" "${here}"
+  return "${rc}"
 }
 
 main "$@"

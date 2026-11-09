@@ -29,7 +29,7 @@ readonly SHELL_DATE_RE="(\\$\\(|${BACKTICK}|^[[:space:]]*|[;&|][[:space:]]*)date
 readonly GO_LOCAL_RE='time\.Local\b|\.Local\(\)|time\.Now\(\)\.Format\('
 
 # shellcheck source=../lib/paths.sh
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 
 function main() {
   exec 5>&1

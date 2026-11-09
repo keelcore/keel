@@ -6,6 +6,7 @@
 #
 # Usage: verify-release-blobs.sh DIR   (in the dev image: make verify-release-blobs)
 # Env: GITHUB_REPOSITORY (owner/repo: the signing identity).
+# Environment: GITHUB_REPOSITORY (default empty).
 # Project hook: verify-release-blobs.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -21,6 +22,8 @@ set -o pipefail
 
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
+
+declare -rx GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
 
 function main() {
   exec 5>&1

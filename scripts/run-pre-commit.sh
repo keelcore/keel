@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # scripts/run-pre-commit.sh
-# Pre-commit hook entry point. Runs:
+# Pre-commit hook entry point. Uses no network: a missing or stopped container runtime fails the commit,
+# naming the make target that fixes it (require_container_system, scripts/lib/container-system.sh). Runs:
 #   0. update-dev-image-ref.sh — containers/NAME/image.ref names the image built from this commit.
 #   1. format.sh  — auto-fix what's auto-fixable
 #   2. lint-all.sh    — fail on remaining lint issues
@@ -14,7 +15,9 @@
 #   4. update-pins.sh --check-pins-doc — when the repository has docs/current_pins.md, the pins
 #      it lists match the pins in the tree (local, no network): updated pins are committed with
 #      their table.
-# Install: ln -sf ../../scripts/run-pre-commit.sh .git/hooks/pre-commit
+#   5. check-legal-drift.sh — the legal-file copies config/legal-copies.local.txt lists match their
+#      sources.
+# Install: make install-hooks (core.hooksPath scripts/hooks, whose pre-commit runs this script).
 # Project hook: run-pre-commit.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -36,13 +39,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/./lib/local-hook.sh"
 # ~/.zshrc, so without this every downstream tool (shellcheck, node,
 # markdownlint-cli2, syft, ...) looks "missing" when it isn't.
 # shellcheck source=lib/paths-ensure.sh
-. "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")/lib/paths-ensure.sh"
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")")/lib/paths-ensure.sh"
 paths_ensure_standard
+
+# shellcheck source=lib/container-system.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/container-system.sh"
 
 function main() {
   exec 5>&1
   run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
-  log 'Pre-commit: image name + format + lint + governance-gate + pins table'
+  require_container_system
+  log 'Pre-commit: image name + format + lint + governance-gate + pins table + legal copies'
   [ ! -f scripts/dev/update-dev-image-ref.sh ] || bash scripts/dev/update-dev-image-ref.sh
   bash scripts/dev/run.sh --writable bash scripts/format.sh
   bash scripts/dev/run.sh bash scripts/lint-all.sh
@@ -50,6 +57,7 @@ function main() {
   if [ -f docs/current_pins.md ]; then
     bash scripts/dev/run.sh bash scripts/release/update-pins.sh --check-pins-doc docs/current_pins.md
   fi
+  bash scripts/dev/run.sh bash scripts/check-legal-drift.sh
   log '✅ Pre-commit checks passed'
 }
 

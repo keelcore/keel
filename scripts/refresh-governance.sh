@@ -39,6 +39,8 @@
 # Env overrides (testing only — production reads paths from git):
 #   GOVREFRESH_STANDARDS_ROOT  defaults to ${REPO_ROOT}/.standards
 #   GOVREFRESH_REPO_ROOT       defaults to `git rev-parse --show-toplevel`
+# Environment: GOVREFRESH_REPO_ROOT (default empty).
+# Environment: GOVREFRESH_STANDARDS_ROOT (default empty).
 # Project hook: refresh-governance.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -58,12 +60,16 @@ source "$(dirname "${BASH_SOURCE[0]}")/./lib/local-hook.sh"
 # shellcheck source=lib/canonical-files.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/canonical-files.sh"
 
+declare -rx GOVREFRESH_STANDARDS_ROOT="${GOVREFRESH_STANDARDS_ROOT:-}"
+declare -rx GOVREFRESH_REPO_ROOT="${GOVREFRESH_REPO_ROOT:-}"
 declare REPO_ROOT
-REPO_ROOT="${GOVREFRESH_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
+REPO_ROOT="${GOVREFRESH_REPO_ROOT}"
+[ -n "${REPO_ROOT}" ] || REPO_ROOT="$(git rev-parse --show-toplevel)"
 declare -r REPO_ROOT
 
 declare STANDARDS_ROOT
-STANDARDS_ROOT="${GOVREFRESH_STANDARDS_ROOT:-${REPO_ROOT}/.standards}"
+STANDARDS_ROOT="${GOVREFRESH_STANDARDS_ROOT}"
+[ -n "${STANDARDS_ROOT}" ] || STANDARDS_ROOT="${REPO_ROOT}/.standards"
 declare -r STANDARDS_ROOT
 
 declare -r TEMPLATES_MAKEFILE="${STANDARDS_ROOT}/templates/Makefile.canonical"

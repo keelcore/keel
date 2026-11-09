@@ -18,6 +18,10 @@
 # While the major version is 0 the bump is demoted one step (major -> minor,
 # minor -> patch, patch -> patch only if there are commits since the tag).
 #
+# First release: with no previous tag the current version is 0.0.0 and the
+# version comes from --force (pre-1.0 rules); the hook is not called, and the
+# tag subject is "initial release".
+#
 # Pins: every pinned external input is checked first (scripts/release/
 # update-pins.sh --discover-only). Any stale pin — an eligible newer release that
 # was not adopted — blocks the release, listed with the consequence of staying
@@ -39,7 +43,7 @@
 #                     recorded.
 #
 # Env (testing only):
-#   CREATE_RELEASE_TTY  file the approval answer is read from (default /dev/tty)
+#   CREATE_RELEASE_TTY (default /dev/tty): the file the approval answer is read from
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -57,6 +61,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 declare -r LOG_FILE='/tmp/create_release.log'
 declare -r HOOK_REL='scripts/release/create-release.local.sh'
 declare -r DEMOTION_NOTE=' (pre-1.0 demotion)'
+declare -r FIRST_BUMP='initial'
+declare -r FIRST_SUBJECT='initial release'
 declare -rx CREATE_RELEASE_TTY="${CREATE_RELEASE_TTY:-/dev/tty}"
 declare FINDINGS_FILE
 FINDINGS_FILE="$(mktemp "${TMPDIR:-/tmp}/create_release_findings.XXXXXX")"
@@ -297,20 +303,33 @@ function run_release() {
   local -r force="${1}" dry_run="${2}"
   local cur_tag cur_ver hook_out
   cur_tag="$(current_git_tag)"
+  if [ -z "${cur_tag}" ]; then
+    first_release "${force}" "${dry_run}"
+    return 0
+  fi
   cur_ver="$(strip_v "${cur_tag}")"
   log "🏷️  Current version: v${cur_ver}"
   hook_out="$(bump_from_hook "${cur_tag}")"
   release_from "${cur_tag}" "${cur_ver}" "${hook_out}" "${force}" "${dry_run}"
 }
 
+# Empty when the repository has no tag yet.
 function current_git_tag() {
-  local tag
-  if ! tag="$(git describe --tags --abbrev=0 2>/dev/null)"; then
-    log '❌ no tags found in repository'
-    log "   Create an initial tag first: git tag -s v0.1.0 -m 'initial release'"
+  git describe --tags --abbrev=0 2>/dev/null || true
+}
+
+# first_release FORCE DRY_RUN: no previous tag, so nothing to diff and no bump to compute; the version
+# is FORCE, from 0.0.0 under the pre-1.0 rules, through the same summary, approval and signed tag.
+function first_release() {
+  local -r force="${1}" dry_run="${2}"
+  if [ -z "${force}" ]; then
+    log '❌ no tags found: the first release needs its version: make create-release FORCE=vX.Y.Z'
     exit 1
   fi
-  printf '%s' "${tag}"
+  log '🏷️  Current version: v0.0.0 (no tags found; first release)'
+  validate_force_version "${force}" '' '0.0.0'
+  present_summary '0.0.0' "${force}" "${FIRST_BUMP}" "${FIRST_SUBJECT}"
+  tag_or_preview "${force}" "$(build_tag_message "${FIRST_BUMP}" "${FIRST_SUBJECT}" '0.0.0' "${force}")" "${dry_run}"
 }
 
 # Prints the hook's two lines (bump, subject); exits non-zero on any failure.
@@ -559,13 +578,23 @@ function present_summary() {
   log '------------------------------------------------------------------------'
   show_findings
   log "  Bump level : ${bump}"
-  log "  Tag subject: ${bump}: ${subject}"
+  log "  Tag subject: $(tag_subject "${bump}" "${subject}")"
   log ''
+}
+
+# tag_subject BUMP SUBJECT: "<bump>: <subject>"; a first release's subject stands alone.
+function tag_subject() {
+  local -r bump="${1}" subject="${2}"
+  if [ "${bump}" = "${FIRST_BUMP}" ]; then
+    printf '%s' "${subject}"
+    return 0
+  fi
+  printf '%s: %s' "${bump}" "${subject}"
 }
 
 function build_tag_message() {
   local -r bump="${1}" subject="${2}" cur="${3}" new="${4}"
-  printf '%s: %s\n\n' "${bump}" "${subject}"
+  printf '%s\n\n' "$(tag_subject "${bump}" "${subject}")"
   printf 'Bump level:  %s\nPrevious:    v%s\n' "${bump}" "${cur}"
   printf 'New version: v%s\nCommit:      %s\n' "${new}" "$(git rev-parse --short HEAD)"
   if [ -s "${FINDINGS_FILE}" ]; then

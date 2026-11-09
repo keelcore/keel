@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # check-legal-drift.sh
-# Verifies that root LICENSE and TRADEMARK.md are identical to pkg/clisupport/ copies.
-# In CI (CI=true): fails with a plain error. Locally: suggests the cp command to run.
+# Verifies that every legal-file copy the repository lists in config/legal-copies.local.txt
+# (scripts/lib/legal-copies.sh) is identical to its source. Changes nothing: a missing or differing copy
+# fails, naming `make ensure-legal-notices`, which writes it. No list, nothing to check. Runs in `make audit`
+# and in the commit hook.
+# Environment: CI (default empty; `true` says to sync locally), GITHUB_STEP_SUMMARY (default empty; when set,
+# failures are appended to it).
 # Project hook: check-legal-drift.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -17,29 +21,48 @@ set -o pipefail
 
 # shellcheck source=./lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/./lib/local-hook.sh"
+# shellcheck source=./lib/legal-copies.sh
+source "$(dirname "${BASH_SOURCE[0]}")/./lib/legal-copies.sh"
 
-readonly PAIRS=(
-  'LICENSE:pkg/clisupport/LICENSE'
-  'TRADEMARK.md:pkg/clisupport/TRADEMARK.md'
-)
+declare -rx CI="${CI:-}"
+declare -rx GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-}"
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
   run_local_hook "${BASH_SOURCE[0]}" "${@:-}"
-  local root
-  root="$(git rev-parse --show-toplevel)"
-  local failed=0
-  for pair in "${PAIRS[@]}"; do
-    check_pair "${root}" "${pair}" || failed=1
-  done
-  [ "${failed}" -eq 0 ]
+  cd "$(git rev-parse --show-toplevel)"
+  local pairs
+  pairs="$(legal_copies)"
+  if [ -z "${pairs}" ]; then
+    log "✅ No legal copies listed in ${LEGAL_COPIES_FILE}: nothing to check"
+    return 0
+  fi
+  local src dst findings='' sources=0 copies=0
+  while IFS=$'\t' read -r src dst; do
+    if [ ! -f "${src}" ]; then
+      findings+="${src} → ${dst}: source missing"$'\n'
+      sources=1
+    elif [ ! -f "${dst}" ]; then
+      findings+="${src} → ${dst}: copy missing"$'\n'
+      copies=1
+    elif ! cmp -s "${src}" "${dst}"; then
+      findings+="${src} → ${dst}: copy differs from its source"$'\n'
+      copies=1
+    fi
+  done <<< "${pairs}"
+  if [ -z "${findings}" ]; then
+    log '✅ Every legal copy matches its source'
+    return 0
+  fi
+  report "${findings}" "${sources}" "${copies}"
+  return 1
 }
 
 function log() {
   local msg
   msg="${1:-}"
-  printf '%s\n' "${msg}" | tee -a '/tmp/keel_check_legal_drift.log' >&5
+  printf '%s\n' "${msg}" | tee -a '/tmp/check-legal-drift.log' >&5
 }
 
 function validate_args() {
@@ -49,42 +72,29 @@ function validate_args() {
   fi
 }
 
-function check_pair() {
-  local -r root="${1}"
-  local -r pair="${2}"
-  local -r root_file="${root}/${pair%%:*}"
-  local -r pkg_file="${root}/${pair##*:}"
-  if diff -q "${root_file}" "${pkg_file}" > /dev/null 2>&1; then
-    return 0
+# report FINDINGS SOURCES COPIES: logs each finding and its fix; SOURCES/COPIES are 1 when a source or a
+# copy is at fault.
+function report() {
+  local -r findings="${1}" sources="${2}" copies="${3}"
+  local fixes='' line
+  [ "${sources}" -eq 0 ] || fixes+="Restore the source, or correct ${LEGAL_COPIES_FILE}."$'\n'
+  if [ "${copies}" -eq 1 ] && [ "${CI}" = 'true' ]; then
+    fixes+='Run `make ensure-legal-notices` locally and commit the copies.'$'\n'
+  elif [ "${copies}" -eq 1 ]; then
+    fixes+='Fix: `make ensure-legal-notices`, then commit the copies.'$'\n'
   fi
-  advise_fix "${root_file}" "${pkg_file}"
-  return 1
+  log '❌ Legal file drift detected:'
+  while IFS= read -r line; do
+    log "  ${line}"
+  done <<< "${findings}${fixes%$'\n'}"
+  [ -z "${GITHUB_STEP_SUMMARY}" ] || summarize "${findings}" "${fixes}" >> "${GITHUB_STEP_SUMMARY}"
 }
 
-function file_commit_time() {
-  git log -1 --format='%ct' -- "${1}" 2>/dev/null || printf '0'
-}
-
-function advise_fix() {
-  local -r root_file="${1}"
-  local -r pkg_file="${2}"
-  log "❌ Legal file drift detected:"
-  log "  ${root_file}"
-  log "  ${pkg_file}"
-  if [ "${CI:-}" = 'true' ]; then
-    log "  Sync the files locally and commit before pushing."
-    return
-  fi
-  local root_ts pkg_ts
-  root_ts="$(file_commit_time "${root_file}")"
-  pkg_ts="$(file_commit_time "${pkg_file}")"
-  if [ "${root_ts}" -gt "${pkg_ts}" ]; then
-    log "  Fix: cp ${root_file} ${pkg_file}"
-  elif [ "${pkg_ts}" -gt "${root_ts}" ]; then
-    log "  Fix: cp ${pkg_file} ${root_file}"
-  else
-    log "  Both files modified since last common commit — merge manually."
-  fi
+# summarize FINDINGS FIXES: the failure as Markdown, for the GitHub Actions step summary.
+function summarize() {
+  printf '## ❌ Legal file drift\n\n'
+  sed 's/^/- /' <<< "${1%$'\n'}"
+  printf '\n%s' "${2}"
 }
 
 main "${@:-}"

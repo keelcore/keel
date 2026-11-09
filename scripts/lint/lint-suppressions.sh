@@ -66,7 +66,7 @@ readonly DIRECTIVES=(
 readonly MARKDOWN_DIRECTIVE='<!--[[:space:]]*markdownlint-(disable|capture)'
 
 # shellcheck source=../lib/paths.sh
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 
 function main() {
   exec 5>&1

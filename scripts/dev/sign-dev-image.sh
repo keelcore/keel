@@ -8,6 +8,10 @@
 # Env: DOCKER_CONFIG (the job's registry login, read-only), else GITHUB_TOKEN and GITHUB_ACTOR
 # (a login of its own); ACTIONS_ID_TOKEN_REQUEST_URL and
 # ACTIONS_ID_TOKEN_REQUEST_TOKEN (the job's OIDC token for the signing certificate).
+# Environment: GITHUB_REPOSITORY (default empty).
+# Environment: GITHUB_TOKEN (default empty).
+# Environment: GITHUB_ACTOR (default empty).
+# Environment: DOCKER_CONFIG (default empty).
 # Project hook: sign-dev-image.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -24,6 +28,11 @@ set -o pipefail
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
+declare -rx DOCKER_CONFIG="${DOCKER_CONFIG:-}"
+declare -rx GITHUB_ACTOR="${GITHUB_ACTOR:-}"
+declare -rx GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+declare -rx GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-}"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
@@ -37,7 +46,7 @@ function main() {
   fi
   # The job's one registry login (DOCKER_CONFIG, mounted read-only by run.sh) when there is one;
   # a login of its own only without it.
-  if [ ! -f "${DOCKER_CONFIG:-/nonexistent}/config.json" ]; then
+  if [ -z "${DOCKER_CONFIG}" ] || [ ! -f "${DOCKER_CONFIG}/config.json" ]; then
     printf '%s' "${GITHUB_TOKEN:?GITHUB_TOKEN is required}" \
       | cosign login "${ref%%/*}" -u "${GITHUB_ACTOR:?GITHUB_ACTOR is required}" --password-stdin
   fi

@@ -6,6 +6,7 @@
 #
 # Required environment variables:
 #   TAG — the release tag
+# Environment: TAG (default empty).
 # Project hook: generate-release-metadata.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -26,6 +27,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/parallel.sh"
 # shellcheck source=../lib/tool-config.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
+
+declare -rx TAG="${TAG:-}"
 
 function main() {
   exec 5>&1

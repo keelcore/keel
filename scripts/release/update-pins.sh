@@ -80,6 +80,13 @@
 # GITHUB_TOKEN (else `gh auth token`).
 #
 # Usage: update-pins.sh [--apply | --discover-only | --from-pins-doc FILE] [--major NAME] [--tsv FILE] [--report FILE]
+# Environment: UPDATE_PINS_FIXTURES (default empty).
+# Environment: UPDATE_PINS_PROGRESS_SECONDS (default 30).
+# Environment: UPDATE_PINS_RESOLVE_JOBS (default 16).
+# Environment: UPDATE_PINS_JOBS (default 4).
+# Environment: UPDATE_PINS_NOW (default empty).
+# Environment: UPDATE_PINS_PLATFORM (default empty).
+# Environment: UPDATE_PINS_LOGDIR (default empty).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -91,6 +98,13 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+declare -rx UPDATE_PINS_LOGDIR="${UPDATE_PINS_LOGDIR:-}"
+declare -rx UPDATE_PINS_PLATFORM="${UPDATE_PINS_PLATFORM:-}"
+declare -rx UPDATE_PINS_NOW="${UPDATE_PINS_NOW:-}"
+declare -rx UPDATE_PINS_JOBS="${UPDATE_PINS_JOBS:-4}"
+declare -rx UPDATE_PINS_RESOLVE_JOBS="${UPDATE_PINS_RESOLVE_JOBS:-16}"
+declare -rx UPDATE_PINS_PROGRESS_SECONDS="${UPDATE_PINS_PROGRESS_SECONDS:-30}"
+declare -rx UPDATE_PINS_FIXTURES="${UPDATE_PINS_FIXTURES:-}"
 readonly COOLDOWN_DAYS=14
 readonly GO_PATCH_COOLDOWN_DAYS=2
 readonly DAY=86400
@@ -99,7 +113,7 @@ readonly SEMVER_RE='^v?[0-9]+(\.[0-9]+)*$'
 
 NOW=0
 HOLDS=''
-PROGRESS_SECONDS="${UPDATE_PINS_PROGRESS_SECONDS:-30}"
+PROGRESS_SECONDS="${UPDATE_PINS_PROGRESS_SECONDS}"
 MAJOR_PINS=''
 ANY_MAJOR=''
 CHECKSUM_PIN=''
@@ -118,19 +132,21 @@ LOGDIR=''
 TOOLS=''
 
 # shellcheck source=../lib/paths.sh
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
 # shellcheck source=../lib/progress.sh
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/progress.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/progress.sh"
 # shellcheck source=../lib/pin-targets.sh
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/pin-targets.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/pin-targets.sh"
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
   ROOT="$(git rev-parse --show-toplevel)"
   cd "${ROOT}"
-  NOW="${UPDATE_PINS_NOW:-$(date -u +%s)}"
-  PLATFORM="${UPDATE_PINS_PLATFORM:-$(uname -s)}"
+  NOW="${UPDATE_PINS_NOW}"
+  [ -n "${NOW}" ] || NOW="$(date -u +%s)"
+  PLATFORM="${UPDATE_PINS_PLATFORM}"
+  [ -n "${PLATFORM}" ] || PLATFORM="$(uname -s)"
   if [ "${MODE}" = 'check-doc' ]; then
     load_hook
     check_pins_doc "${CHECK_DOC}"
@@ -592,7 +608,7 @@ function fixture_key() {
 # fetch URL: body of an HTTP GET (GitHub API requests are authenticated).
 function fetch() {
   local -r url="${1}"
-  if [ -n "${UPDATE_PINS_FIXTURES:-}" ]; then
+  if [ -n "${UPDATE_PINS_FIXTURES}" ]; then
     cat "${UPDATE_PINS_FIXTURES}/$(fixture_key "${url}")" 2>/dev/null
     return
   fi
@@ -613,7 +629,7 @@ function github_token() {
 # cache_github_token: GITHUB_TOKEN, else `gh auth token` read once, exported for every
 # subshell and child (verification worktrees, the project hook).
 function cache_github_token() {
-  [ -n "${UPDATE_PINS_FIXTURES:-}" ] && return 0
+  [ -n "${UPDATE_PINS_FIXTURES}" ] && return 0
   if [ -z "${GITHUB_TOKEN:-}" ]; then
     GITHUB_TOKEN="$(gh auth token 2>/dev/null || true)"
   fi
@@ -626,7 +642,7 @@ function cache_github_token() {
 # (and in tests) the REST list is used.
 function github_releases() {
   local -r repo="${1}" count="${2:-20}"
-  if [ -n "${UPDATE_PINS_FIXTURES:-}" ] || [ -z "$(github_token)" ]; then
+  if [ -n "${UPDATE_PINS_FIXTURES}" ] || [ -z "$(github_token)" ]; then
     fetch "https://api.github.com/repos/${repo}/releases?per_page=100"
     return
   fi
@@ -679,7 +695,7 @@ function versions_goproxy() {
   local -r mod="${1}" current="${2}"
   local root esc v t
   root="$(goproxy_root "${mod}")" || { failed_lookup; return 0; }
-  if [ -z "${UPDATE_PINS_FIXTURES:-}" ]; then
+  if [ -z "${UPDATE_PINS_FIXTURES}" ]; then
     latest_first go "${root}" "${current}"
     return
   fi
@@ -699,7 +715,7 @@ function versions_goproxy() {
 # every release) is read only in tests.
 function versions_toolchain() {
   local -r current="${1}"
-  if [ -n "${UPDATE_PINS_FIXTURES:-}" ]; then
+  if [ -n "${UPDATE_PINS_FIXTURES}" ]; then
     versions_toolchain_list "${current}"
     return
   fi
@@ -815,7 +831,7 @@ function versions_depsdev() {
 
 function versions_npm() {
   local body
-  if [ -z "${UPDATE_PINS_FIXTURES:-}" ]; then latest_first npm "${1}" "${2:-}"; return; fi
+  if [ -z "${UPDATE_PINS_FIXTURES}" ]; then latest_first npm "${1}" "${2:-}"; return; fi
   body="$(fetch "https://registry.npmjs.org/${1}")" || { failed_lookup; return 0; }
   jq -r '.time | to_entries[] | select(.key | test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))
          | "\(.key)\t\(.value | sub("\\.[0-9]+"; "") | fromdateiso8601)"' <<< "${body}" 2>/dev/null \
@@ -827,7 +843,7 @@ function versions_npm() {
 # tests.
 function versions_node() {
   local body
-  if [ -z "${UPDATE_PINS_FIXTURES:-}" ]; then
+  if [ -z "${UPDATE_PINS_FIXTURES}" ]; then
     body="$(github_releases nodejs/node 50)" || { failed_lookup; return 0; }
     jq -r --arg m "v${1%%.*}." '.[] | select(.draft | not) | select(.prerelease | not)
            | select(.tag_name | startswith($m)) | select(.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
@@ -856,7 +872,7 @@ function versions_python() {
 # versions_pypi PKG: "<version>\t<epoch>" for every final, unyanked release.
 function versions_pypi() {
   local body
-  if [ -z "${UPDATE_PINS_FIXTURES:-}" ]; then latest_first pypi "${1}" "${2:-}"; return; fi
+  if [ -z "${UPDATE_PINS_FIXTURES}" ]; then latest_first pypi "${1}" "${2:-}"; return; fi
   body="$(fetch "https://pypi.org/pypi/${1}/json")" || { failed_lookup; return 0; }
   jq -r '.releases | to_entries[] | select(.value | length > 0) | select(.key | test("^[0-9]+(\\.[0-9]+)*$"))
          | select(any(.value[]; .yanked) | not)
@@ -866,7 +882,7 @@ function versions_pypi() {
 
 function image_digest() {
   local -r ref="${1}"
-  if [ -n "${UPDATE_PINS_FIXTURES:-}" ]; then
+  if [ -n "${UPDATE_PINS_FIXTURES}" ]; then
     cat "${UPDATE_PINS_FIXTURES}/$(fixture_key "digest:${ref}")" 2>/dev/null
     return
   fi
@@ -1189,7 +1205,7 @@ function dependabot_union() {
 # resolve_all PINS: every pin resolved, UPDATE_PINS_RESOLVE_JOBS (default 16) at a time — each lookup
 # is network-bound — in the order the pins came in.
 function resolve_all() {
-  local -r jobs="${UPDATE_PINS_RESOLVE_JOBS:-16}"
+  local -r jobs="${UPDATE_PINS_RESOLVE_JOBS}"
   local tmp row i=0
   tmp="$(mktemp -d)"
   while IFS= read -r row; do
@@ -1344,7 +1360,7 @@ function verify_all() {
   fi
   setup_worktree
   # Each pin verifies alone in its own worktree, UPDATE_PINS_JOBS (default 4) at a time.
-  local -r jobs="${UPDATE_PINS_JOBS:-4}" resdir="${WT}.results"
+  local -r jobs="${UPDATE_PINS_JOBS}" resdir="${WT}.results"
   mkdir -p "${resdir}"
   local results='' kind name loc current source status cand age note locs origin logf i=0
   local -a queued=()
@@ -1394,7 +1410,8 @@ function verify_all() {
 # verification never replaces a tool the developer has installed.
 function setup_worktree() {
   add_worktree
-  LOGDIR="${UPDATE_PINS_LOGDIR:-${WT}.logs}"
+  LOGDIR="${UPDATE_PINS_LOGDIR}"
+  [ -n "${LOGDIR}" ] || LOGDIR="${WT}.logs"
   mkdir -p "${LOGDIR}"
   LOGDIR="$(cd "${LOGDIR}" && pwd)"
   trap cleanup_worktree EXIT
@@ -1457,7 +1474,7 @@ function add_worktree() {
 # fetches for itself.
 function fetch_pin_images() {
   [ -f scripts/dev/run.sh ] || return 0
-  local -r jobs="${UPDATE_PINS_JOBS:-4}" dir="${WT}.images"
+  local -r jobs="${UPDATE_PINS_JOBS}" dir="${WT}.images"
   mkdir -p "${dir}"
   local kind name loc current source status cand age note locs origin i=0
   while IFS=$'\t' read -r -u 3 kind name loc current source status cand age note locs origin; do

@@ -10,6 +10,10 @@
 #
 # Optional environment variables:
 #   COVERAGE_THRESHOLD  — maximum allowed drop in percentage points (default: 1.0)
+# Environment: BASE_SHA (default empty).
+# Environment: HEAD_SHA (default empty).
+# Environment: GITHUB_STEP_SUMMARY (default empty).
+# Environment: COVERAGE_THRESHOLD (default 1.0).
 # Project hook: check-coverage-delta.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -26,6 +30,10 @@ set -o pipefail
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
+declare -rx COVERAGE_THRESHOLD="${COVERAGE_THRESHOLD:-1.0}"
+declare -rx GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-}"
+declare -rx HEAD_SHA="${HEAD_SHA:-}"
+declare -rx BASE_SHA="${BASE_SHA:-}"
 readonly COVERAGE_BASE_FILE='/tmp/keel_coverage_base.txt'
 readonly COVERAGE_PR_FILE='/tmp/keel_coverage_pr.txt'
 readonly LOG_FILE='/tmp/keel_coverage_delta.log'
@@ -38,7 +46,7 @@ function main() {
   # Capture the merge commit SHA now (actions/checkout gives us refs/pull/N/merge
   # — base + PR already merged). This is what we measure for the PR side.
   local -r merge_sha="$(git rev-parse HEAD)"
-  local -r threshold="${COVERAGE_THRESHOLD:-1.0}"
+  local -r threshold="${COVERAGE_THRESHOLD}"
   log "Coverage delta check (threshold: -${threshold}%)"
   log "  Merge commit  : ${merge_sha}"
   log "  Base commit   : ${BASE_SHA}"
@@ -111,7 +119,7 @@ function report() {
 }
 
 function write_step_summary() {
-  [ -z "${GITHUB_STEP_SUMMARY:-}" ] && return 0
+  [ -z "${GITHUB_STEP_SUMMARY}" ] && return 0
   local -r base="${1}" pr="${2}" delta="${3}"
   {
     printf '## Coverage Delta\n\n'

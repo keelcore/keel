@@ -2,6 +2,7 @@
 # scripts/build/set-dist-permissions.sh
 # Make the release binaries in dist/ executable (artifacts lose their mode in transit), and hand dist/
 # to DIST_OWNER when it is set.
+# Environment: DIST_OWNER (default empty).
 # Project hook: set-dist-permissions.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -21,6 +22,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 # shellcheck source=../lib/tool-config.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/tool-config.sh"
 
+declare -rx DIST_OWNER="${DIST_OWNER:-}"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
@@ -30,7 +33,7 @@ function main() {
   while IFS= read -r file; do
     chmod +x "${file}"
   done < <(release_files)
-  if [ -n "${DIST_OWNER:-}" ]; then
+  if [ -n "${DIST_OWNER}" ]; then
     log "🔑 Handing dist/ to ${DIST_OWNER}..."
     chown -R "${DIST_OWNER}" dist
   fi

@@ -26,6 +26,7 @@
 #
 # Env overrides (testing only):
 #   MIGRATE_REPO_ROOT  defaults to `git rev-parse --show-toplevel`
+# Environment: MIGRATE_REPO_ROOT (default empty).
 # Project hook: migrate-makefile.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -42,8 +43,10 @@ set -o pipefail
 # shellcheck source=./lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/./lib/local-hook.sh"
 
+declare -rx MIGRATE_REPO_ROOT="${MIGRATE_REPO_ROOT:-}"
 declare REPO_ROOT
-REPO_ROOT="${MIGRATE_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
+REPO_ROOT="${MIGRATE_REPO_ROOT}"
+[ -n "${REPO_ROOT}" ] || REPO_ROOT="$(git rev-parse --show-toplevel)"
 declare -r REPO_ROOT
 
 declare -r CONSUMER_MAKEFILE="${REPO_ROOT}/Makefile"

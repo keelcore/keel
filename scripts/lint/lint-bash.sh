@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # scripts/lint/lint-bash.sh
 # Runs shellcheck against all bash scripts in the repository, and checks BATS files for a [[ … ]] that is a
-# test's own statement but not its last, without `|| false`: bash does not always fail a test on it.
+# test's own statement but not its last, without `|| false`: bash does not always fail a test on it. Every
+# repo-owned *.sh and *.bash file imports the environment variables it reads per governance/bash.md R37, and
+# sources files with `source`, not `.` (check_env_imports, scripts/lib/env-imports.sh).
 # Project hook: lint-bash.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -19,9 +21,11 @@ set -o pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 # shellcheck source=../lib/paths-ensure.sh
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/paths-ensure.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths-ensure.sh"
 # shellcheck source=../lib/paths.sh
-. "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+# shellcheck source=../lib/env-imports.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/env-imports.sh"
 
 function main() {
   exec 5>&1
@@ -29,6 +33,7 @@ function main() {
   validate_env
   lint
   check_bats_conditionals
+  check_env
 }
 
 function validate_env() {
@@ -101,6 +106,21 @@ function check_bats_conditionals() {
     exit 1
   fi
   log "✅ BATS conditionals OK (${#files[@]} files)"
+}
+
+# check_env: every repo-owned *.sh and *.bash file (not *.bats: a test sets the environment for what it runs)
+# conforms to R37 and sources with `source`.
+function check_env() {
+  local -a files=()
+  local f found
+  while IFS= read -r f; do files+=("${f}"); done < <(source_files '*.sh' '*.bash')
+  found="$(check_env_imports "${files[@]}")"
+  if [ -n "${found}" ]; then
+    printf '%s\n' "${found}" | while IFS= read -r f; do log "❌ ${f}"; done
+    log "❌ $(printf '%s\n' "${found}" | wc -l | tr -d ' ') environment-import findings (governance/bash.md R37)"
+    exit 1
+  fi
+  log "✅ Environment imports OK (${#files[@]} files, governance/bash.md R37)"
 }
 
 function log() {

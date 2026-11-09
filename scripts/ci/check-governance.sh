@@ -12,6 +12,7 @@
 # Env overrides (testing only — production reads paths from git):
 #   GOVREFRESH_STANDARDS_ROOT  passed through to refresh-governance.sh
 #   GOVREFRESH_REPO_ROOT       passed through to refresh-governance.sh
+# Environment: GOVREFRESH_REPO_ROOT (default empty).
 # Project hook: check-governance.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -35,12 +36,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 #       refresh lives at `${REPO_ROOT}/.standards/scripts/refresh-governance.sh`
 #       (it is NOT shipped to consumers; it stays in the .standards submodule).
 # Probe both candidates; use the first that exists.
+declare -rx GOVREFRESH_REPO_ROOT="${GOVREFRESH_REPO_ROOT:-}"
 declare REFRESH_SCRIPT
 _sibling="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/refresh-governance.sh"
 if [ -f "${_sibling}" ]; then
   REFRESH_SCRIPT="${_sibling}"
 else
-  _repo_root="${GOVREFRESH_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
+  _repo_root="${GOVREFRESH_REPO_ROOT}"
+  [ -n "${_repo_root}" ] || _repo_root="$(git rev-parse --show-toplevel)"
   REFRESH_SCRIPT="${_repo_root}/.standards/scripts/refresh-governance.sh"
 fi
 unset _sibling _repo_root

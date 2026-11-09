@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # test-unit-go.sh
 # Executes unit tests via gotestsum and generates JUnit XML + coverage reports.
+# Environment: GITHUB_STEP_SUMMARY (default empty).
 # Project hook: test-unit-go.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -19,6 +20,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
 # shellcheck source=../lib/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/paths.sh"
+
+declare -rx GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-}"
 
 function main() {
   exec 5>&1
@@ -72,7 +75,7 @@ function generate_coverage() {
 }
 
 function write_step_summary() {
-  [ -z "${GITHUB_STEP_SUMMARY:-}" ] && return 0
+  [ -z "${GITHUB_STEP_SUMMARY}" ] && return 0
   printf '## Unit Test Results\n\n' >> "${GITHUB_STEP_SUMMARY}"
   printf '| Result | Count |\n|---|---|\n' >> "${GITHUB_STEP_SUMMARY}"
   summarise_junit >> "${GITHUB_STEP_SUMMARY}"

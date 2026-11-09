@@ -8,11 +8,13 @@
 #
 # Architecture:
 #   - Canonical scripts (scripts/**) come from one place: refresh-governance.sh.
-#     Bootstrap copies refresh-governance.sh from .standards as a seed and
-#     invokes it; the script then walks .standards/scripts/ and copies any
-#     missing or content-divergent file into the consumer. `.standards`
+#     Bootstrap runs .standards/scripts/refresh-governance.sh, which moves
+#     .standards to its latest release tag, then walks .standards/scripts/ and
+#     copies any missing or content-divergent file into the consumer. `.standards`
 #     always wins for canonical scripts — operator hand-edits are overwritten
 #     on every refresh.
+#   - Tools come from the dev image (scripts/dev/run.sh); bootstrap installs
+#     none on the host.
 #   - Templates (Makefile, BATS, configs, .local-claude.md) are create-only:
 #     if the target already exists the operator's customizations are
 #     preserved. The Makefile is seeded from .standards/templates/Makefile.consumer
@@ -58,10 +60,8 @@ function main() {
   init_submodule
   copy_markdownlint_config
   copy_templates
-  seed_governance_refresh
   run_governance_refresh
   chmod_scripts
-  install_tools
   create_adapters
   install_precommit_hook
   log '✅ Bootstrap complete'
@@ -83,13 +83,6 @@ function init_submodule() {
   log '📦 Initializing .standards submodule...'
   git submodule add git@github.com:keelcore/standards .standards || true
   git submodule update --init --recursive
-}
-
-function install_tools() {
-  log '🔧 Installing tools...'
-  bash scripts/ci/setup-shellcheck.sh
-  bash scripts/ci/setup-markdownlint.sh
-  bash scripts/ci/setup-syft.sh
 }
 
 function create_claude_adapter() {
@@ -138,16 +131,10 @@ function create_adapters() {
   create_cursor_rules
 }
 
-function seed_governance_refresh() {
-  log '📥 Seeding scripts/refresh-governance.sh from .standards...'
-  mkdir -p scripts
-  cp .standards/scripts/refresh-governance.sh scripts/refresh-governance.sh
-  chmod +x scripts/refresh-governance.sh
-}
-
+# Run from .standards, so its libraries resolve there while it copies them into the repository.
 function run_governance_refresh() {
   log '🔄 Syncing canonical scripts and Makefile targets via governance-refresh...'
-  bash scripts/refresh-governance.sh
+  bash .standards/scripts/refresh-governance.sh
 }
 
 function copy_markdownlint_config() {

@@ -3,6 +3,7 @@
 # Install the pinned cosign from its GitHub release, verified against the
 # committed SHA-256 for the architecture. Runs when the dev image is built
 # (containers/dev/Containerfile); no-op if that version is already installed.
+# Environment: KEELCORE_IMAGE_BUILD (default empty); set while a tool image is built.
 # Project hook: setup-cosign.local.sh runs first, when present, with this script's arguments
 # (scripts/lib/local-hook.sh: the same path, in the repository this runs in).
 
@@ -19,6 +20,7 @@ set -o pipefail
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
+declare -rx KEELCORE_IMAGE_BUILD="${KEELCORE_IMAGE_BUILD:-}"
 readonly COSIGN_VERSION='3.1.4'
 readonly COSIGN_SHA256_AMD64='424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa'
 readonly COSIGN_SHA256_ARM64='ade83b7aac62e131cacfe96d958948b2150cc9efec46a570a2649b8e27dedad2'
@@ -78,7 +80,7 @@ function install_cosign() {
 # (containers/*/Containerfile sets KEELCORE_IMAGE_BUILD); anywhere else the tool is already in the
 # image, and a missing or different version is an error, never an install.
 function require_image_build() {
-  [ -n "${KEELCORE_IMAGE_BUILD:-}" ] && return 0
+  [ -n "${KEELCORE_IMAGE_BUILD}" ] && return 0
   log "❌ cosign ${COSIGN_VERSION} is not in this tool image; tools install only when the image is built"
   exit 1
 }
