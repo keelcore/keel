@@ -89,6 +89,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- Release: Sign Artifacts hands `dist/` back to the runner user again (`export DIST_OWNER` in the Makefile), so
+  uploading the root-owned signature bundles no longer fails with `EACCES`.
+- `.gitignore` covers `target/`, where the test targets write coverage and test results.
 - CI after #39 stage 2: the `--knob` flag type is covered (`pkg/clisupport/actions.go` back to 100%), and the
   secrets-file mode test skips on Windows, where knobs checks the owner and ACL instead of mode bits.
 - `pkg/config/config.go` is covered at 100% again: tests for a document that is not a mapping and for a scalar given

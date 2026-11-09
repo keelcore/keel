@@ -25,6 +25,9 @@ export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 # the variables KEELCORE_DEV_ENV names): GOOS/GOARCH for the release cross-builds, GH_TOKEN for
 # zizmor's online audits and gh attestation verify, the image index digests for verify-release.
 export KEELCORE_DEV_ENV := GOOS GOARCH GH_TOKEN MAX_DIGEST MIN_DIGEST FIPS_DIGEST
+# set-dist-permissions hands dist/ back to DIST_OWNER, which the canonical recipe no longer passes into the
+# dev image; exported, run.sh forwards it (set-dist-permissions.sh imports it). Remove once canonical passes it.
+export DIST_OWNER
 
 .PHONY: build-all
 .PHONY: clean

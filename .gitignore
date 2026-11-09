@@ -5,6 +5,7 @@
 /bin/
 /dist/
 /build/
+/target/
 /config-schema
 out/
 *.exe
