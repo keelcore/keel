@@ -7,7 +7,7 @@
 # /etc/ssl/certs/ (see Dockerfile and Dockerfile.release). Build it first with
 # scripts/build/build-certs-image.sh (make build-certs-image).
 
-FROM alpine:3.22@sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034 AS source
+FROM alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f AS source
 RUN apk add --no-cache ca-certificates
 
 FROM scratch

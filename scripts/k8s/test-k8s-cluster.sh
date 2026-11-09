@@ -19,7 +19,7 @@ readonly LOG_FILE='/tmp/keel_cluster_test.log'
 # namespace, so busybox wget reaches 127.0.0.1:<probe port> with no proxy in
 # the path. Same pinned image as scripts/deploy/docker/Dockerfile.certs.
 readonly PROBE_CONTAINER="keel-probe-$$"  # ephemeral containers stay in the pod: one name per run
-readonly PROBE_IMAGE='alpine:3.22@sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034'
+readonly PROBE_IMAGE='alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f'
 
 declare -rx KEEL_K8S_CONTEXT="${KEEL_K8S_CONTEXT:-}"
 declare -rx KEEL_K8S_KUBECONFIG="${KEEL_K8S_KUBECONFIG:-}"
