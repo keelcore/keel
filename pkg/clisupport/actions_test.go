@@ -174,3 +174,16 @@ func TestTryValidateApp_ExitsWhenFlagTrue(t *testing.T) {
 		t.Error("expected TryValidateApp to call log.Exit when --validate flag is true")
 	}
 }
+
+// Each --knob argument is kept, in order, and String joins them.
+func TestKnobList_SetAndString(t *testing.T) {
+	var k knobList
+	for _, v := range []string{"keel.logging.level=debug", "keel.listeners.http.port=9000"} {
+		if err := k.Set(v); err != nil {
+			t.Fatalf("Set(%q): %v", v, err)
+		}
+	}
+	if got := k.String(); got != "keel.logging.level=debug,keel.listeners.http.port=9000" {
+		t.Fatalf("String() = %q", got)
+	}
+}

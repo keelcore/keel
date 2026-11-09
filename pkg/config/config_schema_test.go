@@ -4,6 +4,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -155,6 +156,9 @@ func TestLoad_SecretsFile(t *testing.T) {
 
 // A secrets file others may read is refused.
 func TestLoad_SecretsFileNotOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mode bits carry no access rights on Windows; knobs checks the owner and ACL")
+	}
 	secrets := writeFile(t, "secrets.yaml", "keel:\n  admin:\n    token: s\n", 0o644)
 	_, err := Load("", secrets)
 	if err == nil || !strings.Contains(err.Error(), knobs.CodeSecretsFilePermissions) {

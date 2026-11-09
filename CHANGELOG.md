@@ -89,6 +89,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- CI after #39 stage 2: the `--knob` flag type is covered (`pkg/clisupport/actions.go` back to 100%), and the
+  secrets-file mode test skips on Windows, where knobs checks the owner and ACL instead of mode bits.
 - `pkg/config/config.go` is covered at 100% again: tests for a document that is not a mapping and for a scalar given
   for a nested object, and the knobs calls that cannot fail return no error branch (#39).
 - keel's scripts import each environment variable once, at file scope, with `declare -rx NAME="${NAME:-default}"`
