@@ -93,6 +93,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   for a nested object, and the knobs calls that cannot fail return no error branch (#39).
 - keel's scripts import each environment variable once, at file scope, with `declare -rx NAME="${NAME:-default}"`
   and list it in the header (governance/bash.md R37), so `run.sh` forwards exactly the names each script reads (#37).
+  `tests/consistency.bats` pins that the `scripts/container` scripts give `KEEL_CLUSTER_NAME` and `KEEL_TOOLBOX_NAME` one
+  default each.
 - The tracing exporter's flush tests are deterministic: the flush ticker is a seam (`newTicker`), so the batch-size
   flush and the ticker flush each run in exactly one way, and `provider.go` is covered on every run (#36).
 - `make audit` and `make lint-bash` pass on .standards v0.10.24: the three package publishers `.canonical-exclude` keeps

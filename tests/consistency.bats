@@ -632,3 +632,26 @@ site_issues() {
   [ "${status}" -eq 1 ]
   [[ "${output}" == *'stale site'*'G407'*'pkg/core/mw/oidc.go'* ]] || false
 }
+
+# ---------------------------------------------------------------------------
+# Shared env imports (#37): every scripts/container script that reads a shared
+# name imports it with declare -rx, and all of them give it one default.
+# ---------------------------------------------------------------------------
+@test "scripts/container imports KEEL_CLUSTER_NAME and KEEL_TOOLBOX_NAME with one default each" {
+  local name script defaults
+  for name in KEEL_CLUSTER_NAME KEEL_TOOLBOX_NAME; do
+    defaults=''
+    for script in $(grep -l "${name}" "${REPO_ROOT}"/scripts/container/*.sh); do
+      grep -qE "^declare -rx ${name}=\"\\\$\{${name}:-[^}]*\}\"$" "${script}" || {
+        echo "${script}: ${name} is not imported with declare -rx"
+        return 1
+      }
+      defaults+="$(sed -nE "s/^declare -rx ${name}=\"\\\$\{${name}:-([^}]*)\}\"$/\1/p" "${script}")"$'\n'
+    done
+    [ "$(printf '%s' "${defaults}" | sort -u | wc -l | tr -d ' ')" = '1' ] || {
+      echo "${name} defaults differ:"
+      printf '%s' "${defaults}" | sort | uniq -c
+      return 1
+    }
+  done
+}
