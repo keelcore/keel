@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # build-min.sh
 # Minimalist Build: Smallest standalone footprint for BYOS users.
+# Env: KEEL_DIST_DIR (default dist).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -13,7 +14,7 @@ set -o errexit
 set -o pipefail
 
 # Output directory; scripts/release/build-binaries.sh gives each architecture its own.
-readonly DIST="${KEEL_DIST_DIR:-dist}"
+declare -rx KEEL_DIST_DIR="${KEEL_DIST_DIR:-dist}"
 
 readonly REQUIRED_GO_VERSION="go1.2"
 
@@ -24,7 +25,7 @@ function main() {
   log "Starting Minimalist 'BYOS' build"
   prepare_dist
   execute_tiny_build
-  log "Build complete: ${DIST}/keel-min"
+  log "Build complete: ${KEEL_DIST_DIR}/keel-min"
 }
 
 function log() {
@@ -46,9 +47,9 @@ function execute_tiny_build() {
   CGO_ENABLED=0 \
     go build -v -trimpath -tags "${tiny_tags}" \
     -ldflags='-s -w -buildid=' \
-    -o "${DIST}/keel-min" ./cmd/keel
+    -o "${KEEL_DIST_DIR}/keel-min" ./cmd/keel
 }
 
-function prepare_dist() { mkdir -p "${DIST}"; }
+function prepare_dist() { mkdir -p "${KEEL_DIST_DIR}"; }
 
 main "${@:-}"

@@ -3,7 +3,7 @@
 # Builds keel-certs:latest from scripts/deploy/docker/Dockerfile.certs: a FROM
 # scratch image holding the full Mozilla CA bundle. keel's runtime images copy
 # an explicit allowlist of roots out of it, so it must exist before they build.
-# KEEL_IMAGE_TOOL selects the builder: docker (default) or container (Apple).
+# Env: KEEL_IMAGE_TOOL (default docker) selects the builder: docker or container (Apple).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -15,24 +15,25 @@ set -o errexit
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
 
+declare -rx KEEL_IMAGE_TOOL="${KEEL_IMAGE_TOOL:-docker}"
+
 readonly CERTS_IMAGE='keel-certs:latest'
 readonly LOG_FILE='/tmp/keel_certs_image.log'
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  local repo_root tool
+  local repo_root
   repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  tool="${KEEL_IMAGE_TOOL:-docker}"
-  case "${tool}" in
+  case "${KEEL_IMAGE_TOOL}" in
     docker | container) ;;
     *)
-      log "❌ KEEL_IMAGE_TOOL must be docker or container (got: ${tool})"
+      log "❌ KEEL_IMAGE_TOOL must be docker or container (got: ${KEEL_IMAGE_TOOL})"
       exit 1
       ;;
   esac
-  log "🔐 Building ${CERTS_IMAGE} with ${tool}..."
-  "${tool}" build -t "${CERTS_IMAGE}" \
+  log "🔐 Building ${CERTS_IMAGE} with ${KEEL_IMAGE_TOOL}..."
+  "${KEEL_IMAGE_TOOL}" build -t "${CERTS_IMAGE}" \
     -f "${repo_root}/scripts/deploy/docker/Dockerfile.certs" \
     "${repo_root}/scripts/deploy/docker"
   log "✅ ${CERTS_IMAGE} built"

@@ -4,6 +4,7 @@
 # Builds keel:test, starts the compose stack, waits for readiness,
 # runs KEEL_COMPOSE_TESTS=1 go test ./tests/compose/..., then tears down.
 # Usage: KEEL_COMPOSE_TESTS=1 scripts/test/test-compose.sh [--keep-up]
+# Env: KEEL_COMPOSE_TESTS (default empty); must be set, or the compose tests would all skip.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -18,6 +19,8 @@ set -o pipefail
 REPO_ROOT=''
 COMPOSE_FILE=''
 KEEP_UP=''
+declare -rx KEEL_COMPOSE_TESTS="${KEEL_COMPOSE_TESTS:-}"
+
 readonly LOG_FILE='/tmp/keel_compose_test.log'
 readonly KEEL_HEALTH_URL='http://127.0.0.1:9091/healthz'
 readonly KEEL_HTTPS_URL='https://127.0.0.1:8443/'
@@ -123,7 +126,7 @@ function wait_https() {
 function run_compose_tests() {
   log '🧪 Running compose integration tests...'
   # KEEL_COMPOSE_TESTS must be set by the caller (test-compose.sh --keep-up or CI job env).
-  if [ -z "${KEEL_COMPOSE_TESTS:-}" ]; then
+  if [ -z "${KEEL_COMPOSE_TESTS}" ]; then
     log '❌ KEEL_COMPOSE_TESTS is not set — compose tests would all be skipped'
     exit 1
   fi

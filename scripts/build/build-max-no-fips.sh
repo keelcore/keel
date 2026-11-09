@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # build-max-no-fips.sh
 # Builds a full-feature standalone binary without FIPS 140 mode (no_fips).
+# Env: KEEL_DIST_DIR (default dist).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -13,7 +14,7 @@ set -o errexit
 set -o pipefail
 
 # Output directory; scripts/release/build-binaries.sh gives each architecture its own.
-readonly DIST="${KEEL_DIST_DIR:-dist}"
+declare -rx KEEL_DIST_DIR="${KEEL_DIST_DIR:-dist}"
 
 readonly REQUIRED_GO_VERSION="go1.2"
 
@@ -24,7 +25,7 @@ function main() {
   log "Starting Max No-FIPS build"
   prepare_dist
   execute_standard_build
-  log "Build complete: ${DIST}/keel-max"
+  log "Build complete: ${KEEL_DIST_DIR}/keel-max"
 }
 
 function log() {
@@ -45,9 +46,9 @@ function execute_standard_build() {
   CGO_ENABLED=0 \
     go build -v -trimpath -tags 'no_fips' \
     -ldflags='-s -w -buildid=' \
-    -o "${DIST}/keel-max" ./cmd/keel
+    -o "${KEEL_DIST_DIR}/keel-max" ./cmd/keel
 }
 
-function prepare_dist() { mkdir -p "${DIST}"; }
+function prepare_dist() { mkdir -p "${KEEL_DIST_DIR}"; }
 
 main "${@:-}"

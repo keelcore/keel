@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # run-release-ci.sh
 # Handles versioning, SBOM generation, and FIPS module verification.
+# Env: FIPS_MODE (default empty); true verifies dist/keel-fips.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -11,6 +12,8 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+declare -rx FIPS_MODE="${FIPS_MODE:-}"
 
 function main() {
   exec 5>&1
@@ -48,7 +51,7 @@ function run_syft() {
 }
 
 function verify_fips_compliance() {
-  if [ "${FIPS_MODE:-}" = 'true' ]; then
+  if [ "${FIPS_MODE}" = 'true' ]; then
     log "🛡 Checking dist/keel-fips was built with the certified Go Cryptographic Module"
     check_fips_module
   fi

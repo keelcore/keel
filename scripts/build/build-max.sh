@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # build-max.sh
 # Corporate Default: Builds a statically-linked, FIPS-compatible Keel binary.
+# Env: KEEL_DIST_DIR (default dist).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -13,7 +14,7 @@ set -o errexit
 set -o pipefail
 
 # Output directory; scripts/release/build-binaries.sh gives each architecture its own.
-readonly DIST="${KEEL_DIST_DIR:-dist}"
+declare -rx KEEL_DIST_DIR="${KEEL_DIST_DIR:-dist}"
 
 readonly REQUIRED_GO_VERSION="go1.2"
 # Go Cryptographic Module version: v1.0.0 is the CMVP-certified module (cert #5247).
@@ -28,7 +29,7 @@ function main() {
   prepare_dist
   execute_fips_build
   verify_fips_symbols
-  log "Build complete: ${DIST}/keel-fips"
+  log "Build complete: ${KEEL_DIST_DIR}/keel-fips"
 }
 
 function log() {
@@ -52,7 +53,7 @@ function execute_fips_build() {
   GOFIPS140="${FIPS_MODULE}" CGO_ENABLED=0 \
     go build -v -trimpath -tags "fips,no_h3" \
     -ldflags='-s -w -buildid=' \
-    -o "${DIST}/keel-fips" ./cmd/keel
+    -o "${KEEL_DIST_DIR}/keel-fips" ./cmd/keel
 }
 
 function verify_fips_symbols() {
@@ -67,6 +68,6 @@ function verify_fips_symbols() {
     go test -v -count=1 -tags "no_h3" ./...
 }
 
-function prepare_dist() { mkdir -p "${DIST}"; }
+function prepare_dist() { mkdir -p "${KEEL_DIST_DIR}"; }
 
 main "${@:-}"

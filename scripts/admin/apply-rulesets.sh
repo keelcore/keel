@@ -9,8 +9,8 @@
 #             rights does not see bypass_actors; the rest is still compared.
 #   apply     write the committed JSON to the live rulesets (maintainer: needs GH_TOKEN with admin)
 #
-# Env: GH_TOKEN, GITHUB_REPOSITORY (default keelcore/keel), RULESETS_LIVE_DIR (tests: live
-# rulesets read from <dir>/<file>.json instead of the API).
+# Env: GH_TOKEN (default empty), GITHUB_REPOSITORY (default keelcore/keel), RULESETS_LIVE_DIR
+# (default empty; tests: live rulesets read from <dir>/<file>.json instead of the API).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -21,6 +21,10 @@ set -o errexit
 
 # 3) Use the error status of the first failure, rather than that of the last item in a pipeline.
 set -o pipefail
+
+declare -rx GH_TOKEN="${GH_TOKEN:-}"
+declare -rx GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-keelcore/keel}"
+declare -rx RULESETS_LIVE_DIR="${RULESETS_LIVE_DIR:-}"
 
 readonly RULESETS_DIR='.github/rulesets'
 readonly WORKFLOWS_DIR='.github/workflows'
@@ -89,7 +93,7 @@ function api() {
 }
 
 function repo() {
-  printf '%s' "${GITHUB_REPOSITORY:-keelcore/keel}"
+  printf '%s' "${GITHUB_REPOSITORY}"
 }
 
 # ruleset_id NAME: the live ruleset's id.

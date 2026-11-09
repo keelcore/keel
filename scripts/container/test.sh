@@ -3,6 +3,7 @@
 # P3.5 — Runs k8s-specific integration tests against the Apple container
 # cluster. Delegates to scripts/k8s/test-k8s-cluster.sh inside keel-toolbox.
 # Requires: scripts/container/deploy.sh must have been run first.
+# Env: KEEL_CLUSTER_NAME (default keel-k8s), KEEL_TOOLBOX_NAME (default keel-toolbox).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -16,13 +17,14 @@ set -o pipefail
 
 readonly LOG_FILE='/tmp/keel_container_test.log'
 
+declare -rx KEEL_CLUSTER_NAME="${KEEL_CLUSTER_NAME:-keel-k8s}"
+declare -rx KEEL_TOOLBOX_NAME="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  local -r name="${KEEL_CLUSTER_NAME:-keel-k8s}"
-  local -r toolbox="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
-  log "🧪 Delegating to test-k8s-cluster.sh in ${toolbox} (context: ${name})..."
-  container exec -e "KEEL_K8S_CONTEXT=${name}" "${toolbox}" \
+  log "🧪 Delegating to test-k8s-cluster.sh in ${KEEL_TOOLBOX_NAME} (context: ${KEEL_CLUSTER_NAME})..."
+  container exec -e "KEEL_K8S_CONTEXT=${KEEL_CLUSTER_NAME}" "${KEEL_TOOLBOX_NAME}" \
     bash scripts/k8s/test-k8s-cluster.sh
 }
 

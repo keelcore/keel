@@ -9,7 +9,8 @@
 # The stack binds every test port as a hostPort on all node interfaces; the CNI
 # portmap plugin wires node -> pod in iptables, so the unchanged compose tests
 # reach 127.0.0.1:<port> from inside the node with no proxies.
-# Requires: KEEL_K8S_CONTEXT; image keel:test-max loaded into the cluster.
+# Env: KEEL_K8S_CONTEXT (default empty; required).
+# Requires: image keel:test-max loaded into the cluster.
 # Usage: deploy-k8s-stack.sh up|down
 
 # bash configuration:
@@ -23,14 +24,17 @@ set -o errexit
 set -o pipefail
 
 REPO_ROOT=''
-CONTEXT=''
+declare -rx KEEL_K8S_CONTEXT="${KEEL_K8S_CONTEXT:-}"
 readonly NAMESPACE='keel-stack'
 readonly LOG_FILE='/tmp/keel_stack.log'
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  CONTEXT="${KEEL_K8S_CONTEXT:?KEEL_K8S_CONTEXT must be set}"
+  if [ -z "${KEEL_K8S_CONTEXT}" ]; then
+    log '❌ KEEL_K8S_CONTEXT must be set'
+    exit 1
+  fi
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   case "${1}" in
     up)
@@ -58,7 +62,7 @@ function validate_args() {
 }
 
 function kc() {
-  kubectl --context "${CONTEXT}" -n "${NAMESPACE}" "${@}"
+  kubectl --context "${KEEL_K8S_CONTEXT}" -n "${NAMESPACE}" "${@}"
 }
 
 function generate_certs() {
@@ -70,12 +74,12 @@ function generate_certs() {
 function deploy_stack() {
   local -r fx="${REPO_ROOT}/tests/fixtures"
   local deploy
-  log "⎈ Deploying stack to namespace ${NAMESPACE} (context: ${CONTEXT})..."
+  log "⎈ Deploying stack to namespace ${NAMESPACE} (context: ${KEEL_K8S_CONTEXT})..."
   # A previous teardown deletes asynchronously; never apply into a Terminating namespace.
-  kubectl --context "${CONTEXT}" wait --for=delete "namespace/${NAMESPACE}" --timeout=180s \
+  kubectl --context "${KEEL_K8S_CONTEXT}" wait --for=delete "namespace/${NAMESPACE}" --timeout=180s \
     > /dev/null 2>&1 || true
-  kubectl --context "${CONTEXT}" create namespace "${NAMESPACE}" --dry-run=client -o yaml \
-    | kubectl --context "${CONTEXT}" apply -f -
+  kubectl --context "${KEEL_K8S_CONTEXT}" create namespace "${NAMESPACE}" --dry-run=client -o yaml \
+    | kubectl --context "${KEEL_K8S_CONTEXT}" apply -f -
   kc create secret generic keel-fixtures \
     --from-file="keel.yaml=${fx}/keel.yaml" \
     --from-file="keel-secrets.yaml=${fx}/keel-secrets.yaml" \
@@ -118,7 +122,7 @@ function dump_logs() {
 
 function delete_stack() {
   log '🧹 Tearing down stack...'
-  kubectl --context "${CONTEXT}" delete namespace "${NAMESPACE}" --ignore-not-found --wait=false 2>&1 \
+  kubectl --context "${KEEL_K8S_CONTEXT}" delete namespace "${NAMESPACE}" --ignore-not-found --wait=false 2>&1 \
     | tee -a "${LOG_FILE}" >&5
   log '✅ Stack removed'
 }

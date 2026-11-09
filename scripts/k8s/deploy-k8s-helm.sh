@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # deploy-k8s-helm.sh
 # Cluster-agnostic Helm deployment for keel.
-# Reads KEEL_K8S_CONTEXT (required) and KEEL_K8S_KUBECONFIG (optional).
+# Env: KEEL_K8S_CONTEXT (default empty; required), KEEL_K8S_KUBECONFIG (default empty).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -16,15 +16,21 @@ set -o pipefail
 readonly LOG_FILE='/tmp/keel_helm_deploy.log'
 REPO_ROOT=''
 
+declare -rx KEEL_K8S_CONTEXT="${KEEL_K8S_CONTEXT:-}"
+declare -rx KEEL_K8S_KUBECONFIG="${KEEL_K8S_KUBECONFIG:-}"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  local -r context="${KEEL_K8S_CONTEXT:?KEEL_K8S_CONTEXT must be set}"
+  if [ -z "${KEEL_K8S_CONTEXT}" ]; then
+    log '❌ KEEL_K8S_CONTEXT must be set'
+    exit 1
+  fi
   local -r values="${REPO_ROOT}/tests/fixtures/container/values.yaml"
   local -r chart="${REPO_ROOT}/helm/keel"
-  log "⎈ Deploying keel via Helm (context: ${context})..."
-  run_helm "${context}" "${values}" "${chart}"
+  log "⎈ Deploying keel via Helm (context: ${KEEL_K8S_CONTEXT})..."
+  run_helm "${KEEL_K8S_CONTEXT}" "${values}" "${chart}"
   log '✅ Helm release deployed'
 }
 
@@ -43,7 +49,7 @@ function validate_args() {
 
 function run_helm() {
   local -r context="${1}" values="${2}" chart="${3}"
-  if [[ -n "${KEEL_K8S_KUBECONFIG:-}" ]]; then
+  if [[ -n "${KEEL_K8S_KUBECONFIG}" ]]; then
     helm upgrade --install keel "${chart}" \
       --kubeconfig "${KEEL_K8S_KUBECONFIG}" \
       --kube-context "${context}" \

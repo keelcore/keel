@@ -11,7 +11,7 @@
 # dev-image workflow signs the image after the commit). GitHub has no API for
 # either setting; the page to change it on is printed. Other modes: nothing.
 #
-# Env: GITHUB_TOKEN (exported by publish.sh local), else the gh credentials.
+# Env: GITHUB_TOKEN (default empty; exported by publish.sh local), else the gh credentials.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -26,13 +26,17 @@ set -o pipefail
 # shellcheck source=../lib/dev-image.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/dev-image.sh"
 
+declare -rx GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+
 declare -r LOG_FILE='/tmp/keel_dev_publish_local.log'
+TOKEN=''
 
 function main() {
   exec 5>&1
   validate_args "${@:-}"
   [ "${1}" = 'local' ] || return 0
-  GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}"
+  TOKEN="${GITHUB_TOKEN}"
+  [ -n "${TOKEN}" ] || TOKEN="$(gh auth token)"
   local -r repo="$(origin_repo)"
   local cf name failed=0
   for cf in containers/*/Containerfile; do
@@ -89,7 +93,7 @@ function check_package() {
 }
 
 function github_api() {
-  curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" -H 'Accept: application/vnd.github+json' \
+  curl -fsSL -H "Authorization: Bearer ${TOKEN}" -H 'Accept: application/vnd.github+json' \
     "https://api.github.com/${1}"
 }
 

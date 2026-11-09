@@ -6,7 +6,8 @@
 # kubectl/helm/tests run inside keel-toolbox and reach the cluster
 # guest-to-guest; the host only drives the `container` CLI (vsock). Nothing
 # depends on host -> guest networking (routing or Local Network privacy).
-# Overrides: KEEL_CLUSTER_NAME, KEEL_CLUSTER_CPU, KEEL_CLUSTER_MEMORY, KEEL_TOOLBOX_NAME.
+# Env: KEEL_CLUSTER_NAME (default keel-k8s), KEEL_CLUSTER_CPU (default 4), KEEL_CLUSTER_MEMORY
+# (default 6G), KEEL_TOOLBOX_NAME (default keel-toolbox).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -21,19 +22,22 @@ set -o pipefail
 REPO_ROOT=''
 readonly LOG_FILE='/tmp/keel_container_setup.log'
 
+declare -rx KEEL_CLUSTER_NAME="${KEEL_CLUSTER_NAME:-keel-k8s}"
+declare -rx KEEL_CLUSTER_CPU="${KEEL_CLUSTER_CPU:-4}"
+declare -rx KEEL_CLUSTER_MEMORY="${KEEL_CLUSTER_MEMORY:-6G}"
+declare -rx KEEL_TOOLBOX_NAME="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  local -r name="${KEEL_CLUSTER_NAME:-keel-k8s}"
-  local -r toolbox="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
   log '🔧 Setting up Keel local k8s environment via Apple container...'
   install_container
   build_toolbox
-  start_cluster "${name}"
-  start_toolbox "${toolbox}"
-  install_kubeconfig "${name}" "${toolbox}"
-  wait_for_cluster "${name}" "${toolbox}"
+  start_cluster "${KEEL_CLUSTER_NAME}"
+  start_toolbox "${KEEL_TOOLBOX_NAME}"
+  install_kubeconfig "${KEEL_CLUSTER_NAME}" "${KEEL_TOOLBOX_NAME}"
+  wait_for_cluster "${KEEL_CLUSTER_NAME}" "${KEEL_TOOLBOX_NAME}"
   log '✅ Cluster ready. Next: scripts/container/deploy.sh'
 }
 
@@ -78,8 +82,8 @@ function start_cluster() {
   log "🚀 Creating container cluster '${name}'..."
   container cluster create \
     --name "${name}" \
-    --cpus "${KEEL_CLUSTER_CPU:-4}" \
-    --memory "${KEEL_CLUSTER_MEMORY:-6G}" \
+    --cpus "${KEEL_CLUSTER_CPU}" \
+    --memory "${KEEL_CLUSTER_MEMORY}" \
     --shared-image-store
   log "✅ Cluster '${name}' created"
 }

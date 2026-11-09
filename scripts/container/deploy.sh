@@ -3,6 +3,7 @@
 # P3.5 — Builds keel:test with Apple's `container` CLI, which the cluster's nodes pull from
 # the local image store, and deploys it via Helm from keel-toolbox.
 # Requires: scripts/container/setup.sh must have been run first.
+# Env: KEEL_CLUSTER_NAME (default keel-k8s), KEEL_TOOLBOX_NAME (default keel-toolbox).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -17,17 +18,18 @@ set -o pipefail
 REPO_ROOT=''
 readonly LOG_FILE='/tmp/keel_container_deploy.log'
 
+declare -rx KEEL_CLUSTER_NAME="${KEEL_CLUSTER_NAME:-keel-k8s}"
+declare -rx KEEL_TOOLBOX_NAME="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  local -r name="${KEEL_CLUSTER_NAME:-keel-k8s}"
-  local -r toolbox="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
-  log "⎈ Deploying Keel to container cluster: ${name}..."
-  require_running "${name}"
-  require_running "${toolbox}"
+  log "⎈ Deploying Keel to container cluster: ${KEEL_CLUSTER_NAME}..."
+  require_running "${KEEL_CLUSTER_NAME}"
+  require_running "${KEEL_TOOLBOX_NAME}"
   build_image
-  deploy_helm "${name}" "${toolbox}"
+  deploy_helm "${KEEL_CLUSTER_NAME}" "${KEEL_TOOLBOX_NAME}"
   log '🎉 Keel deployed successfully'
 }
 

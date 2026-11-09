@@ -2,7 +2,7 @@
 # test-k8s-cluster.sh
 # Cluster-agnostic k8s integration tests for keel.
 # Tests: pod readiness, probe endpoints, graceful rolling restart.
-# Reads KEEL_K8S_CONTEXT (required) and KEEL_K8S_KUBECONFIG (optional).
+# Env: KEEL_K8S_CONTEXT (default empty; required), KEEL_K8S_KUBECONFIG (default empty).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -21,14 +21,20 @@ readonly LOG_FILE='/tmp/keel_cluster_test.log'
 readonly PROBE_CONTAINER="keel-probe-$$"  # ephemeral containers stay in the pod: one name per run
 readonly PROBE_IMAGE='alpine:3.22@sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034'
 
+declare -rx KEEL_K8S_CONTEXT="${KEEL_K8S_CONTEXT:-}"
+declare -rx KEEL_K8S_KUBECONFIG="${KEEL_K8S_KUBECONFIG:-}"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  local -r context="${KEEL_K8S_CONTEXT:?KEEL_K8S_CONTEXT must be set}"
-  log "🧪 Running Keel k8s integration tests (context: ${context})..."
-  test_pod_readiness "${context}"
-  test_probe_endpoints "${context}"
-  test_graceful_shutdown "${context}"
+  if [ -z "${KEEL_K8S_CONTEXT}" ]; then
+    log '❌ KEEL_K8S_CONTEXT must be set'
+    exit 1
+  fi
+  log "🧪 Running Keel k8s integration tests (context: ${KEEL_K8S_CONTEXT})..."
+  test_pod_readiness "${KEEL_K8S_CONTEXT}"
+  test_probe_endpoints "${KEEL_K8S_CONTEXT}"
+  test_graceful_shutdown "${KEEL_K8S_CONTEXT}"
   log '🎉 All k8s integration tests passed'
 }
 
@@ -46,7 +52,7 @@ function validate_args() {
 }
 
 function kubectl_cmd() {
-  if [[ -n "${KEEL_K8S_KUBECONFIG:-}" ]]; then
+  if [[ -n "${KEEL_K8S_KUBECONFIG}" ]]; then
     kubectl --kubeconfig "${KEEL_K8S_KUBECONFIG}" "${@}"
   else
     kubectl "${@}"

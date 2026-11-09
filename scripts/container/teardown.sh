@@ -2,6 +2,7 @@
 # teardown.sh
 # P3.5 — Removes the Keel Helm release, keel-toolbox, and the Apple container
 # k8s cluster.
+# Env: KEEL_CLUSTER_NAME (default keel-k8s), KEEL_TOOLBOX_NAME (default keel-toolbox).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -15,15 +16,16 @@ set -o pipefail
 
 readonly LOG_FILE='/tmp/keel_container_teardown.log'
 
+declare -rx KEEL_CLUSTER_NAME="${KEEL_CLUSTER_NAME:-keel-k8s}"
+declare -rx KEEL_TOOLBOX_NAME="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
+
 function main() {
   exec 5>&1
   validate_args "${@:-}"
-  local -r name="${KEEL_CLUSTER_NAME:-keel-k8s}"
-  local -r toolbox="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
-  log "🧹 Tearing down Keel Apple container environment (cluster: ${name})..."
-  uninstall_helm "${name}" "${toolbox}"
-  remove_toolbox "${toolbox}"
-  delete_cluster "${name}"
+  log "🧹 Tearing down Keel Apple container environment (cluster: ${KEEL_CLUSTER_NAME})..."
+  uninstall_helm "${KEEL_CLUSTER_NAME}" "${KEEL_TOOLBOX_NAME}"
+  remove_toolbox "${KEEL_TOOLBOX_NAME}"
+  delete_cluster "${KEEL_CLUSTER_NAME}"
   log '🎉 Apple container k8s environment torn down'
 }
 
