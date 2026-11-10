@@ -11,20 +11,15 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/acme"
 	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/metrics"
-	"github.com/keelcore/keel/pkg/core/mw"
-	"github.com/keelcore/keel/pkg/core/probes"
 	keeltls "github.com/keelcore/keel/pkg/core/tls"
 )
 
@@ -165,120 +160,21 @@ func TestTickFIPSMonitor_NoFIPS(t *testing.T) {
 // buildHealthMux
 // ---------------------------------------------------------------------------
 
-func TestBuildHealthMux_HealthzOK(t *testing.T) {
-	mux := buildHealthMux()
-	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 from /healthz, got %d", rr.Code)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // buildReadyMux
 // ---------------------------------------------------------------------------
-
-func TestBuildReadyMux_ReadyzOK(t *testing.T) {
-	r := probes.NewReadiness()
-	mux := buildReadyMux(r)
-	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/readyz", nil))
-	// Readiness defaults to true from NewReadiness; expect 200.
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 from /readyz (ready by default), got %d", rr.Code)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // buildStartupMux
 // ---------------------------------------------------------------------------
 
-func TestBuildStartupMux_StartupzResponds(t *testing.T) {
-	s := probes.NewStartup()
-	mux := buildStartupMux(s)
-	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/startupz", nil))
-	// Before Done(): 503; after Done(): 200. Either is a valid non-zero response.
-	if rr.Code == 0 {
-		t.Error("expected a non-zero status code from /startupz")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // buildAdminMux
 // ---------------------------------------------------------------------------
 
-func TestBuildAdminMux_HasHealth(t *testing.T) {
-	r := probes.NewReadiness()
-	s := probes.NewStartup()
-	mux := buildAdminMux(r, s, http.NotFoundHandler(), http.NotFoundHandler())
-	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/healthz", nil))
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 from /healthz on admin mux, got %d", rr.Code)
-	}
-}
-
-func TestBuildAdminMux_HasMetrics(t *testing.T) {
-	r := probes.NewReadiness()
-	s := probes.NewStartup()
-	metricsH := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux := buildAdminMux(r, s, metricsH, http.NotFoundHandler())
-	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	if rr.Code == http.StatusNotFound {
-		t.Error("expected /metrics to be registered on admin mux (got 404)")
-	}
-}
-
-func TestBuildAdminMux_HasVersion(t *testing.T) {
-	r := probes.NewReadiness()
-	s := probes.NewStartup()
-	mux := buildAdminMux(r, s, http.NotFoundHandler(), http.NotFoundHandler())
-	rr := httptest.NewRecorder()
-	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/version", nil))
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 from /version on admin mux, got %d", rr.Code)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // newHTTPServer
 // ---------------------------------------------------------------------------
-
-func TestNewHTTPServer_FieldsSet(t *testing.T) {
-	cfg := config.Config{
-		Security: config.SecurityConfig{MaxHeaderBytes: 4096},
-		Timeouts: config.TimeoutsConfig{
-			ReadHeader: config.DurationOf(5 * time.Second),
-			Read:       config.DurationOf(10 * time.Second),
-			Write:      config.DurationOf(15 * time.Second),
-			Idle:       config.DurationOf(60 * time.Second),
-		},
-	}
-	h := http.NotFoundHandler()
-	srv := newHTTPServer(":9999", h, cfg)
-	if srv.Addr != ":9999" {
-		t.Errorf("Addr: expected :9999, got %s", srv.Addr)
-	}
-	if srv.MaxHeaderBytes != 4096 {
-		t.Errorf("MaxHeaderBytes: expected 4096, got %d", srv.MaxHeaderBytes)
-	}
-	if srv.ReadHeaderTimeout != 5*time.Second {
-		t.Errorf("ReadHeaderTimeout: expected 5s, got %v", srv.ReadHeaderTimeout)
-	}
-	if srv.ReadTimeout != 10*time.Second {
-		t.Errorf("ReadTimeout: expected 10s, got %v", srv.ReadTimeout)
-	}
-	if srv.WriteTimeout != 15*time.Second {
-		t.Errorf("WriteTimeout: expected 15s, got %v", srv.WriteTimeout)
-	}
-	if srv.IdleTimeout != 60*time.Second {
-		t.Errorf("IdleTimeout: expected 60s, got %v", srv.IdleTimeout)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // applyTLSCertSource
@@ -389,48 +285,6 @@ func writeTempCertKeyPair(t *testing.T) (certPath, keyPath string) {
 // defaultKeeHandler
 // ---------------------------------------------------------------------------
 
-func TestDefaultKeeHandler_RootReturnsOK(t *testing.T) {
-	h := defaultKeeHandler()
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 for GET /, got %d", rr.Code)
-	}
-	if body := rr.Body.String(); body != "keel: ok\n" {
-		t.Errorf("unexpected body: %q", body)
-	}
-}
-
-func TestDefaultKeeHandler_NonRootReturns404(t *testing.T) {
-	h := defaultKeeHandler()
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/other", nil))
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("expected 404 for GET /other, got %d", rr.Code)
-	}
-}
-
-func TestDefaultKeeHandler_NilURLReturns404(t *testing.T) {
-	h := defaultKeeHandler()
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.URL = nil
-	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("expected 404 for nil URL, got %d", rr.Code)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // newSignFn
 // ---------------------------------------------------------------------------
-
-func TestNewSignFn_NilSigner(t *testing.T) {
-	var ptr atomic.Pointer[mw.JWTSigner]
-	// ptr is nil; signFn must return nil without panic.
-	signFn := newSignFn(&ptr)
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	if err := signFn(req); err != nil {
-		t.Errorf("expected nil error with nil signer, got %v", err)
-	}
-}

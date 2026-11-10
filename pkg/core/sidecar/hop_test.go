@@ -130,34 +130,6 @@ func TestHopHeaders_ClientJWT(t *testing.T) {
 	}
 }
 
-// Class B: delimiters and junk in a client X-Forwarded-For occupy one position
-// each and cannot shift X-Real-IP out of the trusted_hops window.
-func TestHopHeaders_XFFJunk(t *testing.T) {
-	for _, tc := range []struct {
-		xff      string
-		hops     int
-		wantXFF  string
-		wantReal string
-	}{
-		{"1.2.3.4, 10.0.0.1", 1, "1.2.3.4, 10.0.0.1, 203.0.113.7", "10.0.0.1"},
-		{"x;y", 1, "unknown, 203.0.113.7", "203.0.113.7"},
-		{"1.2.3.4,,10.0.0.1", 1, "1.2.3.4, unknown, 10.0.0.1, 203.0.113.7", "10.0.0.1"},
-		{"evil.example, 10.0.0.1", 2, "unknown, 10.0.0.1, 203.0.113.7", "203.0.113.7"},
-		{"1.2.3.4\r\nX-Injected: 1", 1, "unknown, 203.0.113.7", "203.0.113.7"},
-		{"[2001:db8::1]:443, 10.0.0.1:80", 2, "2001:db8::1, 10.0.0.1, 203.0.113.7", "2001:db8::1"},
-		{strings.Repeat("9.9.9.9, ", 200) + "10.0.0.1", 1, strings.Repeat("9.9.9.9, ", 200) + "10.0.0.1, 203.0.113.7", "10.0.0.1"},
-	} {
-		out := httptest.NewRequest(http.MethodGet, "http://u/", nil)
-		applyXFF(out, tc.xff, "203.0.113.7:4321", "append", tc.hops)
-		if got := out.Header.Get("X-Forwarded-For"); got != tc.wantXFF {
-			t.Errorf("xff %q: X-Forwarded-For %q, want %q", tc.xff, got, tc.wantXFF)
-		}
-		if got := out.Header.Get("X-Real-IP"); got != tc.wantReal {
-			t.Errorf("xff %q hops %d: X-Real-IP %q, want %q", tc.xff, tc.hops, got, tc.wantReal)
-		}
-	}
-}
-
 // Class C: repeated X-Forwarded-For lines are one chain: keel's X-Real-IP and the
 // single line the upstream receives agree.
 func TestHopHeaders_RepeatedXFFLinesAreOneChain(t *testing.T) {

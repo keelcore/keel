@@ -4,15 +4,10 @@
 package core
 
 import (
-	"io"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/keelcore/keel/pkg/config"
-	"github.com/keelcore/keel/pkg/core/logging"
 )
 
 // ---------------------------------------------------------------------------
@@ -72,19 +67,6 @@ func TestBuildRemoteSink_Syslog_ClosedPort_ReturnsError(t *testing.T) {
 // metricsHandler
 // ---------------------------------------------------------------------------
 
-func TestMetricsHandler_Disabled_Returns404(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	s := NewServer(log, config.Config{
-		Metrics: config.MetricsConfig{Prometheus: false},
-	})
-
-	rr := httptest.NewRecorder()
-	s.metricsHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("prometheus=false: expected 404, got %d", rr.Code)
-	}
-}
-
 // TestMetricsHandler_Enabled_Returns200 lives in server_loops_test.go (//go:build !no_prom)
 // because it requires a real metrics.Handler() that emits text/plain; charset=utf-8.
 
@@ -94,22 +76,3 @@ func TestMetricsHandler_Disabled_Returns404(t *testing.T) {
 //  (a) the default is zero (no inadvertent sleep),
 //  (b) a configured non-zero value is preserved in the server's cfg field.
 // ---------------------------------------------------------------------------
-
-func TestPrestopSleep_Default_IsZero(t *testing.T) {
-	cfg := config.Defaults()
-	if d := cfg.Timeouts.PrestopSleep.Duration; d != 0 {
-		t.Errorf("default PrestopSleep should be 0, got %v", d)
-	}
-}
-
-func TestPrestopSleep_Wired_InServerCfg(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.Timeouts.PrestopSleep = config.DurationOf(200 * time.Millisecond)
-
-	log := logging.New(logging.Config{Out: io.Discard})
-	s := NewServer(log, cfg)
-
-	if got := s.cfg.Timeouts.PrestopSleep.Duration; got != 200*time.Millisecond {
-		t.Errorf("PrestopSleep: expected 200ms in server cfg, got %v", got)
-	}
-}

@@ -74,32 +74,3 @@ func TestHopHeaders_RepeatedIDsAreDropped(t *testing.T) {
 		}
 	}
 }
-
-func TestTraceHex(t *testing.T) {
-	for _, tc := range []struct {
-		in   string
-		n    int
-		want bool
-	}{
-		{"4bf92f3577b34da6a3ce929d0e0e4736", 32, true},
-		{"00f067aa0ba902b7", 16, true},
-		{"4BF92F3577B34DA6A3CE929D0E0E4736", 32, false},
-		{"00000000000000000000000000000000", 32, false},
-		{"4bf92f3577b34da6a3ce929d0e0e47;x", 32, false},
-		{"00f067aa0ba902b", 16, false},
-	} {
-		if got := traceHex(tc.in, tc.n); got != tc.want {
-			t.Errorf("traceHex(%q, %d) = %v, want %v", tc.in, tc.n, got, tc.want)
-		}
-	}
-}
-
-// A traceparent whose IDs are not lowercase hex starts a new trace.
-func TestTraceContext_RejectsNonHexIDs(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e47;x-00f067aa0ba902b7-01")
-	traceID, _ := traceExtractOrGenerate(r)
-	if traceID == "4bf92f3577b34da6a3ce929d0e0e47;x" || !traceHex(traceID, 32) {
-		t.Fatalf("trace id %q, want a newly generated one", traceID)
-	}
-}

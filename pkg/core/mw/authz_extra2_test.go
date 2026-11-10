@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"testing"
 	"time"
 
@@ -70,41 +69,5 @@ func TestExtAuthz_Deny_403(t *testing.T) {
 	}
 	if rr.Code != http.StatusForbidden {
 		t.Errorf("expected 403 on deny, got %d", rr.Code)
-	}
-}
-
-// authzHeaders lowercases keys and keeps each field line as its own element.
-func TestAuthzHeaders_MultiValue(t *testing.T) {
-	h := http.Header{}
-	h.Add("X-Test", "a")
-	h.Add("X-Test", "b")
-	h.Set("Single", "one")
-
-	out := authzHeaders(h)
-	if !slices.Equal(out["x-test"], []string{"a", "b"}) {
-		t.Errorf("expected x-test=[a b], got %q", out["x-test"])
-	}
-	if !slices.Equal(out["single"], []string{"one"}) {
-		t.Errorf("expected single=[one], got %q", out["single"])
-	}
-}
-
-// authzAllow returns cfg.FailOpen when payload marshaling fails (jsonMarshal seam).
-func TestAuthzAllow_MarshalError_FailOpen(t *testing.T) {
-	orig := jsonMarshal
-	jsonMarshal = func(any) ([]byte, error) { return nil, io.ErrUnexpectedEOF }
-	defer func() { jsonMarshal = orig }()
-
-	cfg := config.ExtAuthzConfig{
-		Endpoint:  "http://127.0.0.1:1/authz",
-		Timeout:   config.DurationOf(50 * time.Millisecond),
-		Transport: "http",
-		FailOpen:  true,
-	}
-	log := logging.New(logging.Config{Out: io.Discard})
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	client := authzClient(cfg)
-	if !authzAllow(req, cfg, client, log) {
-		t.Error("expected authzAllow=true (fail_open) on marshal error")
 	}
 }

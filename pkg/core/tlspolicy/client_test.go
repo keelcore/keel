@@ -1,1 +1,40 @@
 package tlspolicy
+
+import (
+	"crypto/tls"
+	"net/http"
+	"testing"
+	"time"
+)
+
+// Callers layer RootCAs, ServerName and client certs on their own copy.
+func TestClientConfig_IsACopy(t *testing.T) {
+	a, b := ClientConfig(), ClientConfig()
+	a.ServerName = "x"
+	if b.ServerName != "" {
+		t.Fatal("ClientConfig shares state between callers")
+	}
+}
+
+func TestNewHTTPTransport(t *testing.T) {
+	tr := NewHTTPTransport()
+	if tr.TLSClientConfig == nil || tr.TLSClientConfig.MinVersion != tls.VersionTLS13 {
+		t.Fatalf("TLSClientConfig = %+v, want the policy", tr.TLSClientConfig)
+	}
+	if !tr.ForceAttemptHTTP2 {
+		t.Fatal("HTTP/2 must stay available with a custom TLS config")
+	}
+	if dt, ok := http.DefaultTransport.(*http.Transport); ok && dt.TLSClientConfig == tr.TLSClientConfig {
+		t.Fatal("the default transport was modified")
+	}
+}
+
+func TestNewHTTPClient(t *testing.T) {
+	c := NewHTTPClient(3 * time.Second)
+	if c.Timeout != 3*time.Second {
+		t.Fatalf("Timeout = %s", c.Timeout)
+	}
+	if tr, ok := c.Transport.(*http.Transport); !ok || tr.TLSClientConfig.MinVersion != tls.VersionTLS13 {
+		t.Fatalf("Transport = %#v, want the policy", c.Transport)
+	}
+}

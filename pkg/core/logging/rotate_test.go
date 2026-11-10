@@ -2,6 +2,7 @@ package logging
 
 import (
 	"compress/gzip"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -217,12 +218,6 @@ func TestRotatingFile_WriteAfterCloseIsDropped(t *testing.T) {
 	}
 }
 
-func TestNewRotatingFile_OpenError(t *testing.T) {
-	if _, err := NewRotatingFile(filepath.Join(t.TempDir(), "missing", "keel.log"), RotationPolicy{}); err == nil {
-		t.Fatal("want an error for a path in a missing directory")
-	}
-}
-
 // With a limit of 0 the file grows until a forced rotation.
 func TestRotatingFile_ZeroSizeNeverRotatesBySize(t *testing.T) {
 	r, path := newRotating(t, RotationPolicy{})
@@ -231,5 +226,34 @@ func TestRotatingFile_ZeroSizeNeverRotatesBySize(t *testing.T) {
 	r.wait()
 	if n := len(backups(t, path)); n != 0 {
 		t.Fatalf("%d backups", n)
+	}
+}
+
+// A rename that stays busy gives up with the error, and another error is not retried.
+func TestRenameRetrying_GivesUp(t *testing.T) {
+	busy := errors.New("busy")
+	calls := 0
+	origRename, origBusy, origDelay := rotateRename, renameBusy, renameRetryDelay
+	rotateRename = func(string, string) error {
+		calls++
+		return busy
+	}
+	renameBusy = func(err error) bool { return errors.Is(err, busy) }
+	renameRetryDelay = 0
+	t.Cleanup(func() { rotateRename, renameBusy, renameRetryDelay = origRename, origBusy, origDelay })
+	if err := renameRetrying("a", "b"); !errors.Is(err, busy) {
+		t.Fatalf("err = %v", err)
+	}
+	if calls != renameRetries {
+		t.Fatalf("calls = %d, want %d", calls, renameRetries)
+	}
+	calls = 0
+	other := errors.New("other")
+	rotateRename = func(string, string) error {
+		calls++
+		return other
+	}
+	if err := renameRetrying("a", "b"); !errors.Is(err, other) || calls != 1 {
+		t.Fatalf("err = %v, calls = %d", err, calls)
 	}
 }

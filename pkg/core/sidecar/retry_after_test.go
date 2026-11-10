@@ -11,8 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/keelcore/keel/pkg/config"
 )
 
 // scriptedRT answers each round trip with the next response in its script and
@@ -102,25 +100,6 @@ func TestReplayable(t *testing.T) {
 	}
 }
 
-func TestRetryAfter_RetriesOnceAfterTheDelay(t *testing.T) {
-	for _, code := range []int{http.StatusServiceUnavailable, http.StatusTooManyRequests} {
-		rt := &scriptedRT{script: []*http.Response{reply(code, "0"), reply(http.StatusOK, "")}}
-		var retries int
-		tr := &retryAfterTransport{inner: rt, budget: time.Second, hooks: Hooks{RetryAfter: func() { retries++ }}}
-		resp, err := tr.RoundTrip(httptest.NewRequest(http.MethodGet, "http://u/x", nil))
-		if err != nil {
-			t.Fatalf("%d: %v", code, err)
-		}
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusOK || len(rt.sent) != 2 || retries != 1 {
-			t.Fatalf("%d: status %d, sent %d, retries %d; want 200, 2, 1", code, resp.StatusCode, len(rt.sent), retries)
-		}
-		if rt.closed.Load() != 2 {
-			t.Fatalf("%d: %d bodies closed, want 2 (the first before the retry)", code, rt.closed.Load())
-		}
-	}
-}
-
 func TestRetryAfter_ReplaysTheBody(t *testing.T) {
 	rt := &scriptedRT{script: []*http.Response{reply(http.StatusServiceUnavailable, "0"), reply(http.StatusOK, "")}}
 	tr := &retryAfterTransport{inner: rt, budget: time.Second}
@@ -175,42 +154,6 @@ func TestRetryAfter_ClientGoneDuringTheDelay(t *testing.T) {
 	}
 	if len(rt.sent) != 1 {
 		t.Fatalf("sent %d, want 1", len(rt.sent))
-	}
-}
-
-// Through the proxy: honor_retry_after on retries a 503 after its delay; off passes it through.
-func TestNewWithHooks_HonorRetryAfter(t *testing.T) {
-	for _, honor := range []bool{true, false} {
-		var calls atomic.Int32
-		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			if calls.Add(1) == 1 {
-				w.Header().Set("Retry-After", "0")
-				w.WriteHeader(http.StatusServiceUnavailable)
-				return
-			}
-			_, _ = io.WriteString(w, "ok")
-		}))
-		cfg := config.Config{
-			Timeouts: config.TimeoutsConfig{Write: config.DurationOf(5 * time.Second)},
-			Sidecar: config.SidecarConfig{
-				UpstreamURL: up.URL,
-				Retry:       config.SidecarRetryConfig{DialAttempts: 1, HonorRetryAfter: honor},
-			},
-		}
-		h, err := NewWithHooks(cfg, Hooks{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://sidecar.local/", nil))
-		up.Close()
-		want, wantCalls := http.StatusOK, int32(2)
-		if !honor {
-			want, wantCalls = http.StatusServiceUnavailable, 1
-		}
-		if rec.Code != want || calls.Load() != wantCalls {
-			t.Fatalf("honor=%v: status %d after %d upstream calls; want %d after %d", honor, rec.Code, calls.Load(), want, wantCalls)
-		}
 	}
 }
 

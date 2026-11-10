@@ -42,6 +42,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- Unit tests moved into the `{foo}_test.go` of the source whose functions they call (#40, stage 2, partial): 497
+  test functions and helpers, unchanged; 46 test files named after no source are gone. Tests that call
+  several source files, or whose build constraint or package differs from the target's, stay where they are for now.
 - Every Go source file has its `{foo}_test.go` beside it (#40, stage 1): 60 new test files, each holding only the
   source's package clause and build constraint, ready for the tests that move in next. `cmd/*/main.go` and `doc.go`
   are exempt, as in keelcore/knobs.

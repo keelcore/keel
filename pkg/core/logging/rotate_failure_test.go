@@ -22,27 +22,6 @@ func failOpens(t *testing.T, suffix string, fn func(name string) (*os.File, erro
 	t.Cleanup(func() { rotateOpenFile = orig })
 }
 
-// failRename makes every rotation rename fail, without touching the file: Windows cannot remove an open one.
-func failRename(t *testing.T) error {
-	t.Helper()
-	boom := errors.New("rename boom")
-	orig := rotateRename
-	rotateRename = func(string, string) error { return boom }
-	t.Cleanup(func() { rotateRename = orig })
-	return boom
-}
-
-// A rotation that fails leaves the write in the current file.
-func TestRotatingFile_WriteSurvivesAFailedRotation(t *testing.T) {
-	r, path := newRotating(t, RotationPolicy{MaxSizeMB: 1})
-	write(t, r, "first\n")
-	failRename(t)
-	write(t, r, strings.Repeat("x", 1024*1024))
-	if got := backups(t, path); len(got) != 0 {
-		t.Fatalf("backups = %v, want none", got)
-	}
-}
-
 // A close failure is reported, and the rotation still completes.
 func TestRotatingFile_RotationSurvivesACloseFailure(t *testing.T) {
 	r, path := newRotating(t, RotationPolicy{})
@@ -323,34 +302,5 @@ func TestRotatingFile_RenameRetriesWhileBusy(t *testing.T) {
 	}
 	if got := backups(t, path); len(got) != 1 {
 		t.Fatalf("backups = %v, want 1", got)
-	}
-}
-
-// A rename that stays busy gives up with the error, and another error is not retried.
-func TestRenameRetrying_GivesUp(t *testing.T) {
-	busy := errors.New("busy")
-	calls := 0
-	origRename, origBusy, origDelay := rotateRename, renameBusy, renameRetryDelay
-	rotateRename = func(string, string) error {
-		calls++
-		return busy
-	}
-	renameBusy = func(err error) bool { return errors.Is(err, busy) }
-	renameRetryDelay = 0
-	t.Cleanup(func() { rotateRename, renameBusy, renameRetryDelay = origRename, origBusy, origDelay })
-	if err := renameRetrying("a", "b"); !errors.Is(err, busy) {
-		t.Fatalf("err = %v", err)
-	}
-	if calls != renameRetries {
-		t.Fatalf("calls = %d, want %d", calls, renameRetries)
-	}
-	calls = 0
-	other := errors.New("other")
-	rotateRename = func(string, string) error {
-		calls++
-		return other
-	}
-	if err := renameRetrying("a", "b"); !errors.Is(err, other) || calls != 1 {
-		t.Fatalf("err = %v, calls = %d", err, calls)
 	}
 }

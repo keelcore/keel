@@ -110,19 +110,3 @@ func TestProxy_ChunkedBodyOverCapAborts(t *testing.T) {
 		t.Fatalf("client received %d bytes, cap is %d", len(got), capBytes)
 	}
 }
-
-// limitBody: a body ending exactly at the cap, whose reader reports EOF on a
-// separate call, reaches the one-byte probe and ends cleanly with io.EOF.
-func TestLimitBody_ExactCapThenSeparateEOF(t *testing.T) {
-	b := &limitBody{rc: io.NopCloser(strings.NewReader("abcd")), remaining: 4}
-	got, err := io.ReadAll(b)
-	if err != nil {
-		t.Fatalf("ReadAll: %v", err)
-	}
-	if string(got) != "abcd" {
-		t.Fatalf("got %q", got)
-	}
-	if err := b.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}

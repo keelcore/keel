@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/logging"
@@ -59,23 +58,6 @@ func TestRequestID_PropagatesExisting(t *testing.T) {
 // newULID
 // ---------------------------------------------------------------------------
 
-// newULID returns a 26-character string every time.
-func TestNewULID_Length26(t *testing.T) {
-	id := newULID()
-	if len(id) != 26 {
-		t.Errorf("expected ULID length 26, got %d (%q)", len(id), id)
-	}
-}
-
-// newULID returns different values on consecutive calls.
-func TestNewULID_Uniqueness(t *testing.T) {
-	a := newULID()
-	b := newULID()
-	if a == b {
-		t.Error("expected different ULIDs on consecutive calls")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // AccessLog
 // ---------------------------------------------------------------------------
@@ -102,17 +84,6 @@ func TestAccessLog_PassesThroughAndLogs(t *testing.T) {
 // clientIP
 // ---------------------------------------------------------------------------
 
-// clientIP ignores a client-supplied X-Forwarded-For: "ip" is the socket peer.
-func TestClientIP_XFFSingleEntry(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.RemoteAddr = "9.8.7.6:12345"
-	req.Header.Set("x-forwarded-for", "1.2.3.4")
-	got := clientIP(req)
-	if got != "9.8.7.6" {
-		t.Errorf("expected socket peer 9.8.7.6, got %q", got)
-	}
-}
-
 // A multi-entry X-Forwarded-For is logged verbatim as "xff", never as "ip".
 func TestClientIP_XFFMultipleEntries(t *testing.T) {
 	var buf bytes.Buffer
@@ -123,27 +94,6 @@ func TestClientIP_XFFMultipleEntries(t *testing.T) {
 	h.ServeHTTP(httptest.NewRecorder(), req)
 	if !strings.Contains(buf.String(), `"ip":"9.8.7.6"`) || !strings.Contains(buf.String(), `"xff":"1.2.3.4, 5.6.7.8"`) {
 		t.Errorf("expected ip=peer and xff verbatim, got %s", buf.String())
-	}
-}
-
-// clientIP returns the remote addr IP when XFF is absent.
-func TestClientIP_NoXFF_UsesRemoteAddr(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.RemoteAddr = "9.8.7.6:12345"
-	got := clientIP(req)
-	if got != "9.8.7.6" {
-		t.Errorf("expected 9.8.7.6, got %q", got)
-	}
-}
-
-// clientIP returns the raw remote addr when it has no port (not host:port).
-func TestClientIP_RemoteAddrNoPort(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Del("x-forwarded-for")
-	req.RemoteAddr = "192.168.1.1" // no port
-	got := clientIP(req)
-	if got != "192.168.1.1" {
-		t.Errorf("expected raw addr 192.168.1.1, got %q", got)
 	}
 }
 
@@ -296,79 +246,9 @@ func TestConcurrencyLimit_ContextCancelled_Returns503(t *testing.T) {
 // RunPressureLoop
 // ---------------------------------------------------------------------------
 
-// RunPressureLoop exits immediately when HeapMaxBytes <= 0.
-func TestRunPressureLoop_ZeroHeapMax_ExitsImmediately(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	r := probes.NewReadiness()
-	cfg := config.Config{
-		Backpressure: config.BackpressureConfig{HeapMaxBytes: 0},
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		RunPressureLoop(ctx, r, cfg, log)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// good: exited immediately
-	case <-time.After(500 * time.Millisecond):
-		t.Error("RunPressureLoop did not exit immediately with HeapMaxBytes=0")
-	}
-}
-
-// RunPressureLoop exits when context is cancelled.
-func TestRunPressureLoop_ContextCancel_Exits(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	r := probes.NewReadiness()
-	cfg := config.Config{
-		Backpressure: config.BackpressureConfig{
-			HeapMaxBytes:  1 << 40, // 1 TiB — effectively unreachable in tests
-			HighWatermark: 0.90,
-			LowWatermark:  0.70,
-		},
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-	go func() {
-		RunPressureLoop(ctx, r, cfg, log)
-		close(done)
-	}()
-
-	cancel()
-	select {
-	case <-done:
-		// good
-	case <-time.After(2 * time.Second):
-		t.Error("RunPressureLoop did not exit after context cancel")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // clamp01
 // ---------------------------------------------------------------------------
-
-func TestClamp01_BelowZero_ReturnsZero(t *testing.T) {
-	if got := clamp01(-0.5); got != 0 {
-		t.Errorf("clamp01(-0.5): expected 0, got %f", got)
-	}
-}
-
-func TestClamp01_AboveOne_ReturnsOne(t *testing.T) {
-	if got := clamp01(1.5); got != 1 {
-		t.Errorf("clamp01(1.5): expected 1, got %f", got)
-	}
-}
-
-func TestClamp01_InRange_ReturnsValue(t *testing.T) {
-	if got := clamp01(0.5); got != 0.5 {
-		t.Errorf("clamp01(0.5): expected 0.5, got %f", got)
-	}
-}
 
 // A valid client X-Request-ID is kept; an invalid or oversized one is replaced.
 func TestRequestID_ValidatesInboundID(t *testing.T) {

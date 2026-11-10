@@ -10,8 +10,13 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // ---------------------------------------------------------------------------
@@ -143,34 +148,6 @@ func TestEcSigningMethod_P521(t *testing.T) {
 // ---------------------------------------------------------------------------
 // jwkAlgMatches — RSA, ECDSA, and unknown key types
 // ---------------------------------------------------------------------------
-
-func TestJWKAlgMatches_RSA_RS256(t *testing.T) {
-	key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	if !jwkAlgMatches(&key.PublicKey, "RS256") {
-		t.Error("expected true for RSA key with RS256")
-	}
-}
-
-func TestJWKAlgMatches_RSA_WrongAlg(t *testing.T) {
-	key, _ := rsa.GenerateKey(rand.Reader, 2048)
-	if jwkAlgMatches(&key.PublicKey, "ES256") {
-		t.Error("expected false for RSA key with ES256")
-	}
-}
-
-func TestJWKAlgMatches_ECDSA_ES256(t *testing.T) {
-	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if !jwkAlgMatches(&key.PublicKey, "ES256") {
-		t.Error("expected true for ECDSA key with ES256")
-	}
-}
-
-func TestJWKAlgMatches_Unknown_ReturnsFalse(t *testing.T) {
-	// A non-RSA, non-ECDSA key type returns false.
-	if jwkAlgMatches("not-a-key", "RS256") {
-		t.Error("expected false for unknown key type")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // ecSigningMethod — unsupported curve
@@ -335,5 +312,89 @@ func TestParsePrivateKey_SEC1_UnsupportedCurve(t *testing.T) {
 	pemData := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 	if _, _, err := parsePrivateKey(pemData); err == nil {
 		t.Error("expected error for SEC1 EC key with unsupported curve")
+	}
+}
+
+func FuzzParsePrivateKey(f *testing.F) {
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		f.Fatal(err)
+	}
+	der, err := x509.MarshalECPrivateKey(k)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}))
+	f.Add([]byte("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"))
+	f.Add([]byte("not pem"))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		key, method, err := parsePrivateKey(data)
+		if err == nil && (key == nil || method == nil) {
+			t.Fatalf("parsePrivateKey returned no error but key=%v method=%v", key, method)
+		}
+	})
+}
+
+func TestNewJWTSigner_ReadError(t *testing.T) {
+	if _, err := NewJWTSigner("svc", "/nonexistent-keel-key-file.pem"); err == nil {
+		t.Error("expected error reading nonexistent key file")
+	}
+}
+
+func TestNewJWTSigner_Success(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "key.pem")
+	pemData := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
+	if err := os.WriteFile(path, pemData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	signer, err := NewJWTSigner("svc", path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if signer == nil {
+		t.Error("expected non-nil signer")
+	}
+}
+
+// The outbound signer stamps aud only when sidecar.upstream_audience is set.
+func TestJWTSigner_WithAudience(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "signer.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, aud := range []string{"", "upstream-svc"} {
+		sg, err := NewJWTSigner("keel-a", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		if err := sg.WithAudience(aud).SignRequest(req); err != nil {
+			t.Fatal(err)
+		}
+		claims := jwt.MapClaims{}
+		raw := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+		if _, err := jwt.ParseWithClaims(raw, claims, func(*jwt.Token) (any, error) { return &key.PublicKey, nil }); err != nil {
+			t.Fatal(err)
+		}
+		got, has := claims["aud"]
+		if aud == "" && has {
+			t.Errorf("aud set (%v) with no audience configured", got)
+		}
+		if aud != "" && got != aud {
+			t.Errorf("aud = %v, want %q", got, aud)
+		}
 	}
 }

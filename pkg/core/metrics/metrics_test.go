@@ -143,3 +143,89 @@ func TestStatusCaptureUnwrap(t *testing.T) {
 		t.Fatal("Unwrap did not return wrapped writer")
 	}
 }
+
+func TestUpstreamDialCounters(t *testing.T) {
+	m := New()
+	m.IncUpstreamDialRetry()
+	m.IncUpstreamDialRetry()
+	m.IncUpstreamDialFailure()
+
+	var buf bytes.Buffer
+	m.writeTo(&buf)
+	out := buf.String()
+	for _, want := range []string{
+		"# TYPE keel_upstream_dial_retries_total counter",
+		"keel_upstream_dial_retries_total 2",
+		"# TYPE keel_upstream_dial_failures_total counter",
+		"keel_upstream_dial_failures_total 1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("exposition missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestUpstreamRetryAfterCounter(t *testing.T) {
+	m := New()
+	m.IncUpstreamRetryAfter()
+
+	var buf bytes.Buffer
+	m.writeTo(&buf)
+	out := buf.String()
+	for _, want := range []string{
+		"# TYPE keel_upstream_retry_after_total counter",
+		"keel_upstream_retry_after_total 1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("exposition missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+// Arbitrary client-chosen methods must not mint new series: they collapse to a
+// single method="OTHER" label (unbounded-cardinality memory DoS regression).
+func TestInstrument_NonStandardMethodsCollapseToOther(t *testing.T) {
+	m := New()
+	h := m.Instrument(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	for _, method := range []string{"AAAA1", "AAAA2", "GET|#x"} {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(method, "/", nil))
+	}
+	var buf bytes.Buffer
+	m.writeTo(&buf)
+	out := buf.String()
+	if !strings.Contains(out, `method="OTHER",status="200"`) {
+		t.Fatalf("expected OTHER label, got %q", out)
+	}
+	for _, leaked := range []string{"AAAA1", "AAAA2", "GET|#x"} {
+		if strings.Contains(out, leaked) {
+			t.Errorf("raw method %q leaked into metrics: %q", leaked, out)
+		}
+	}
+}
+
+// U2: rejections, 301s sent and notice pages served are counted by code.
+func TestProtocolRejectionCounters(t *testing.T) {
+	m := New()
+	m.IncTLSHandshakeRejection("KEEL-PROTO-001")
+	m.IncTLSHandshakeRejection("KEEL-PROTO-001")
+	m.IncTLSHandshakeRejection("KEEL-PROTO-003")
+	m.IncProtocolRejection("KEEL-PROTO-006")
+	m.IncProtocolNotice("KEEL-PROTO-006", "json")
+
+	var buf bytes.Buffer
+	m.writeTo(&buf)
+	out := buf.String()
+	for _, want := range []string{
+		"# TYPE keel_tls_handshake_rejections_total counter",
+		`keel_tls_handshake_rejections_total{code="KEEL-PROTO-001"} 2`,
+		`keel_tls_handshake_rejections_total{code="KEEL-PROTO-003"} 1`,
+		"# TYPE keel_protocol_rejections_total counter",
+		`keel_protocol_rejections_total{code="KEEL-PROTO-006"} 1`,
+		"# TYPE keel_protocol_notices_served_total counter",
+		`keel_protocol_notices_served_total{code="KEEL-PROTO-006",format="json"} 1`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("exposition missing %q in:\n%s", want, out)
+		}
+	}
+}

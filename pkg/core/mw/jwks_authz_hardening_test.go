@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,112 +14,6 @@ import (
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/logging"
 )
-
-// countingJWKS serves status/body from fn and counts hits.
-func countingJWKS(t *testing.T, fn func(n int32) (int, string)) (*httptest.Server, *atomic.Int32) {
-	t.Helper()
-	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		status, body := fn(hits.Add(1))
-		w.WriteHeader(status)
-		_, _ = io.WriteString(w, body)
-	}))
-	t.Cleanup(srv.Close)
-	return srv, &hits
-}
-
-func TestRequireSecureJWKSURL(t *testing.T) {
-	for _, ok := range []string{"https://idp.example/jwks", "http://localhost:8080/jwks", "http://127.0.0.1:9/jwks", "http://[::1]:9/jwks"} {
-		if err := requireSecureJWKSURL(ok); err != nil {
-			t.Errorf("%s rejected: %v", ok, err)
-		}
-	}
-	for _, bad := range []string{"http://idp.example/jwks", "http://10.0.0.5/jwks", "http://[::1"} {
-		if err := requireSecureJWKSURL(bad); err == nil {
-			t.Errorf("%s accepted", bad)
-		}
-	}
-}
-
-// A remote plain-http JWKS URL is refused before any request is made.
-func TestFetchJWKS_RefusesRemotePlainHTTP(t *testing.T) {
-	if _, err := fetchJWKS("http://idp.example/jwks"); err == nil || !strings.Contains(err.Error(), "https") {
-		t.Fatalf("err = %v, want https requirement", err)
-	}
-}
-
-func TestFetchJWKS_Non200Rejected(t *testing.T) {
-	srv, _ := countingJWKS(t, func(int32) (int, string) { return http.StatusInternalServerError, `{"keys":[]}` })
-	if _, err := fetchJWKS(srv.URL); err == nil {
-		t.Fatal("expected error for a non-200 JWKS response")
-	}
-}
-
-// A failed fetch is remembered: repeated lookups during the backoff do not
-// refetch (an issuer outage must not amplify into one fetch per request).
-func TestJWKSCache_FailureCachedWithoutRefetch(t *testing.T) {
-	srv, hits := countingJWKS(t, func(int32) (int, string) { return http.StatusServiceUnavailable, "" })
-	c := newJWKSCache()
-	for i := 0; i < 5; i++ {
-		if _, err := c.get(srv.URL); err == nil {
-			t.Fatal("expected cached failure")
-		}
-	}
-	if hits.Load() != 1 {
-		t.Fatalf("JWKS fetched %d times during the failure backoff, want 1", hits.Load())
-	}
-	// After the backoff, it tries again.
-	c.entries[srv.URL].failedAt = time.Now().Add(-2 * jwksFailureBackoff)
-	_, _ = c.get(srv.URL)
-	if hits.Load() != 2 {
-		t.Fatalf("no refetch after backoff (hits=%d)", hits.Load())
-	}
-}
-
-// When a refresh fails, the last good keys keep being served during the backoff.
-func TestJWKSCache_ServesLastGoodKeysWhenRefreshFails(t *testing.T) {
-	srv, hits := countingJWKS(t, func(n int32) (int, string) {
-		if n == 1 {
-			return http.StatusOK, `{"keys":[]}`
-		}
-		return http.StatusInternalServerError, ""
-	})
-	c := newJWKSCache()
-	if _, err := c.get(srv.URL); err != nil {
-		t.Fatalf("first fetch: %v", err)
-	}
-	c.entries[srv.URL].fetchedAt = time.Now().Add(-2 * jwksTTL) // expire
-	for i := 0; i < 3; i++ {
-		e, err := c.get(srv.URL)
-		if err != nil || e == nil || e.keys == nil {
-			t.Fatalf("lookup %d: got (%v, %v), want last good keys", i, e, err)
-		}
-	}
-	if hits.Load() != 2 {
-		t.Fatalf("hits = %d, want 2 (one refresh attempt, then backoff)", hits.Load())
-	}
-}
-
-// Concurrent lookups for one URL share a single fetch.
-func TestJWKSCache_ConcurrentLookupsShareOneFetch(t *testing.T) {
-	srv, hits := countingJWKS(t, func(int32) (int, string) {
-		time.Sleep(150 * time.Millisecond)
-		return http.StatusOK, `{"keys":[]}`
-	})
-	c := newJWKSCache()
-	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, _ = c.get(srv.URL)
-		}()
-	}
-	wg.Wait()
-	if hits.Load() != 1 {
-		t.Fatalf("JWKS fetched %d times for concurrent lookups, want 1", hits.Load())
-	}
-}
 
 func authzCfg(endpoint, transport string) config.Config {
 	var cfg config.Config

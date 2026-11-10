@@ -2,11 +2,13 @@
 package clisupport
 
 import (
+	"errors"
 	"io"
 	"testing"
 
 	keelconfig "github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/logging"
+	"github.com/keelcore/keel/pkg/core/version"
 )
 
 // exitSentinel is panicked by the injected ExitFn so tests can recover it.
@@ -185,5 +187,77 @@ func TestKnobList_SetAndString(t *testing.T) {
 	}
 	if got := k.String(); got != "keel.logging.level=debug,keel.listeners.http.port=9000" {
 		t.Fatalf("String() = %q", got)
+	}
+}
+
+func TestTryVersion_TagsBranch(t *testing.T) {
+	v := true
+	flagVersion = &v
+
+	orig := versionGet
+	versionGet = func() version.Info { return version.Info{BuildTags: []string{"fips", "no_h3"}} }
+	t.Cleanup(func() { versionGet = orig })
+
+	log := logging.New(logging.Config{Out: io.Discard})
+	_, exited := trapExit(log, func() { tryVersion(log) })
+	if !exited {
+		t.Error("expected tryVersion to call log.Exit when --version flag is true")
+	}
+}
+
+func TestTryCheckShred_TagLoopBranch(t *testing.T) {
+	v := true
+	flagCheckShred = &v
+
+	orig := versionGet
+	versionGet = func() version.Info { return version.Info{BuildTags: []string{"fips", "no_prom"}} }
+	t.Cleanup(func() { versionGet = orig })
+
+	log := logging.New(logging.Config{Out: io.Discard})
+	_, exited := trapExit(log, func() { tryCheckShred(log) })
+	if !exited {
+		t.Error("expected tryCheckShred to call log.Exit when --check-shred flag is true")
+	}
+}
+
+func TestTryValidateConfig_InvalidConfigCallsFatal(t *testing.T) {
+	v := false
+	flagValidate = &v
+
+	orig := configValidate
+	configValidate = func(_ keelconfig.Config) error { return errors.New("bad config") }
+	t.Cleanup(func() { configValidate = orig })
+
+	log := logging.New(logging.Config{Out: io.Discard})
+	code, exited := trapExit(log, func() { _ = tryValidateConfig(log) })
+	if !exited {
+		t.Fatal("expected tryValidateConfig to call log.Fatal on invalid config")
+	}
+	if code != 1 {
+		t.Errorf("expected exit code 1 from log.Fatal, got %d", code)
+	}
+}
+
+func TestTryVersion_ParsesAndReturns(t *testing.T) {
+	fv, fi, fs := false, false, false
+	flagVersion = &fv
+	flagCheckIntegrity = &fi
+	flagCheckShred = &fs
+
+	log := logging.New(logging.Config{Out: io.Discard})
+	TryVersion(log)
+}
+
+func TestProcessArgs_ReturnsDefaultConfig(t *testing.T) {
+	fv, fi, fs, fval := false, false, false, false
+	flagVersion = &fv
+	flagCheckIntegrity = &fi
+	flagCheckShred = &fs
+	flagValidate = &fval
+
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := ProcessArgs(log)
+	if cfg.Listeners.HTTP.Port == 0 {
+		t.Error("expected non-zero HTTP port from ProcessArgs default config")
 	}
 }

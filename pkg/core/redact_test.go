@@ -45,3 +45,16 @@ func TestRedactURL_UnparsableUnchanged(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// Admin tokens never appear in the SIGUSR1 dump; an unset one stays empty.
+func TestRedactedConfig_AdminTokens(t *testing.T) {
+	var cfg config.Config
+	cfg.Admin.Token = "adm-secret-token"
+	b, _ := json.Marshal(redactedConfig(cfg))
+	if strings.Contains(string(b), "adm-secret-token") {
+		t.Fatalf("admin token leaked: %s", b)
+	}
+	if redactSecret("") != "" {
+		t.Error("unset secret should stay empty")
+	}
+}

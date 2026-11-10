@@ -153,39 +153,64 @@ func TestBaseDial(t *testing.T) {
 	_ = conn.Close()
 }
 
-// A closed port refuses every dial: the proxy retries, reports each retry and
-// the final failure through its hooks, and answers 502.
-func TestNewWithHooks_DialRetryThen502(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
+// When keel signs, the client's Authorization is replaced by keel's; a signing
+// failure is a 502 and the request never reaches the upstream unsigned.
+func TestNew_Signing_ReplacesClientAuthAndFailsClosed(t *testing.T) {
+	var gotAuth string
+	hits := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		gotAuth = r.Header.Get("Authorization")
+	}))
+	defer upstream.Close()
+	cfg := config.Config{Sidecar: config.SidecarConfig{UpstreamURL: upstream.URL}}
 
-	log, out := newBufLogger()
-	var retries, failures int
-	cfg := config.Config{Sidecar: config.SidecarConfig{
-		UpstreamURL: "http://" + addr,
-		Retry:       config.SidecarRetryConfig{DialAttempts: 3, DialBackoff: config.DurationOf(time.Millisecond)},
-	}}
-	h, err := NewWithHooks(cfg, Hooks{
-		Log:        log,
-		DialRetry:  func() { retries++ },
-		DialFailed: func() { failures++ },
+	signErr := error(nil)
+	h, err := New(cfg, func(r *http.Request) error {
+		if signErr != nil {
+			return signErr
+		}
+		r.Header.Set("Authorization", "Bearer keel-token")
+		return nil
 	})
 	if err != nil {
-		t.Fatalf("NewWithHooks: %v", err)
+		t.Fatalf("New: %v", err)
 	}
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "http://sidecar.local/", strings.NewReader("x")))
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("status = %d, want 502", rec.Code)
+	call := func() int {
+		req := httptest.NewRequest(http.MethodGet, "http://sidecar.local/", nil)
+		req.Header.Set("Authorization", "Bearer client-token")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
 	}
-	if retries != 2 || failures != 1 {
-		t.Fatalf("hooks: retries %d failures %d, want 2 and 1", retries, failures)
+
+	if code := call(); code != http.StatusOK || gotAuth != "Bearer keel-token" {
+		t.Fatalf("signed: status %d auth %q", code, gotAuth)
 	}
-	if !strings.Contains(out.String(), "upstream_dial_retry") || !strings.Contains(out.String(), "upstream_dial_failed") {
-		t.Fatalf("missing retry log lines:\n%s", out.String())
+	signErr = errors.New("key unavailable")
+	if code := call(); code != http.StatusBadGateway {
+		t.Fatalf("sign failure: status %d, want 502", code)
+	}
+	if hits != 1 {
+		t.Fatalf("upstream hit %d times, want 1 (unsigned request forwarded)", hits)
+	}
+}
+
+func TestRetryAfter_RetriesOnceAfterTheDelay(t *testing.T) {
+	for _, code := range []int{http.StatusServiceUnavailable, http.StatusTooManyRequests} {
+		rt := &scriptedRT{script: []*http.Response{reply(code, "0"), reply(http.StatusOK, "")}}
+		var retries int
+		tr := &retryAfterTransport{inner: rt, budget: time.Second, hooks: Hooks{RetryAfter: func() { retries++ }}}
+		resp, err := tr.RoundTrip(httptest.NewRequest(http.MethodGet, "http://u/x", nil))
+		if err != nil {
+			t.Fatalf("%d: %v", code, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || len(rt.sent) != 2 || retries != 1 {
+			t.Fatalf("%d: status %d, sent %d, retries %d; want 200, 2, 1", code, resp.StatusCode, len(rt.sent), retries)
+		}
+		if rt.closed.Load() != 2 {
+			t.Fatalf("%d: %d bodies closed, want 2 (the first before the retry)", code, rt.closed.Load())
+		}
 	}
 }

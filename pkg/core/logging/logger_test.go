@@ -3,6 +3,8 @@ package logging
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -168,5 +170,50 @@ func TestFatal(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "dead") {
 		t.Fatalf("Fatal did not log: %q", buf.String())
+	}
+}
+
+// Text mode escapes control characters: a decoded %0a in a logged path cannot
+// start a forged log line.
+func TestTextMode_EscapesControlCharacters(t *testing.T) {
+	var buf bytes.Buffer
+	l := New(Config{JSON: false, Out: &buf})
+	l.Info("access", map[string]any{"path": "/x\n2026-01-01 [error] forged\x1b[0m"})
+	out := buf.String()
+	if strings.Count(out, "\n") != 1 {
+		t.Fatalf("log entry spans multiple lines: %q", out)
+	}
+	if !strings.Contains(out, `/x\n2026-01-01 [error] forged\x1b[0m`) {
+		t.Fatalf("control characters not escaped: %q", out)
+	}
+	if escapeControl("plain") != "plain" {
+		t.Fatal("plain text altered")
+	}
+}
+
+// failRename makes every rotation rename fail, without touching the file: Windows cannot remove an open one.
+func failRename(t *testing.T) error {
+	t.Helper()
+	boom := errors.New("rename boom")
+	orig := rotateRename
+	rotateRename = func(string, string) error { return boom }
+	t.Cleanup(func() { rotateRename = orig })
+	return boom
+}
+
+// A rotation that fails leaves the write in the current file.
+func TestRotatingFile_WriteSurvivesAFailedRotation(t *testing.T) {
+	r, path := newRotating(t, RotationPolicy{MaxSizeMB: 1})
+	write(t, r, "first\n")
+	failRename(t)
+	write(t, r, strings.Repeat("x", 1024*1024))
+	if got := backups(t, path); len(got) != 0 {
+		t.Fatalf("backups = %v, want none", got)
+	}
+}
+
+func TestNewRotatingFile_OpenError(t *testing.T) {
+	if _, err := NewRotatingFile(filepath.Join(t.TempDir(), "missing", "keel.log"), RotationPolicy{}); err == nil {
+		t.Fatal("want an error for a path in a missing directory")
 	}
 }

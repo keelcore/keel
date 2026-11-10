@@ -5,6 +5,7 @@ package logging
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net/http"
@@ -199,5 +200,13 @@ func TestPost_FailedOrRejectedBatchCountsDrops(t *testing.T) {
 	s.post([][]byte{[]byte("c\n")})
 	if got := s.DropsTotal(); got != 2 {
 		t.Fatalf("drops after 202 = %d, want 2", got)
+	}
+}
+
+func TestHTTPSink_UsesTheOutboundTLSPolicy(t *testing.T) {
+	c := NewHTTPSink("https://logs.example", 1, time.Second).client
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok || tr.TLSClientConfig == nil || tr.TLSClientConfig.MinVersion != tls.VersionTLS13 {
+		t.Fatalf("transport = %#v, want the outbound TLS policy", c.Transport)
 	}
 }

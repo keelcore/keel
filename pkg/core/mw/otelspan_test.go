@@ -157,3 +157,12 @@ func TestOtelWriter_WriteHeader_CapturesCode(t *testing.T) {
 		t.Errorf("expected status 418, got %d", ow.status)
 	}
 }
+
+// otelWriter.Unwrap exposes the wrapped writer.
+func TestOtelWriter_Unwrap(t *testing.T) {
+	rr := httptest.NewRecorder()
+	ow := &otelWriter{ResponseWriter: rr}
+	if ow.Unwrap() != rr {
+		t.Error("expected Unwrap to return the wrapped ResponseWriter")
+	}
+}
