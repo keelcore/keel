@@ -8,6 +8,7 @@ import (
 
 	keelconfig "github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/logging"
+	"github.com/keelcore/keel/pkg/core/ports"
 	"github.com/keelcore/keel/pkg/core/version"
 )
 
@@ -259,5 +260,29 @@ func TestProcessArgs_ReturnsDefaultConfig(t *testing.T) {
 	cfg := ProcessArgs(log)
 	if cfg.Listeners.HTTP.Port == 0 {
 		t.Error("expected non-zero HTTP port from ProcessArgs default config")
+	}
+}
+
+// TryVersion: with --version flag absent, returns without calling os.Exit.
+func TestTryVersion_NoFlag(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	TryVersion(log)
+}
+
+// TryValidateApp: with --validate flag absent, returns without calling os.Exit.
+func TestTryValidateApp_NoFlag(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	TryValidateApp(log)
+}
+
+// ProcessArgs: loads defaults when KEEL_CONFIG/KEEL_SECRETS are unset,
+// validates successfully, and returns the config (--validate flag not set).
+func TestProcessArgs_DefaultEnv(t *testing.T) {
+	t.Setenv("KEEL_CONFIG", "")
+	t.Setenv("KEEL_SECRETS", "")
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := ProcessArgs(log)
+	if cfg.Listeners.HTTP.Port != ports.HTTP {
+		t.Errorf("expected HTTP port %d, got %d", ports.HTTP, cfg.Listeners.HTTP.Port)
 	}
 }

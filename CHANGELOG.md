@@ -42,6 +42,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- 74 more unit tests, 8 helpers and 1 helper type move out of `tests/unit` into the `{foo}_test.go` beside the
+  source they call (#40, partial), with the same package rebind (`mw.X` becomes `X`); the 6 that use the shared
+  helper call it as `unit.TLSTestCert` and import `tests/unit`. 9 more `tests/unit` files are gone.
 - `tests/unit/tlscert.go` is covered at 100%: seams over its three crypto calls (`generateKey`,
   `createCertificate`, `marshalECPrivateKey`), and `TLSTestCert` takes a `testing.TB`, so `tlscert_test.go` reaches
   each error branch with a `testing.TB` that records the `Fatal` (#40).

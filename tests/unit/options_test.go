@@ -16,26 +16,6 @@ type stubRegistrar struct{}
 
 func (stubRegistrar) Register(_ *router.Router) {}
 
-// WithConfig: inner closure sets s.cfg; verifiable via s.Cfg().
-func TestWithConfig_AppliesConfig(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	want := config.Config{}
-	want.Logging.JSON = true
-
-	s := core.NewServer(log, config.Config{}, core.WithConfig(want))
-	if !s.Cfg().Logging.JSON {
-		t.Error("WithConfig: expected Logging.JSON=true")
-	}
-}
-
-// WithLogger: inner closure executes without panic.
-func TestWithLogger_AppliesLogger(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	newLog := logging.New(logging.Config{Out: io.Discard, JSON: true})
-	// Exercise the closure; no exported getter for logger, so just verify no panic.
-	_ = core.NewServer(log, config.Config{}, core.WithLogger(newLog))
-}
-
 // WithRegistrar: inner closure executes without panic.
 func TestWithRegistrar_AppendsRegistrar(t *testing.T) {
 	log := logging.New(logging.Config{Out: io.Discard})

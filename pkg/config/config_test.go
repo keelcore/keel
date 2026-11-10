@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/keelcore/keel/pkg/core/logging"
+	"github.com/keelcore/keel/pkg/core/ports"
 	"github.com/keelcore/knobs"
 	"go.yaml.in/yaml/v3"
 )
@@ -1410,5 +1411,55 @@ func TestLoad_SchemaValidConfigPassesValidation(t *testing.T) {
 	_, err := Load(writeConfig(t, "keel:\n  logging:\n    level: debug\n"), "")
 	if err != nil {
 		t.Fatalf("valid config should pass schema validation, got: %v", err)
+	}
+}
+
+func TestDefaults_KeyValues(t *testing.T) {
+	cfg := Defaults()
+
+	if !cfg.Listeners.HTTP.Enabled {
+		t.Error("HTTP listener should be enabled by default")
+	}
+	if cfg.Listeners.HTTP.Port != ports.HTTP {
+		t.Errorf("HTTP port: got %d, want %d", cfg.Listeners.HTTP.Port, ports.HTTP)
+	}
+	if cfg.Listeners.HTTPS.Enabled {
+		t.Error("HTTPS listener should be disabled by default")
+	}
+	if !cfg.Authn.Enabled {
+		t.Error("authn should be enabled by default")
+	}
+	if !cfg.Metrics.Prometheus {
+		t.Error("prometheus should be enabled by default")
+	}
+	if cfg.Security.MaxHeaderBytes != 65536 {
+		t.Errorf("MaxHeaderBytes: got %d, want 65536", cfg.Security.MaxHeaderBytes)
+	}
+	if cfg.Backpressure.HighWatermark != 0.85 {
+		t.Errorf("HighWatermark: got %f, want 0.85", cfg.Backpressure.HighWatermark)
+	}
+	if cfg.Timeouts.Read.Duration != 30*time.Second {
+		t.Errorf("Read timeout: got %v, want 30s", cfg.Timeouts.Read.Duration)
+	}
+}
+
+func TestLoad_EmptyPaths_UsesDefaults(t *testing.T) {
+	cfg, err := Load("", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Listeners.HTTP.Port != ports.HTTP {
+		t.Errorf("HTTP port: got %d, want %d", cfg.Listeners.HTTP.Port, ports.HTTP)
+	}
+}
+
+// Default: happy path — KEEL_CONFIG and KEEL_SECRETS unset, returns defaults-based config.
+func TestConfigDefault_ReturnsValidConfig(t *testing.T) {
+	t.Setenv("KEEL_CONFIG", "")
+	t.Setenv("KEEL_SECRETS", "")
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := Default(log)
+	if cfg.Listeners.HTTP.Port != ports.HTTP {
+		t.Errorf("expected HTTP port %d from Default, got %d", ports.HTTP, cfg.Listeners.HTTP.Port)
 	}
 }

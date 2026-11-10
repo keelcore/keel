@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/keelcore/keel/tests/unit"
 )
 
 // genCertKey writes a self-signed ECDSA cert and key into dir and returns the
@@ -159,5 +161,48 @@ func TestCertExpirySeconds_PropagatesError(t *testing.T) {
 	_, err := CertExpirySeconds("/no/such/file.pem")
 	if err == nil {
 		t.Error("expected error from CertExpirySeconds, got nil")
+	}
+}
+
+func TestCertExpiry_ReturnsNotAfter(t *testing.T) {
+	notAfter := time.Now().Add(72 * time.Hour).Truncate(time.Second)
+	certPEM, _ := unit.TLSTestCert(t, notAfter)
+
+	f, err := os.CreateTemp(t.TempDir(), "keel-cert-*.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.Write(certPEM); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	got, err := CertExpiry(f.Name())
+	if err != nil {
+		t.Fatalf("CertExpiry: %v", err)
+	}
+	if !got.Equal(notAfter) {
+		t.Errorf("CertExpiry = %v, want %v", got, notAfter)
+	}
+}
+
+func TestCertExpirySeconds_PositiveForFutureCert(t *testing.T) {
+	certPEM, _ := unit.TLSTestCert(t, time.Now().Add(time.Hour))
+
+	f, err := os.CreateTemp(t.TempDir(), "keel-cert-*.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.Write(certPEM); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	secs, err := CertExpirySeconds(f.Name())
+	if err != nil {
+		t.Fatalf("CertExpirySeconds: %v", err)
+	}
+	if secs <= 0 {
+		t.Errorf("CertExpirySeconds = %f, want > 0 for a future cert", secs)
 	}
 }

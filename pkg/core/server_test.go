@@ -1195,3 +1195,27 @@ func TestServer_AddRoute(t *testing.T) {
 		t.Errorf("expected route /probe on port 8080 after Register, not found")
 	}
 }
+
+// RunServer: with all listeners disabled and a pre-cancelled context, Run
+// exits immediately via the ctx.Done branch without binding any ports.
+func TestRunServer_CancelledContext(t *testing.T) {
+	cfg := config.Config{
+		Listeners: config.ListenersConfig{
+			HTTP:    config.ListenerConfig{Enabled: false},
+			HTTPS:   config.ListenerConfig{Enabled: false},
+			H3:      config.ListenerConfig{Enabled: false},
+			Health:  config.ListenerConfig{Enabled: false},
+			Ready:   config.ListenerConfig{Enabled: false},
+			Startup: config.ListenerConfig{Enabled: false},
+			Admin:   config.ListenerConfig{Enabled: false},
+		},
+		Backpressure: config.BackpressureConfig{SheddingEnabled: false},
+	}
+	log := logging.New(logging.Config{Out: io.Discard})
+	s := NewServer(log, cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // pre-cancel: Run exits at WaitForStop without blocking
+
+	RunServer(s, ctx)
+}

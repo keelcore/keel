@@ -249,3 +249,24 @@ func TestDoProbe_NilLog_NoUnhealthy_NoPanic(t *testing.T) {
 	// Should not panic even with nil log and unhealthy status.
 	doProbe(client, srv.URL+"/health", h, nil)
 }
+
+func TestHealthProbe_DefaultTimeouts(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer upstream.Close()
+
+	readiness := probes.NewReadiness()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately; we just want the goroutine to start
+
+	// Zero values for timeout and interval → defaults (2s and 10s) applied inside.
+	StartHealthProbe(ctx, config.SidecarConfig{
+		UpstreamURL:        upstream.URL,
+		UpstreamHealthPath: "/health",
+		// UpstreamHealthTimeout: zero → default 2s
+		// UpstreamHealthInterval: zero → default 10s
+	}, nil, readiness, nil)
+
+	time.Sleep(20 * time.Millisecond) // let goroutine start and see ctx.Done
+}

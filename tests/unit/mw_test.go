@@ -4,7 +4,6 @@ package unit
 import (
 	"bytes"
 	"context"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,98 +19,6 @@ import (
 // ---------------------------------------------------------------------------
 // RunPressureLoop
 // ---------------------------------------------------------------------------
-
-func TestPressureLoop_EarlyReturn_HeapMaxBytesZero(t *testing.T) {
-	r := probes.NewReadiness()
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{} // HeapMaxBytes defaults to 0
-
-	done := make(chan struct{})
-	go func() {
-		mw.RunPressureLoop(context.Background(), r, cfg, log)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Error("RunPressureLoop did not return early when HeapMaxBytes=0")
-	}
-}
-
-func TestPressureLoop_ExitsOnContextCancel(t *testing.T) {
-	r := probes.NewReadiness()
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{
-		Backpressure: config.BackpressureConfig{
-			HeapMaxBytes:  1 << 40, // 1 TiB — pressure near zero; covers in-range clamp01
-			HighWatermark: 0.9,
-			LowWatermark:  0.7,
-		},
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		mw.RunPressureLoop(ctx, r, cfg, log)
-		close(done)
-	}()
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Error("RunPressureLoop did not exit on context cancel")
-	}
-}
-
-// clamp01(v < 0): both watermarks below zero are clamped to 0.
-func TestPressureLoop_ClampNegativeWatermarks(t *testing.T) {
-	r := probes.NewReadiness()
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{
-		Backpressure: config.BackpressureConfig{
-			HeapMaxBytes:  1 << 40,
-			HighWatermark: -0.1,
-			LowWatermark:  -0.5,
-		},
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // cancel before the loop body runs; clamp happens before the select
-	mw.RunPressureLoop(ctx, r, cfg, log)
-}
-
-// clamp01(v > 1): both watermarks above 1 are clamped to 1.
-func TestPressureLoop_ClampAboveOneWatermarks(t *testing.T) {
-	r := probes.NewReadiness()
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{
-		Backpressure: config.BackpressureConfig{
-			HeapMaxBytes:  1 << 40,
-			HighWatermark: 1.5,
-			LowWatermark:  1.2,
-		},
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	mw.RunPressureLoop(ctx, r, cfg, log)
-}
-
-// low > high after clamping: low is adjusted down to match high.
-func TestPressureLoop_LowGreaterThanHighAdjusted(t *testing.T) {
-	r := probes.NewReadiness()
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{
-		Backpressure: config.BackpressureConfig{
-			HeapMaxBytes:  1 << 40,
-			HighWatermark: 0.3,
-			LowWatermark:  0.8, // > high → adjusted to 0.3
-		},
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	mw.RunPressureLoop(ctx, r, cfg, log)
-}
 
 // High watermark trigger: HeapMaxBytes=1 forces pressure >> any threshold,
 // exercises the t.C case and the latch=true branch.
@@ -198,49 +105,6 @@ func TestOWASP_ResponseBodyLimit_SecondWriteDropped(t *testing.T) {
 // ---------------------------------------------------------------------------
 // clientIP (via AccessLog middleware)
 // ---------------------------------------------------------------------------
-
-func TestAccessLog_ClientIP_XFF_WithComma(t *testing.T) {
-	var buf bytes.Buffer
-	log := logging.New(logging.Config{JSON: true, Out: &buf})
-	h := mw.AccessLog(log, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("x-forwarded-for", "1.2.3.4, 5.6.7.8")
-	h.ServeHTTP(httptest.NewRecorder(), req)
-
-	if !strings.Contains(buf.String(), `"ip":"192.0.2.1"`) || !strings.Contains(buf.String(), `"xff":"1.2.3.4, 5.6.7.8"`) {
-		t.Errorf("expected socket peer as ip and XFF verbatim as xff, got: %s", buf.String())
-	}
-}
-
-func TestAccessLog_ClientIP_XFF_WithoutComma(t *testing.T) {
-	var buf bytes.Buffer
-	log := logging.New(logging.Config{JSON: true, Out: &buf})
-	h := mw.AccessLog(log, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.Header.Set("x-forwarded-for", "9.8.7.6")
-	h.ServeHTTP(httptest.NewRecorder(), req)
-
-	if !strings.Contains(buf.String(), `"ip":"192.0.2.1"`) || !strings.Contains(buf.String(), `"xff":"9.8.7.6"`) {
-		t.Errorf("expected socket peer as ip and XFF as xff, got: %s", buf.String())
-	}
-}
-
-// Invalid RemoteAddr makes net.SplitHostPort fail; clientIP returns the raw value.
-func TestAccessLog_ClientIP_InvalidRemoteAddr(t *testing.T) {
-	var buf bytes.Buffer
-	log := logging.New(logging.Config{JSON: true, Out: &buf})
-	h := mw.AccessLog(log, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
-
-	req := httptest.NewRequest("GET", "/", nil)
-	req.RemoteAddr = "not-a-valid-addr"
-	h.ServeHTTP(httptest.NewRecorder(), req)
-
-	if !strings.Contains(buf.String(), `"ip":"not-a-valid-addr"`) {
-		t.Errorf("expected raw RemoteAddr in log, got: %s", buf.String())
-	}
-}
 
 // AccessLog logs req_id, trace_id, span_id when set by upstream middleware.
 func TestAccessLog_LogsContextIDs(t *testing.T) {

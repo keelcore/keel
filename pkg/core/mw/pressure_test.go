@@ -158,3 +158,95 @@ func TestClamp01_InRange_ReturnsValue(t *testing.T) {
 		t.Errorf("clamp01(0.5): expected 0.5, got %f", got)
 	}
 }
+
+func TestPressureLoop_EarlyReturn_HeapMaxBytesZero(t *testing.T) {
+	r := probes.NewReadiness()
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{} // HeapMaxBytes defaults to 0
+
+	done := make(chan struct{})
+	go func() {
+		RunPressureLoop(context.Background(), r, cfg, log)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Error("RunPressureLoop did not return early when HeapMaxBytes=0")
+	}
+}
+
+func TestPressureLoop_ExitsOnContextCancel(t *testing.T) {
+	r := probes.NewReadiness()
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{
+		Backpressure: config.BackpressureConfig{
+			HeapMaxBytes:  1 << 40, // 1 TiB — pressure near zero; covers in-range clamp01
+			HighWatermark: 0.9,
+			LowWatermark:  0.7,
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		RunPressureLoop(ctx, r, cfg, log)
+		close(done)
+	}()
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Error("RunPressureLoop did not exit on context cancel")
+	}
+}
+
+// clamp01(v < 0): both watermarks below zero are clamped to 0.
+func TestPressureLoop_ClampNegativeWatermarks(t *testing.T) {
+	r := probes.NewReadiness()
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{
+		Backpressure: config.BackpressureConfig{
+			HeapMaxBytes:  1 << 40,
+			HighWatermark: -0.1,
+			LowWatermark:  -0.5,
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before the loop body runs; clamp happens before the select
+	RunPressureLoop(ctx, r, cfg, log)
+}
+
+// clamp01(v > 1): both watermarks above 1 are clamped to 1.
+func TestPressureLoop_ClampAboveOneWatermarks(t *testing.T) {
+	r := probes.NewReadiness()
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{
+		Backpressure: config.BackpressureConfig{
+			HeapMaxBytes:  1 << 40,
+			HighWatermark: 1.5,
+			LowWatermark:  1.2,
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	RunPressureLoop(ctx, r, cfg, log)
+}
+
+// low > high after clamping: low is adjusted down to match high.
+func TestPressureLoop_LowGreaterThanHighAdjusted(t *testing.T) {
+	r := probes.NewReadiness()
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{
+		Backpressure: config.BackpressureConfig{
+			HeapMaxBytes:  1 << 40,
+			HighWatermark: 0.3,
+			LowWatermark:  0.8, // > high → adjusted to 0.3
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	RunPressureLoop(ctx, r, cfg, log)
+}

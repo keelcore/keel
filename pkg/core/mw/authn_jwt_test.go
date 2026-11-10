@@ -517,3 +517,362 @@ func TestAuthnJWT_UnpinnedAlgorithmRejected(t *testing.T) {
 		t.Fatal("PS256 token accepted; only the pinned algorithms may verify")
 	}
 }
+
+func writeTrustedSignersFile(t *testing.T, content string) string {
+	t.Helper()
+	f, err := os.CreateTemp("", "signers-*.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(f.Name()) })
+	_, _ = f.WriteString(content)
+	f.Close()
+	return f.Name()
+}
+
+func TestAuthn_TrustedSignersFile_MergesWithInline(t *testing.T) {
+	const key1 = "0123456789abcdef"
+	const key2 = "fedcba9876543210"
+
+	sigFile := writeTrustedSignersFile(t, key2+"\n")
+
+	cfg := config.Config{
+		Authn: config.AuthnConfig{
+			Enabled:            true,
+			TrustedSigners:     []string{key1},
+			TrustedSignersFile: sigFile,
+		},
+	}
+	log := logging.New(logging.Config{Out: &strings.Builder{}})
+
+	// Token signed with key2 (from file) should be accepted.
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "any",
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	raw, err := token.SignedString([]byte(key2))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var reached bool
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+	}), log)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if !reached {
+		t.Errorf("handler not reached; status=%d", rr.Code)
+	}
+}
+
+func TestAuthn_TrustedSignersFile_MissingFile_WarnsAndContinues(t *testing.T) {
+	const key = "0123456789abcdef"
+
+	var logBuf strings.Builder
+	log := logging.New(logging.Config{JSON: true, Out: &logBuf})
+
+	cfg := config.Config{
+		Authn: config.AuthnConfig{
+			Enabled:            true,
+			TrustedSigners:     []string{key},
+			TrustedSignersFile: "/nonexistent/signers.txt",
+		},
+	}
+
+	// Inline signer still works despite missing file.
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "any",
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	raw, _ := token.SignedString([]byte(key))
+
+	var reached bool
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+	}), log)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if !reached {
+		t.Error("inline signer should still work when file is missing")
+	}
+	if !strings.Contains(logBuf.String(), "trusted_signers_file_open_failed") {
+		t.Error("expected warning about missing signers file")
+	}
+}
+
+func TestAuthn_TrustedSignersFile_CommentsAndBlankLines(t *testing.T) {
+	const key = "0123456789abcdef"
+
+	content := "# this is a comment\n\n" + key + "\n\n# another comment\n"
+	sigFile := writeTrustedSignersFile(t, content)
+
+	cfg := config.Config{
+		Authn: config.AuthnConfig{
+			Enabled:            true,
+			TrustedSignersFile: sigFile,
+		},
+	}
+	log := logging.New(logging.Config{Out: &strings.Builder{}})
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "any",
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	raw, _ := token.SignedString([]byte(key))
+
+	var reached bool
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached = true
+	}), log)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+raw)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if !reached {
+		t.Error("key from file should be accepted when comments and blank lines are present")
+	}
+}
+
+func TestAuthnJWT_AllowsTrustedSub(t *testing.T) {
+	// >= 112 bits required under GODEBUG=fips140=only.
+	const hmac_key = "0123456789abcdef" // 16 bytes
+
+	cfg := config.Config{
+		Authn: config.AuthnConfig{
+			TrustedIDs:     []string{"alice"},
+			TrustedSigners: []string{hmac_key},
+			Enabled:        true,
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "alice",
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	raw, err := token.SignedString([]byte(hmac_key))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}), logging.New(logging.Config{JSON: false}))
+
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("authorization", "Bearer "+raw)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_MissingAuth(t *testing.T) {
+	const key = "0123456789abcdef"
+	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{key}, Enabled: true}}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), logging.New(logging.Config{JSON: false}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_ExpiredToken(t *testing.T) {
+	const key = "0123456789abcdef"
+	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{key}, Enabled: true}}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), logging.New(logging.Config{JSON: false}))
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "alice",
+		"exp": time.Now().Add(-time.Minute).Unix(), // already expired
+	})
+	raw, err := token.SignedString([]byte(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("authorization", "Bearer "+raw)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_WrongSigner(t *testing.T) {
+	const trustedKey = "trusted-key-1234" // 16 bytes
+	const wrongKey = "wrong-key-16byte!"  // 17 bytes — different key
+	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{trustedKey}, Enabled: true}}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), logging.New(logging.Config{JSON: false}))
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "alice",
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	raw, err := token.SignedString([]byte(wrongKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("authorization", "Bearer "+raw)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_ForbiddenSub(t *testing.T) {
+	const key = "0123456789abcdef"
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedIDs:     []string{"alice"},
+		TrustedSigners: []string{key},
+		Enabled:        true,
+	}}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), logging.New(logging.Config{JSON: false}))
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "bob", // not in TrustedIDs
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	raw, err := token.SignedString([]byte(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("authorization", "Bearer "+raw)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_RS256Accepted(t *testing.T) {
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}))
+
+	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{pubPEM}, Enabled: true}}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), logging.New(logging.Config{JSON: false}))
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"sub": "alice",
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	raw, err := token.SignedString(privKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("authorization", "Bearer "+raw)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_ES256Accepted(t *testing.T) {
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER}))
+
+	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{pubPEM}, Enabled: true}}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), logging.New(logging.Config{JSON: false}))
+
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
+		"sub": "alice",
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	raw, err := token.SignedString(privKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("authorization", "Bearer "+raw)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_SecondSignerAccepted(t *testing.T) {
+	const firstKey = "wrong-key-16byte"  // 16 bytes — wrong key, tried first
+	const secondKey = "0123456789abcdef" // 16 bytes — correct key, tried second
+
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedSigners: []string{firstKey, secondKey},
+		Enabled:        true,
+	}}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), logging.New(logging.Config{JSON: false}))
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "alice",
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	raw, err := token.SignedString([]byte(secondKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("authorization", "Bearer "+raw)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 (second signer accepted), got %d", rr.Code)
+	}
+}
