@@ -24,3 +24,13 @@ func TestNextProtos_OffersH2(t *testing.T) {
 		t.Errorf("NextProtos() = %v, want [h2 http/1.1]", got)
 	}
 }
+
+// ApplyHTTP2Policy (!no_h2 build): default no-op leaves TLSNextProto nil.
+func TestApplyHTTP2Policy_DefaultLeavesTLSNextProtoNil(t *testing.T) {
+	srv := &http.Server{}
+	ApplyHTTP2Policy(srv)
+	// Default policy is a no-op; TLSNextProto must remain nil.
+	if srv.TLSNextProto != nil {
+		t.Errorf("expected TLSNextProto nil for default HTTP/2 policy, got %v", srv.TLSNextProto)
+	}
+}

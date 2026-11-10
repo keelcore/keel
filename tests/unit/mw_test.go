@@ -3,8 +3,6 @@ package unit
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -58,49 +56,6 @@ func TestPressureLoop_HighWatermarkTrigger(t *testing.T) {
 // limitedResponseWriter.Write (via OWASP middleware with MaxResponseBodyBytes)
 // ---------------------------------------------------------------------------
 
-// Normal write: body fits within the limit.
-func TestOWASP_ResponseBodyLimit_NormalWrite(t *testing.T) {
-	cfg := config.Config{Security: config.SecurityConfig{MaxResponseBodyBytes: 100}}
-	h := mw.OWASP(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("hi"))
-	}))
-
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest("GET", "/", nil))
-	if body := rr.Body.String(); body != "hi" {
-		t.Errorf("expected %q, got %q", "hi", body)
-	}
-}
-
-// Truncation: write larger than remaining budget.
-func TestOWASP_ResponseBodyLimit_Truncates(t *testing.T) {
-	cfg := config.Config{Security: config.SecurityConfig{MaxResponseBodyBytes: 5}}
-	h := mw.OWASP(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("hello world")) // 11 bytes → truncated to 5
-	}))
-
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest("GET", "/", nil))
-	if body := rr.Body.String(); body != "hello" {
-		t.Errorf("expected %q, got %q", "hello", body)
-	}
-}
-
-// Second write when remaining==0: write is silently dropped.
-func TestOWASP_ResponseBodyLimit_SecondWriteDropped(t *testing.T) {
-	cfg := config.Config{Security: config.SecurityConfig{MaxResponseBodyBytes: 3}}
-	h := mw.OWASP(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("abc")) // consumes remaining=3 → remaining=0
-		_, _ = w.Write([]byte("def")) // remaining==0 → dropped
-	}))
-
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest("GET", "/", nil))
-	if body := rr.Body.String(); body != "abc" {
-		t.Errorf("expected %q, got %q", "abc", body)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // clientIP (via AccessLog middleware)
 // ---------------------------------------------------------------------------
@@ -108,20 +63,3 @@ func TestOWASP_ResponseBodyLimit_SecondWriteDropped(t *testing.T) {
 // ---------------------------------------------------------------------------
 // OWASP: read timeout context
 // ---------------------------------------------------------------------------
-
-func TestOWASP_ReadTimeout_SetsContext(t *testing.T) {
-	cfg := config.Config{
-		Timeouts: config.TimeoutsConfig{
-			Read: config.DurationOf(time.Second),
-		},
-	}
-	var deadlineSet bool
-	h := mw.OWASP(cfg, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
-		_, deadlineSet = r.Context().Deadline()
-	}))
-
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
-	if !deadlineSet {
-		t.Error("expected context deadline from OWASP read timeout")
-	}
-}

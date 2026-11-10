@@ -42,6 +42,14 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- 26 more unit tests and their helpers move into the `{foo}_test.go` of the function their name tests (#40,
+  partial): the 10 `TestExtAuthz_*` from `tests/unit` into `mw/authz_test.go` (their helper `authzCfg`, which takes
+  a `failOpen` the `mw` one does not, is now `authzCfgFailOpen`); the 9 `TestOWASP_*` into `mw/owasp_test.go`
+  (`!no_owasp`); the three `TestProxy_*` and `proxyServer` into `sidecar/proxy_test.go`; and four `tests/unit`
+  tests whose names were taken, renamed for what they check: `TestLoad_MalformedYAMLFileReturnsError`,
+  `TestApplyHTTP2Policy_DefaultLeavesTLSNextProtoNil`, `TestWithRegistrar_AcceptsAStubRegistrar` and
+  `TestWithReadinessCheck_AcceptsACheck` (with `stubRegistrar`). The helpers left in `logging/rotate_failure_test.go`
+  and `tlspolicy/policy_test.go` follow their tests. 8 more test files named after no source are gone.
 - 10 more unit tests move into the `{foo}_test.go` of the function their name tests (#40, partial):
   `TestReload_WaitsForStartup` and the two `TestReloadHandler_*` into `server_reload_test.go`,
   `TestWrapMain_TrustedIDsReload` into `server_test.go`, the two `TestPrune_*` into `logging/rotate_test.go`,

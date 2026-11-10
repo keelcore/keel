@@ -1463,3 +1463,18 @@ func TestConfigDefault_ReturnsValidConfig(t *testing.T) {
 		t.Errorf("expected HTTP port %d from Default, got %d", ports.HTTP, cfg.Listeners.HTTP.Port)
 	}
 }
+
+func TestLoad_MalformedYAMLFileReturnsError(t *testing.T) {
+	f, err := os.CreateTemp("", "keel-bad-*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(f.Name())
+	_, _ = f.WriteString(":\t bad yaml {{{\n")
+	f.Close()
+
+	_, err = Load(f.Name(), "")
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
