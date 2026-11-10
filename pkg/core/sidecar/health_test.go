@@ -325,3 +325,63 @@ func TestHealthProbe_LogsOnUnhealthyStatus(t *testing.T) {
 		t.Errorf("expected upstream_unhealthy log, got: %s", sb.String())
 	}
 }
+
+func TestSidecarHealthProbe_UpstreamDown_ReadinessFalse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}))
+	upstream.Close() // shut down immediately
+
+	readiness := probes.NewReadiness()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	StartHealthProbe(ctx, config.SidecarConfig{
+		UpstreamURL:            upstream.URL,
+		UpstreamHealthPath:     "/health",
+		UpstreamHealthInterval: config.DurationOf(5 * time.Millisecond),
+		UpstreamHealthTimeout:  config.DurationOf(20 * time.Millisecond),
+	}, nil, readiness, nil)
+
+	time.Sleep(80 * time.Millisecond)
+
+	if ok, _ := readiness.IsReady(); ok {
+		t.Error("expected readiness false after upstream down")
+	}
+}
+
+func TestSidecarHealthProbe_UpstreamRecovered_ReadinessTrue(t *testing.T) {
+	var healthy atomic.Bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if healthy.Load() {
+			w.WriteHeader(200)
+		} else {
+			w.WriteHeader(503)
+		}
+	}))
+	defer upstream.Close()
+
+	readiness := probes.NewReadiness()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	StartHealthProbe(ctx, config.SidecarConfig{
+		UpstreamURL:            upstream.URL,
+		UpstreamHealthPath:     "/health",
+		UpstreamHealthInterval: config.DurationOf(10 * time.Millisecond),
+		UpstreamHealthTimeout:  config.DurationOf(20 * time.Millisecond),
+	}, nil, readiness, nil)
+
+	time.Sleep(40 * time.Millisecond)
+	if ok, _ := readiness.IsReady(); ok {
+		t.Fatal("expected readiness false before upstream healthy")
+	}
+
+	healthy.Store(true)
+	time.Sleep(40 * time.Millisecond)
+
+	if ok, _ := readiness.IsReady(); !ok {
+		t.Error("expected readiness true after upstream recovered")
+	}
+}

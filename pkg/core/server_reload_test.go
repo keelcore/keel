@@ -290,3 +290,13 @@ func TestReload_AuditFailureWarns(t *testing.T) {
 		t.Fatalf("audit %q", auditText(t, path))
 	}
 }
+
+func TestAdminReload_WrongMethod_Returns405(t *testing.T) {
+	s := NewServer(logging.New(logging.Config{}), config.Config{})
+	rr := httptest.NewRecorder()
+	s.ReloadHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/admin/reload", nil))
+
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}

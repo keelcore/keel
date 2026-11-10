@@ -42,6 +42,12 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- 37 more unit tests move out of `tests/unit` into the `{foo}_test.go` their `Test{target}` name points to (#40,
+  partial), with the package rebind: the 19 `TestJWKS_*` into `mw/authn_jwks_test.go` and the 7 `TestAuthn_*` into
+  `mw/authn_jwt_test.go` (their 14 helpers each beside most of their callers), the 4 `TestCircuitBreaker_*` into
+  `sidecar/circuit_test.go`, the 2 `TestSidecarHealthProbe_*` into `sidecar/health_test.go`, the 2 `TestHTTP3_*`
+  and `mockH3Backend` into `http3/server_test.go`, the 2 `TestPProf_*` into `probes/pprof_test.go`, and
+  `TestAdminReload_*` into `server_reload_test.go`. 5 more `tests/unit` files are gone.
 - A test that needs a build tag its target does not have lives in `{foo}_not_{tag}_test.go` (for `!tag`) or
   `{foo}_{tag}_test.go` (for `tag`), built under that tag (#40, partial): `log_file_notwindows_test.go`,
   `lifecycle/shutdown_notwindows_test.go`, `server_listeners_not_no_h3_test.go` and

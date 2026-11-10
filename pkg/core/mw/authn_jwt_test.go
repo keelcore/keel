@@ -1054,3 +1054,169 @@ func auditAuthn(t *testing.T, trusted []string, next http.Handler) (http.Handler
 }
 
 const auditTestSecret = "0123456789abcdef0123456789abcdef"
+
+func rsaPublicKeyPEM(t *testing.T, priv *rsa.PrivateKey) string {
+	t.Helper()
+	der, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}
+
+func ecPublicKeyPEM(t *testing.T, priv *ecdsa.PrivateKey) string {
+	t.Helper()
+	der, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}
+
+func signHS256(t *testing.T, key string) string {
+	t.Helper()
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "alice", "exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	raw, err := tok.SignedString([]byte(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// No valid PEM block: string starts with "-----BEGIN" but has no footer.
+func TestAuthn_PEM_NoPEMBlock(t *testing.T) {
+	fakePEM := "-----BEGIN BROKEN DATA\nno actual pem content here"
+	const hmacKey = "0123456789abcdef"
+
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedSigners: []string{fakePEM},
+		Enabled:        true,
+	}}
+	rr := httptest.NewRecorder()
+	authnHandler(cfg).ServeHTTP(rr, bearerReq(t, signHS256(t, hmacKey)))
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+// RSA public key configured but token uses ES256 — alg mismatch.
+func TestAuthn_PEM_RSAKeyWrongAlg(t *testing.T) {
+	rsaPriv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ecPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedSigners: []string{rsaPublicKeyPEM(t, rsaPriv)},
+		Enabled:        true,
+	}}
+	rr := httptest.NewRecorder()
+	authnHandler(cfg).ServeHTTP(rr, bearerReq(t, signES256(t, ecPriv)))
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+// EC public key configured but token uses HS256 — alg mismatch.
+func TestAuthn_PEM_ECKeyWrongAlg(t *testing.T) {
+	ecPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const hmacKey = "0123456789abcdef"
+
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedSigners: []string{ecPublicKeyPEM(t, ecPriv)},
+		Enabled:        true,
+	}}
+	rr := httptest.NewRecorder()
+	authnHandler(cfg).ServeHTTP(rr, bearerReq(t, signHS256(t, hmacKey)))
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+func TestAuthn_SecretSignerWithNonHMACAlg(t *testing.T) {
+	rsaPriv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Signer is a plain string (not PEM); token uses RS256.
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedSigners: []string{"my-plain-secret"},
+		Enabled:        true,
+	}}
+	rr := httptest.NewRecorder()
+	authnHandler(cfg).ServeHTTP(rr, bearerReq(t, signRS256(t, rsaPriv)))
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+// parseWithAllSigners: empty signers list → "no trusted signers configured".
+func TestAuthn_EmptySigners(t *testing.T) {
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedSigners: nil, // empty
+		Enabled:        true,
+	}}
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	authnHandler(cfg).ServeHTTP(rr, bearerReq(t, signRS256(t, priv)))
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+// parsePEMPublicKey: valid PEM block but invalid PKIX DER bytes → ParsePKIXPublicKey error.
+func TestAuthn_PEM_InvalidDER(t *testing.T) {
+	badPEM := string(pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: []byte("not valid DER bytes"),
+	}))
+
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedSigners: []string{badPEM},
+		Enabled:        true,
+	}}
+	const hmacKey = "0123456789abcdef"
+	rr := httptest.NewRecorder()
+	authnHandler(cfg).ServeHTTP(rr, bearerReq(t, signHS256(t, hmacKey)))
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
+
+// parsePEMPublicKey: unsupported public key type (Ed25519) → default case.
+func TestAuthn_PEM_UnsupportedKeyType(t *testing.T) {
+	edPub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(edPub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedSigners: []string{edPEM},
+		Enabled:        true,
+	}}
+	// Any token alg triggers resolveStaticKey → parsePEMPublicKey → default case.
+	const hmacKey = "0123456789abcdef"
+	rr := httptest.NewRecorder()
+	authnHandler(cfg).ServeHTTP(rr, bearerReq(t, signHS256(t, hmacKey)))
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", rr.Code)
+	}
+}
