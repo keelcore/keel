@@ -1,5 +1,3 @@
-//go:build !no_audit
-
 package keel
 
 import (

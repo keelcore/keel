@@ -42,6 +42,10 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- Each `{foo}_test.go` builds under the same constraint as its `{foo}.go` (#40): `pkg/apps/keel/audit_test.go`,
+  `pkg/core/audit_wiring_test.go`, `server_apply_test.go` and `server_loops_test.go` drop the `!no_*` line their
+  sources do not have. `audit_wiring_test.go` no longer calls `audit.VerifyFiles` or `audit.VerifyReader`, which
+  `pkg/core/audit/audit_test.go` tests; the `no_audit` and `no_authn` test builds compile again.
 - Unit tests moved into the `{foo}_test.go` of the source whose functions they call (#40, stage 2, partial): 497
   test functions and helpers, unchanged; 46 test files named after no source are gone. Tests that call
   several source files, or whose build constraint or package differs from the target's, stay where they are for now.

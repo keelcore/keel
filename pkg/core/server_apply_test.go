@@ -1,5 +1,3 @@
-//go:build !no_authn
-
 // server_apply_test.go — white-box tests for applyRemoteSink, applyOutboundSigner,
 // applyTracing, and wrapMain branches (package core).
 package core

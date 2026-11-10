@@ -1,5 +1,3 @@
-//go:build !no_prom
-
 package core
 
 import (
