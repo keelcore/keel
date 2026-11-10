@@ -89,6 +89,7 @@ publish-release-images: | ensure-container
 .PHONY: test-example-artifact
 .PHONY: build-example
 .PHONY: clean-local
+.PHONY: lint-all-local
 .PHONY: create-release-local
 .PHONY: update-pins-local
 .PHONY: publish-release-images-local
@@ -305,6 +306,11 @@ create-roadmap-issues:
 
 ## Utility Targets
 # Host uid:gid on Linux, where the dev image runs as root (set-dist-permissions hands dist/ back); empty elsewhere.
+## keel's linters: also run first by canonical lint-all.sh (`make lint-all`, the commit hook), and runnable alone.
+lint-all-local: | ensure-container
+	@echo "🔍 Running keel's own linters..."
+	bash scripts/dev/run.sh bash scripts/lint-all.local.sh
+
 ## Local artifact cleanup — also delegated to by canonical clean.sh (`make clean`)
 clean-local:
 	@echo "🧹 Removing keel build artifacts (dist/, target/)..."

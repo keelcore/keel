@@ -196,6 +196,8 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- CI Audit passes again: `make lint-all-local` invokes `scripts/lint-all.local.sh`, as every script needs a make
+  target (#40).
 - A log or audit rotation never replaces an existing backup (`pkg/core/logging/rotate.go`): each backup's time is
   after the previous one's and moves on a nanosecond while its name, its `.gz` or its `.gz.tmp` exists, so two
   rotations within one clock tick (Windows ticks coarsely) keep both backups and names still sort by age. Tested
