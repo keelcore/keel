@@ -23,6 +23,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/logging"
+	"github.com/keelcore/keel/tests/unit"
 )
 
 func FuzzParseJWK(f *testing.F) {
@@ -1066,4 +1067,8 @@ func TestJWKS_ParseECJWK_UnmarshalError(t *testing.T) {
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", rr.Code)
 	}
+}
+
+func TestJWKSClient_UsesTheTLSPolicy(t *testing.T) {
+	unit.AssertOutboundPolicy(t, "jwks", jwksClient)
 }

@@ -42,6 +42,12 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- `unit.AssertOutboundPolicy` joins the shared test-helper library (`tests/unit/outboundpolicy.go`, tested in
+  `outboundpolicy_test.go`), the former `assertOutboundPolicy` of `mw/outbound_tls_test.go`, which had no source and
+  is gone (#40, partial). Its one test, which checked two clients, is now one per client beside its source:
+  `TestJWKSClient_UsesTheTLSPolicy` in `mw/authn_jwks_test.go` and `TestAuthzClient_UsesTheTLSPolicy` in
+  `mw/authz_test.go`. `TestRemoteLog_HTTPSink_AttachesToLogger` moves to `logging/sink_test.go` (`HTTPSink`, in
+  `sink.go`), the last test out of `tests/unit`, which now holds only the shared helper library.
 - 37 more unit tests move out of `tests/unit` into the `{foo}_test.go` their `Test{target}` name points to (#40,
   partial), with the package rebind: the 19 `TestJWKS_*` into `mw/authn_jwks_test.go` and the 7 `TestAuthn_*` into
   `mw/authn_jwt_test.go` (their 14 helpers each beside most of their callers), the 4 `TestCircuitBreaker_*` into

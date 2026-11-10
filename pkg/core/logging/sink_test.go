@@ -341,3 +341,35 @@ func TestRemoteLog_Run_DrainLoopProcessesRemaining(t *testing.T) {
 	cancel()      // already cancelled
 	sink.Run(ctx) // must return; does not block
 }
+
+func TestRemoteLog_HTTPSink_AttachesToLogger(t *testing.T) {
+	// Verify that an HTTPSink used as an io.Writer receives logger output.
+	var mu sync.Mutex
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		received = append(received, b...)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sink := NewHTTPSink(srv.URL, 100, 10*time.Millisecond)
+	log := New(Config{Out: sink})
+	log.Info("test-event", nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	go sink.Run(ctx)
+	<-ctx.Done()
+	time.Sleep(10 * time.Millisecond)
+
+	mu.Lock()
+	body := string(received)
+	mu.Unlock()
+
+	if !strings.Contains(body, "test-event") {
+		t.Errorf("expected test-event in sink, got: %q", body)
+	}
+}

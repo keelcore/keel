@@ -18,6 +18,7 @@ import (
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/audit"
 	"github.com/keelcore/keel/pkg/core/logging"
+	"github.com/keelcore/keel/tests/unit"
 )
 
 // authzHeaders lowercases keys and keeps each field line as its own element.
@@ -764,4 +765,9 @@ func TestExtAuthz_Timeout_FailClosed(t *testing.T) {
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 on timeout with fail_open=false, got %d", rr.Code)
 	}
+}
+
+func TestAuthzClient_UsesTheTLSPolicy(t *testing.T) {
+	unit.AssertOutboundPolicy(t, "authz https", authzClient(config.ExtAuthzConfig{Endpoint: "https://opa.example"}))
+	unit.AssertOutboundPolicy(t, "authz unix", authzClient(config.ExtAuthzConfig{Endpoint: "unix:///tmp/opa.sock"}))
 }
