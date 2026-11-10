@@ -42,6 +42,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- `tests/unit/tlscert.go` is covered at 100%: seams over its three crypto calls (`generateKey`,
+  `createCertificate`, `marshalECPrivateKey`), and `TLSTestCert` takes a `testing.TB`, so `tlscert_test.go` reaches
+  each error branch with a `testing.TB` that records the `Fatal` (#40).
 - `tests/unit` is the shared library for unit-test helpers that tests in more than one keel package use (#40,
   partial): standard library only, so any package's tests import it without a cycle. Its first helper,
   `unit.TLSTestCert` (`tests/unit/tlscert.go`, tested in `tlscert_test.go`), is the former `tlsTestCert`, unchanged

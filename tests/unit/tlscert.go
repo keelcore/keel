@@ -15,12 +15,20 @@ import (
 	"time"
 )
 
+// generateKey, createCertificate and marshalECPrivateKey are seams over the crypto calls TLSTestCert makes,
+// so tests can reach its error branches. They default to the real functions.
+var (
+	generateKey         = ecdsa.GenerateKey
+	createCertificate   = x509.CreateCertificate
+	marshalECPrivateKey = x509.MarshalECPrivateKey
+)
+
 // TLSTestCert returns a self-signed ECDSA P-256 certificate for 127.0.0.1, valid until notAfter, and its
 // key, both PEM-encoded.
-func TLSTestCert(t *testing.T, notAfter time.Time) (certPEM, keyPEM []byte) {
+func TLSTestCert(t testing.TB, notAfter time.Time) (certPEM, keyPEM []byte) {
 	t.Helper()
 
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key, err := generateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,13 +40,13 @@ func TLSTestCert(t *testing.T, notAfter time.Time) (certPEM, keyPEM []byte) {
 		NotAfter:     notAfter,
 		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	der, err := createCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 
-	keyDER, err := x509.MarshalECPrivateKey(key)
+	keyDER, err := marshalECPrivateKey(key)
 	if err != nil {
 		t.Fatal(err)
 	}
