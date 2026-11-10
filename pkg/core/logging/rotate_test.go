@@ -531,3 +531,94 @@ func TestRotatingFile_RenameRetriesWhileBusy(t *testing.T) {
 		t.Fatalf("backups = %v, want 1", got)
 	}
 }
+
+// freezeRotateNow makes every rotation see the same instant, as two rotations within one clock
+// tick do (Windows ticks coarsely).
+func freezeRotateNow(t *testing.T, at time.Time) {
+	t.Helper()
+	orig := rotateNow
+	rotateNow = func() time.Time { return at }
+	t.Cleanup(func() { rotateNow = orig })
+}
+
+// backupText reads a backup, compressed or not.
+func backupText(t *testing.T, path string) string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	var rd io.Reader = f
+	if strings.HasSuffix(path, ".gz") {
+		zr, err := gzip.NewReader(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer zr.Close()
+		rd = zr
+	}
+	b, err := io.ReadAll(rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// Rotations at the same instant keep every backup, each under its own name, in age order.
+func TestRotate_SameInstantKeepsEveryBackup(t *testing.T) {
+	for _, compress := range []bool{false, true} {
+		freezeRotateNow(t, time.Date(2026, 11, 10, 5, 55, 16, 875597000, time.UTC))
+		r, path := newRotating(t, RotationPolicy{Compress: compress})
+		for _, line := range []string{"one\n", "two\n", "three\n"} {
+			write(t, r, line)
+			if err := r.Rotate(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		r.wait()
+		got := backups(t, path)
+		if len(got) != 3 {
+			t.Fatalf("compress=%v: backups = %v, want 3", compress, got)
+		}
+		for i, want := range []string{"one\n", "two\n", "three\n"} {
+			if text := backupText(t, got[i]); text != want {
+				t.Errorf("compress=%v: backup %d (%s) = %q, want %q (oldest first)", compress, i, got[i], text, want)
+			}
+		}
+	}
+}
+
+// A rotation never replaces a file already at its backup name: a backup, its compressed form,
+// or a compression in progress.
+func TestRotate_NeverReplacesAnExistingBackup(t *testing.T) {
+	at := time.Date(2026, 11, 10, 5, 55, 16, 875597000, time.UTC)
+	for _, suffix := range []string{"", ".gz", ".gz.tmp"} {
+		freezeRotateNow(t, at)
+		r, path := newRotating(t, RotationPolicy{})
+		taken := path + "." + at.Format(backupTime) + suffix
+		if err := os.WriteFile(taken, []byte("old\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		write(t, r, "new\n")
+		if err := r.Rotate(); err != nil {
+			t.Fatal(err)
+		}
+		r.wait()
+		if text, err := os.ReadFile(taken); err != nil || string(text) != "old\n" {
+			t.Fatalf("suffix %q: existing %s = %q, %v; want it untouched", suffix, taken, text, err)
+		}
+		var fresh []string
+		for _, b := range backups(t, path) {
+			if b != taken {
+				fresh = append(fresh, b)
+			}
+		}
+		if len(fresh) != 1 || backupText(t, fresh[0]) != "new\n" {
+			t.Fatalf("suffix %q: new backups = %v, want one holding the rotated lines", suffix, fresh)
+		}
+		if fresh[0] <= strings.TrimSuffix(taken, suffix) {
+			t.Errorf("suffix %q: new backup %s sorts before the existing %s", suffix, fresh[0], taken)
+		}
+	}
+}

@@ -24,6 +24,9 @@ type RotationPolicy struct {
 // backupTime names a backup: sorted by name is sorted by age.
 const backupTime = "20060102T150405.000000000Z"
 
+// rotateNow is a seam over time.Now so tests can make rotations share an instant.
+var rotateNow = time.Now
+
 // rotateOpenFile is a seam over os.OpenFile so tests can inject open failures.
 var rotateOpenFile = os.OpenFile
 
@@ -62,6 +65,8 @@ type RotatingFile struct {
 	f      *os.File
 	size   int64
 	closed bool
+
+	lastBackup time.Time // the time in the newest backup's name; the next is later
 
 	cleanup sync.WaitGroup
 }
@@ -115,7 +120,7 @@ func (r *RotatingFile) Rotate() error {
 }
 
 func (r *RotatingFile) rotateLocked() error {
-	backup := r.path + "." + time.Now().UTC().Format(backupTime)
+	backup := r.backupName()
 	// Close first: Windows refuses to rename an open file.
 	if err := r.f.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "log file close failed: %v\n", err)
@@ -143,6 +148,35 @@ func (r *RotatingFile) rotateLocked() error {
 		r.finishBackup(backup, policy)
 	}()
 	return nil
+}
+
+// backupName names a new backup <path>.<UTC time>: a time after the last backup's, moved on a
+// nanosecond while a file holds that name (a backup, its compressed form, or a compression in
+// progress), so a rotation never replaces a backup, even two within one clock tick, and names
+// still sort by age. Called with r.mu held, so rotations cannot race for a name.
+func (r *RotatingFile) backupName() string {
+	t := rotateNow().UTC()
+	if !t.After(r.lastBackup) {
+		t = r.lastBackup.Add(time.Nanosecond)
+	}
+	for {
+		name := r.path + "." + t.Format(backupTime)
+		if !anyExists(name, name+".gz", name+".gz.tmp") {
+			r.lastBackup = t
+			return name
+		}
+		t = t.Add(time.Nanosecond)
+	}
+}
+
+// anyExists reports whether a file is at any of paths.
+func anyExists(paths ...string) bool {
+	for _, p := range paths {
+		if _, err := os.Lstat(p); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // finishBackup compresses the new backup and prunes old ones. Failures go to stderr.

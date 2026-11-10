@@ -151,6 +151,10 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- A log or audit rotation never replaces an existing backup (`pkg/core/logging/rotate.go`): each backup's time is
+  after the previous one's and moves on a nanosecond while its name, its `.gz` or its `.gz.tmp` exists, so two
+  rotations within one clock tick (Windows ticks coarsely) keep both backups and names still sort by age. Tested
+  with rotations frozen at one instant and with each kind of file already at the name.
 - Secret Scan passes again (#40): the `.gitleaks.toml` allowlists follow the test fixtures to where the test moves
   put them (`pkg/core/mw/authn_jwt_test.go`), keeping their old paths for history, and a new entry covers the
   `marshalECPrivateKey` seam in `tests/unit/tlscert.go`, the same function-alias false positive as acme's.
