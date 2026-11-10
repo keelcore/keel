@@ -59,9 +59,3 @@ func TestExtAuthz_OPABodyCapped(t *testing.T) {
 		t.Fatalf("status = %d, want 403 for an oversized OPA body", code)
 	}
 }
-
-func TestAuthzClient_UnixSocketDoesNotFollowRedirects(t *testing.T) {
-	if authzClient(config.ExtAuthzConfig{Endpoint: "unix:///tmp/opa.sock"}).CheckRedirect == nil {
-		t.Fatal("unix-socket authz client follows redirects")
-	}
-}

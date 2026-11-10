@@ -42,6 +42,14 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- 117 unit tests and 2 helpers in `pkg/` move into the `{foo}_test.go` of the source the type checker confirms they
+  call (#40, partial), taking that file's build constraint. `pkg/core/acme/manager_test.go` becomes
+  `package acme` (its `acme.` qualifiers go) so the internal acme tests can join it. Five tests stay with the
+  constraint they need: `TestOutboundClients_UseTheTLSPolicy` (`!no_authn`, reads `jwksClient`),
+  `TestOrchestrator_StopDetachesSignals` (`!windows`, sends `syscall.Kill`),
+  `TestBuildRemoteSink_Syslog_Success_ReturnsWriterNoHTTPSink` (`!no_remotelog && !windows`, needs real syslog),
+  and `TestServeH3_ObservedServesAllowedClients` and `TestServeH3With_DefaultDrain` (`!no_h3`, need a real
+  HTTP/3 server; `build-max` runs the suite with `no_h3`). 8 more test files named after no source are gone.
 - 74 more unit tests, 8 helpers and 1 helper type move out of `tests/unit` into the `{foo}_test.go` beside the
   source they call (#40, partial), with the same package rebind (`mw.X` becomes `X`); the 6 that use the shared
   helper call it as `unit.TLSTestCert` and import `tests/unit`. 9 more `tests/unit` files are gone.

@@ -7,9 +7,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/keelcore/keel/pkg/core/audit"
 	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/metrics"
 	"github.com/keelcore/keel/pkg/core/protonotice"
@@ -114,5 +116,37 @@ func TestHandshakeRejectionLog_RemoteAddress(t *testing.T) {
 	lines := logLines(t, buf.String())
 	if len(lines) != 1 || lines[0]["remote"] != server.RemoteAddr().String() {
 		t.Fatalf("got %v, want remote %q", lines, server.RemoteAddr().String())
+	}
+}
+
+// Refused handshakes reach the stream at a bounded rate, with the source address when known.
+func TestAudit_HandshakeRejectionSampledWithSource(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	s := auditServer(t, path, nil)
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+	observe := s.auditedRejections(func(protonotice.Code, *cryptotls.ClientHelloInfo) {})
+	for range rejectionLogsPerSecond * 5 {
+		observe(protonotice.TLSVersion, &cryptotls.ClientHelloInfo{Conn: server})
+	}
+	n, err := audit.VerifyFiles([]string{path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 || n >= rejectionLogsPerSecond*5 {
+		t.Fatalf("%d entries for %d rejections", n, rejectionLogsPerSecond*5)
+	}
+	if !strings.Contains(auditText(t, path), `"source_ip":"pipe"`) {
+		t.Fatalf("audit %q", auditText(t, path))
+	}
+}
+
+func TestAddrIP(t *testing.T) {
+	if got := addrIP(&net.TCPAddr{IP: net.IPv4(203, 0, 113, 7), Port: 443}); got != "203.0.113.7" {
+		t.Errorf("TCP address: %q", got)
+	}
+	if got := addrIP(&net.UnixAddr{Name: "sock"}); got != "sock" {
+		t.Errorf("no port: %q", got)
 	}
 }

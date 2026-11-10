@@ -14,10 +14,9 @@ import (
 	"testing"
 	"time"
 
-	qhttp3 "github.com/quic-go/quic-go/http3"
-
 	"github.com/keelcore/keel/pkg/core/protonotice"
 	keeltls "github.com/keelcore/keel/pkg/core/tls"
+	qhttp3 "github.com/quic-go/quic-go/http3"
 )
 
 // The H3 listener runs with the rejection observer installed and serves an

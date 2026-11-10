@@ -2,10 +2,6 @@
 
 package acme
 
-// Tests for network-dependent ACME helpers using a stub acmeClient.
-// These cover fulfillHTTP01, acceptChallenge, obtainCert, finalizeCert,
-// fulfillAllHTTP01, and runRenewalLoop without contacting a real CA.
-
 import (
 	"context"
 	"crypto/ecdsa"
@@ -13,15 +9,16 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"errors"
 	"math/big"
 	"testing"
 	"time"
 
 	xacme "golang.org/x/crypto/acme"
-
-	"github.com/keelcore/keel/pkg/config"
 )
+
+// Tests for network-dependent ACME helpers using a stub acmeClient.
+// These cover fulfillHTTP01, acceptChallenge, obtainCert, finalizeCert,
+// fulfillAllHTTP01, and runRenewalLoop without contacting a real CA.
 
 // ---------------------------------------------------------------------------
 // stubACMEClient
@@ -145,292 +142,22 @@ func stubSignedCert(t *testing.T) func(context.Context, string, []byte, bool) ([
 // fulfillHTTP01 tests
 // ---------------------------------------------------------------------------
 
-func TestFulfillHTTP01_GetAuthorizationError(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		getAuthorizationFn: func(_ context.Context, _ string) (*xacme.Authorization, error) {
-			return nil, errors.New("get-auth-fail")
-		},
-	}
-	err := m.fulfillHTTP01(context.Background(), stub, "http://ca/authz/1")
-	if err == nil {
-		t.Fatal("expected error from GetAuthorization failure")
-	}
-}
-
-func TestFulfillHTTP01_AlreadyValid(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		getAuthorizationFn: func(_ context.Context, _ string) (*xacme.Authorization, error) {
-			return &xacme.Authorization{Status: xacme.StatusValid}, nil
-		},
-	}
-	if err := m.fulfillHTTP01(context.Background(), stub, "http://ca/authz/1"); err != nil {
-		t.Fatalf("expected nil for already-valid authz, got %v", err)
-	}
-}
-
-func TestFulfillHTTP01_SuccessAcceptsChallenge(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		getAuthorizationFn: func(_ context.Context, _ string) (*xacme.Authorization, error) {
-			return &xacme.Authorization{
-				Status: xacme.StatusPending,
-				URI:    "http://ca/authz/1",
-				Challenges: []*xacme.Challenge{
-					{Type: "http-01", Token: "tok1"},
-				},
-			}, nil
-		},
-	}
-	if err := m.fulfillHTTP01(context.Background(), stub, "http://ca/authz/1"); err != nil {
-		t.Fatalf("expected nil for successful challenge, got %v", err)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // acceptChallenge tests
 // ---------------------------------------------------------------------------
-
-func TestAcceptChallenge_HTTP01ChallengeResponseError(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		http01ChallengeResponseFn: func(_ string) (string, error) {
-			return "", errors.New("key-auth-fail")
-		},
-	}
-	authz := &xacme.Authorization{URI: "http://ca/authz/1"}
-	chal := &xacme.Challenge{Type: "http-01", Token: "tok"}
-	err := m.acceptChallenge(context.Background(), stub, authz, chal)
-	if err == nil {
-		t.Fatal("expected error from HTTP01ChallengeResponse failure")
-	}
-}
-
-func TestAcceptChallenge_AcceptError(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		acceptFn: func(_ context.Context, _ *xacme.Challenge) (*xacme.Challenge, error) {
-			return nil, errors.New("accept-fail")
-		},
-	}
-	authz := &xacme.Authorization{URI: "http://ca/authz/1"}
-	chal := &xacme.Challenge{Type: "http-01", Token: "tok"}
-	err := m.acceptChallenge(context.Background(), stub, authz, chal)
-	if err == nil {
-		t.Fatal("expected error from Accept failure")
-	}
-}
-
-func TestAcceptChallenge_WaitAuthorizationError(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		waitAuthorizationFn: func(_ context.Context, _ string) (*xacme.Authorization, error) {
-			return nil, errors.New("wait-auth-fail")
-		},
-	}
-	authz := &xacme.Authorization{URI: "http://ca/authz/1"}
-	chal := &xacme.Challenge{Type: "http-01", Token: "tok"}
-	err := m.acceptChallenge(context.Background(), stub, authz, chal)
-	if err == nil {
-		t.Fatal("expected error from WaitAuthorization failure")
-	}
-}
-
-func TestAcceptChallenge_Success(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{}
-	authz := &xacme.Authorization{URI: "http://ca/authz/1"}
-	chal := &xacme.Challenge{Type: "http-01", Token: "tok"}
-	if err := m.acceptChallenge(context.Background(), stub, authz, chal); err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
-}
 
 // ---------------------------------------------------------------------------
 // obtainCert tests
 // ---------------------------------------------------------------------------
 
-func TestObtainCert_AuthorizeOrderError(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		authorizeOrderFn: func(_ context.Context, _ []xacme.AuthzID, _ ...xacme.OrderOption) (*xacme.Order, error) {
-			return nil, errors.New("authorize-fail")
-		},
-	}
-	cfg := config.ACMEConfig{Domains: []string{"example.com"}}
-	if err := m.obtainCert(context.Background(), stub, cfg); err == nil {
-		t.Fatal("expected error from AuthorizeOrder failure")
-	}
-}
-
-func TestObtainCert_FulfillAllHTTP01Error(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		authorizeOrderFn: func(_ context.Context, _ []xacme.AuthzID, _ ...xacme.OrderOption) (*xacme.Order, error) {
-			// Return an order with an AuthzURL so fulfillAllHTTP01 is exercised.
-			return &xacme.Order{URI: "http://ca/order/1", AuthzURLs: []string{"http://ca/authz/1"}}, nil
-		},
-		getAuthorizationFn: func(_ context.Context, _ string) (*xacme.Authorization, error) {
-			return nil, errors.New("get-auth-fail")
-		},
-	}
-	cfg := config.ACMEConfig{Domains: []string{"example.com"}}
-	if err := m.obtainCert(context.Background(), stub, cfg); err == nil {
-		t.Fatal("expected error from fulfillAllHTTP01 failure")
-	}
-}
-
-func TestObtainCert_WaitOrderError(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		authorizeOrderFn: func(_ context.Context, _ []xacme.AuthzID, _ ...xacme.OrderOption) (*xacme.Order, error) {
-			return &xacme.Order{URI: "http://ca/order/1"}, nil
-		},
-		waitOrderFn: func(_ context.Context, _ string) (*xacme.Order, error) {
-			return nil, errors.New("wait-order-fail")
-		},
-	}
-	cfg := config.ACMEConfig{Domains: []string{"example.com"}}
-	if err := m.obtainCert(context.Background(), stub, cfg); err == nil {
-		t.Fatal("expected error from WaitOrder failure")
-	}
-}
-
-func TestObtainCert_Success(t *testing.T) {
-	domains := []string{"example.com"}
-	m := New()
-	stub := &stubACMEClient{
-		authorizeOrderFn: func(_ context.Context, _ []xacme.AuthzID, _ ...xacme.OrderOption) (*xacme.Order, error) {
-			return &xacme.Order{URI: "http://ca/order/1", FinalizeURL: "http://ca/order/1/finalize"}, nil
-		},
-		waitOrderFn: func(_ context.Context, _ string) (*xacme.Order, error) {
-			return &xacme.Order{FinalizeURL: "http://ca/order/1/finalize"}, nil
-		},
-		createOrderCertFn: stubSignedCert(t),
-	}
-	cfg := config.ACMEConfig{Domains: domains}
-	if err := m.obtainCert(context.Background(), stub, cfg); err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
-	if m.cert.Load() == nil {
-		t.Error("expected cert to be stored after obtainCert success")
-	}
-}
-
 // ---------------------------------------------------------------------------
 // finalizeCert tests
 // ---------------------------------------------------------------------------
-
-func TestFinalizeCert_InjectKeyError(t *testing.T) {
-	m := New()
-	order := &xacme.Order{FinalizeURL: "http://ca/order/1/finalize"}
-	if err := m.finalizeCert(context.Background(), &stubACMEClient{}, order, []string{"example.com"}, "", injectKeyErr); err == nil {
-		t.Fatal("expected error from injected key generation failure")
-	}
-}
-
-func TestFinalizeCert_InjectCSRError(t *testing.T) {
-	m := New()
-	order := &xacme.Order{FinalizeURL: "http://ca/order/1/finalize"}
-	if err := m.finalizeCert(context.Background(), &stubACMEClient{}, order, []string{"example.com"}, "", injectCSRErr); err == nil {
-		t.Fatal("expected error from injected CSR build failure")
-	}
-}
-
-func TestFinalizeCert_CreateOrderCertError(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		createOrderCertFn: func(_ context.Context, _ string, _ []byte, _ bool) ([][]byte, string, error) {
-			return nil, "", errors.New("create-cert-fail")
-		},
-	}
-	order := &xacme.Order{FinalizeURL: "http://ca/order/1/finalize"}
-	if err := m.finalizeCert(context.Background(), stub, order, []string{"example.com"}, "", noInjection); err == nil {
-		t.Fatal("expected error from CreateOrderCert failure")
-	}
-}
-
-func TestFinalizeCert_Success(t *testing.T) {
-	domains := []string{"example.com"}
-	m := New()
-	stub := &stubACMEClient{createOrderCertFn: stubSignedCert(t)}
-	order := &xacme.Order{FinalizeURL: "http://ca/order/1/finalize"}
-	if err := m.finalizeCert(context.Background(), stub, order, domains, "", noInjection); err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
-	if m.cert.Load() == nil {
-		t.Error("expected cert to be stored after finalizeCert success")
-	}
-}
 
 // ---------------------------------------------------------------------------
 // fulfillAllHTTP01 tests
 // ---------------------------------------------------------------------------
 
-func TestFulfillAllHTTP01_FirstURLFails(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{
-		getAuthorizationFn: func(_ context.Context, _ string) (*xacme.Authorization, error) {
-			return nil, errors.New("get-auth-fail")
-		},
-	}
-	err := m.fulfillAllHTTP01(context.Background(), stub, []string{"http://ca/authz/1", "http://ca/authz/2"})
-	if err == nil {
-		t.Fatal("expected error when first URL fails")
-	}
-}
-
-func TestFulfillAllHTTP01_AllSucceed(t *testing.T) {
-	m := New()
-	stub := &stubACMEClient{} // default: GetAuthorization returns StatusValid
-	urls := []string{"http://ca/authz/1", "http://ca/authz/2"}
-	if err := m.fulfillAllHTTP01(context.Background(), stub, urls); err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // runRenewalLoop tests
 // ---------------------------------------------------------------------------
-
-// TestRunRenewalLoop_ContextCancel verifies the loop exits when ctx is done.
-// AuthorizeOrder returns context.Canceled (swallowed), then waitForRenewalWindow
-// sees the done ctx and returns false.
-func TestRunRenewalLoop_ContextCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	m := New()
-	stub := &stubACMEClient{
-		authorizeOrderFn: func(_ context.Context, _ []xacme.AuthzID, _ ...xacme.OrderOption) (*xacme.Order, error) {
-			return nil, context.Canceled
-		},
-	}
-	cfg := config.ACMEConfig{Domains: []string{"example.com"}}
-	if err := m.runRenewalLoop(ctx, stub, cfg); err != nil {
-		t.Fatalf("expected nil from cancelled context, got %v", err)
-	}
-}
-
-// TestRunRenewalLoop_ObtainErrorLogged verifies that a non-context.Canceled
-// error from obtainCert is passed to the logger and the loop still exits
-// cleanly when the context is cancelled.
-func TestRunRenewalLoop_ObtainErrorLogged(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	m := New()
-	var logged string
-	m.SetLogger(func(msg string, _ map[string]any) { logged = msg })
-	stub := &stubACMEClient{
-		authorizeOrderFn: func(_ context.Context, _ []xacme.AuthzID, _ ...xacme.OrderOption) (*xacme.Order, error) {
-			return nil, errors.New("transient-error")
-		},
-	}
-	cfg := config.ACMEConfig{Domains: []string{"example.com"}}
-	if err := m.runRenewalLoop(ctx, stub, cfg); err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
-	if logged != "acme_cert_obtain_failed" {
-		t.Errorf("expected acme_cert_obtain_failed logged, got %q", logged)
-	}
-}

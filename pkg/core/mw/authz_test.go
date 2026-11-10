@@ -415,3 +415,9 @@ func TestAuthzPayload_ClientValuesStayOneElement(t *testing.T) {
 		t.Fatalf("x-hostile = %q, want one element equal to the client value", v)
 	}
 }
+
+func TestAuthzClient_UnixSocketDoesNotFollowRedirects(t *testing.T) {
+	if authzClient(config.ExtAuthzConfig{Endpoint: "unix:///tmp/opa.sock"}).CheckRedirect == nil {
+		t.Fatal("unix-socket authz client follows redirects")
+	}
+}

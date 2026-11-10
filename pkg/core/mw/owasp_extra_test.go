@@ -61,12 +61,3 @@ func TestOWASP_AppliesReadTimeout(t *testing.T) {
 		t.Error("expected request context to carry a deadline when Timeouts.Read > 0")
 	}
 }
-
-// limitedResponseWriter.Unwrap exposes the wrapped writer.
-func TestLimitedResponseWriter_Unwrap(t *testing.T) {
-	rr := httptest.NewRecorder()
-	lw := &limitedResponseWriter{ResponseWriter: rr, remaining: 5}
-	if lw.Unwrap() != rr {
-		t.Error("expected Unwrap to return the wrapped ResponseWriter")
-	}
-}
