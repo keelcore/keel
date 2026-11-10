@@ -42,6 +42,12 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- 13 test helpers move, unchanged, into the file whose tests call them (#40, partial): `writeCachedCert`,
+  `writeRSACachedCert`, `makeTLSCert`, `makeFile`, `makeMgrTLSCert`, `makeECDSACertDER`, `stubACMEClient` (with its
+  methods), `stubSignedCert`, `withStubClient` and `assertOutboundPolicy` into `pkg/core/acme/manager_test.go`, and
+  `oidcHarness.handler` and `oidcHarness.presetDiscovery` into `pkg/core/mw/oidc_test.go`, and `hostile` into
+  `pkg/core/mw/authz_test.go`. The five acme helper files (`cache`, `manager_lifecycle`, `manager_network`,
+  `manager_seams`, `outbound_tls`), `mw/oidc_failure_test.go` and `mw/accesslog_escape_test.go` are gone.
 - 49 unit tests move, unchanged, into the `{foo}_test.go` of the function their name tests (#40, partial), and
   5 `mw` helpers follow their users into a file every user builds with (`auditRequest`, `auditAuthn`,
   `auditTestSecret`, `serveAuthz`, `authzCfg`). 8 more test files named after no source are gone, among them

@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -1662,5 +1663,295 @@ func TestACMEClient_UsesTheOutboundTLSPolicy(t *testing.T) {
 	}
 	if assertOutboundPolicy(t, "custom CA", custom.(*xacme.Client).HTTPClient).RootCAs == nil {
 		t.Fatal("custom CA: RootCAs dropped")
+	}
+}
+
+// writeCachedCert writes a self-signed ECDSA P-256 cert covering domains to
+// dir in the exact PEM format that storeCert produces. Returns dir.
+func writeCachedCert(t *testing.T, dir string, domains []string, notAfter time.Time) {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: domains[0]},
+		DNSNames:     domains,
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certF, err := os.Create(filepath.Join(dir, "cert.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = pem.Encode(certF, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	certF.Close()
+
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyF, err := os.Create(filepath.Join(dir, "cert.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = pem.Encode(keyF, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	keyF.Close()
+}
+
+// writeRSACachedCert writes a self-signed RSA 2048 cert to dir.
+func writeRSACachedCert(t *testing.T, dir string, domains []string) {
+	t.Helper()
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: domains[0]},
+		DNSNames:     domains,
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(90 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certF, err := os.Create(filepath.Join(dir, "cert.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = pem.Encode(certF, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	certF.Close()
+
+	keyDER := x509.MarshalPKCS1PrivateKey(key)
+	keyF, err := os.Create(filepath.Join(dir, "cert.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = pem.Encode(keyF, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: keyDER})
+	keyF.Close()
+}
+
+// makeFile writes content to dir/name and returns the path.
+func makeFile(t *testing.T, dir, name string, content []byte) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// makeMgrTLSCert builds an in-memory *tls.Certificate with an ECDSA P-256 key.
+func makeMgrTLSCert(t *testing.T, domains []string, notAfter time.Time) *tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der := makeECDSACertDER(t, key, domains, notAfter)
+	return &tls.Certificate{Certificate: [][]byte{der}}
+}
+
+type stubACMEClient struct {
+	registerFn                func(context.Context, *xacme.Account, func(string) bool) (*xacme.Account, error)
+	authorizeOrderFn          func(context.Context, []xacme.AuthzID, ...xacme.OrderOption) (*xacme.Order, error)
+	waitOrderFn               func(context.Context, string) (*xacme.Order, error)
+	getAuthorizationFn        func(context.Context, string) (*xacme.Authorization, error)
+	http01ChallengeResponseFn func(string) (string, error)
+	acceptFn                  func(context.Context, *xacme.Challenge) (*xacme.Challenge, error)
+	waitAuthorizationFn       func(context.Context, string) (*xacme.Authorization, error)
+	createOrderCertFn         func(context.Context, string, []byte, bool) ([][]byte, string, error)
+}
+
+func (s *stubACMEClient) Register(ctx context.Context, a *xacme.Account, prompt func(string) bool) (*xacme.Account, error) {
+	if s.registerFn != nil {
+		return s.registerFn(ctx, a, prompt)
+	}
+	return a, nil
+}
+
+func (s *stubACMEClient) AuthorizeOrder(ctx context.Context, id []xacme.AuthzID, opt ...xacme.OrderOption) (*xacme.Order, error) {
+	if s.authorizeOrderFn != nil {
+		return s.authorizeOrderFn(ctx, id, opt...)
+	}
+	return &xacme.Order{}, nil
+}
+
+func (s *stubACMEClient) WaitOrder(ctx context.Context, url string) (*xacme.Order, error) {
+	if s.waitOrderFn != nil {
+		return s.waitOrderFn(ctx, url)
+	}
+	return &xacme.Order{}, nil
+}
+
+func (s *stubACMEClient) GetAuthorization(ctx context.Context, url string) (*xacme.Authorization, error) {
+	if s.getAuthorizationFn != nil {
+		return s.getAuthorizationFn(ctx, url)
+	}
+	return &xacme.Authorization{Status: xacme.StatusValid}, nil
+}
+
+func (s *stubACMEClient) HTTP01ChallengeResponse(token string) (string, error) {
+	if s.http01ChallengeResponseFn != nil {
+		return s.http01ChallengeResponseFn(token)
+	}
+	return "key-auth", nil
+}
+
+func (s *stubACMEClient) Accept(ctx context.Context, chal *xacme.Challenge) (*xacme.Challenge, error) {
+	if s.acceptFn != nil {
+		return s.acceptFn(ctx, chal)
+	}
+	return chal, nil
+}
+
+func (s *stubACMEClient) WaitAuthorization(ctx context.Context, url string) (*xacme.Authorization, error) {
+	if s.waitAuthorizationFn != nil {
+		return s.waitAuthorizationFn(ctx, url)
+	}
+	return &xacme.Authorization{Status: xacme.StatusValid}, nil
+}
+
+func (s *stubACMEClient) CreateOrderCert(ctx context.Context, url string, csr []byte, bundle bool) ([][]byte, string, error) {
+	if s.createOrderCertFn != nil {
+		return s.createOrderCertFn(ctx, url, csr, bundle)
+	}
+	return nil, "", nil
+}
+
+func withStubClient(t *testing.T, stub acmeClient) {
+	t.Helper()
+	orig := buildClient
+	buildClient = func(*Manager, config.ACMEConfig) (acmeClient, error) { return stub, nil }
+	t.Cleanup(func() { buildClient = orig })
+}
+
+func assertOutboundPolicy(t *testing.T, name string, c *http.Client) *tls.Config {
+	t.Helper()
+	tr, ok := c.Transport.(*http.Transport)
+	if !ok || tr.TLSClientConfig == nil || tr.TLSClientConfig.MinVersion != tls.VersionTLS13 {
+		t.Fatalf("%s: transport = %#v, want the outbound TLS policy", name, c.Transport)
+	}
+	return tr.TLSClientConfig
+}
+
+// makeTLSCert builds an in-memory *tls.Certificate covering domains with the
+// given key type ("ecdsa" or "rsa") and notAfter.
+func makeTLSCert(t *testing.T, domains []string, keyType string, notAfter time.Time) *tls.Certificate {
+	t.Helper()
+
+	var (
+		pubKey  interface{}
+		privKey interface{}
+	)
+	switch keyType {
+	case "ecdsa":
+		k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pubKey, privKey = &k.PublicKey, k
+	case "rsa":
+		k, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pubKey, privKey = &k.PublicKey, k
+	default:
+		t.Fatalf("unknown key type %q", keyType)
+	}
+
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: domains[0]},
+		DNSNames:     domains,
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     notAfter,
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pubKey, privKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &tls.Certificate{Certificate: [][]byte{certDER}}
+}
+
+// makeECDSACertDER returns a self-signed DER-encoded certificate.
+func makeECDSACertDER(t *testing.T, key *ecdsa.PrivateKey, domains []string, notAfter time.Time) []byte {
+	t.Helper()
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(42),
+		Subject:      pkix.Name{CommonName: domains[0]},
+		DNSNames:     domains,
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return der
+}
+
+// stubSignedCert returns a CreateOrderCert stub that parses the CSR's public
+// key and issues a CA-signed leaf certificate containing it. This lets
+// tls.X509KeyPair succeed inside storeCert without a real ACME CA.
+func stubSignedCert(t *testing.T) func(context.Context, string, []byte, bool) ([][]byte, string, error) {
+	t.Helper()
+	return func(_ context.Context, _ string, csr []byte, _ bool) ([][]byte, string, error) {
+		csrParsed, err := x509.ParseCertificateRequest(csr)
+		if err != nil {
+			return nil, "", err
+		}
+		caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return nil, "", err
+		}
+		caTmpl := &x509.Certificate{
+			SerialNumber:          big.NewInt(1),
+			Subject:               pkix.Name{CommonName: "stub-ca"},
+			NotBefore:             time.Now().Add(-time.Hour),
+			NotAfter:              time.Now().Add(90 * 24 * time.Hour),
+			IsCA:                  true,
+			BasicConstraintsValid: true,
+		}
+		caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+		if err != nil {
+			return nil, "", err
+		}
+		caCert, err := x509.ParseCertificate(caDER)
+		if err != nil {
+			return nil, "", err
+		}
+		leafTmpl := &x509.Certificate{
+			SerialNumber: big.NewInt(2),
+			Subject:      pkix.Name{CommonName: csrParsed.DNSNames[0]},
+			DNSNames:     csrParsed.DNSNames,
+			NotBefore:    time.Now().Add(-time.Hour),
+			NotAfter:     time.Now().Add(90 * 24 * time.Hour),
+			KeyUsage:     x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		}
+		leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, csrParsed.PublicKey, caKey)
+		if err != nil {
+			return nil, "", err
+		}
+		return [][]byte{leafDER}, "", nil
 	}
 }

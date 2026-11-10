@@ -791,3 +791,11 @@ func TestOIDCClient_CAFile(t *testing.T) {
 		check(t)
 	})
 }
+
+// presetDiscovery skips the discovery request, with disc as what it found.
+func (x *oidcHarness) presetDiscovery(disc oidcDiscovery) {
+	o := x.handler()
+	o.disc, o.discUntil = &disc, time.Now().Add(time.Hour)
+}
+
+func (x *oidcHarness) handler() *oidcHandler { return x.h.(*oidcHandler) }
