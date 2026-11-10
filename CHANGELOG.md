@@ -12,6 +12,12 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Added
 
+- `make lint-test-layout` (`scripts/lint/lint-test-layout.local.sh`), part of `make lint` and the commit hook
+  (`scripts/lint-all.local.sh`), so CI's Lint job runs it: all unit tests for `{foo}.go` are in `{foo}_test.go`
+  (#40). It fails, naming each file, on a test file with no source and a source with no test file; `main.go` and
+  `doc.go` need none, a tag-named test file (`{foo}_{tag}_test.go`, `{foo}_not{tag}_test.go`) with a `//go:build`
+  line pairs with `{foo}.go`, and the integration suites listed in `config/test-layout.local.txt` are not checked.
+  `tests/test-layout.bats` tests it on fixture trees and on this repository.
 - `make lint-helm-schema` and the **Helm Schema** CI job audit the chart against the config schema: each rendered
   `keel.yaml` (sidecar, library, the container fixture, every field) loads in keel, `keel.config` overrides in place,
   and `tests/fixtures/helm/schema-values.yaml` sets every schema field but the secrets. BATS tests show it fails on an

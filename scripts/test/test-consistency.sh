@@ -47,7 +47,7 @@ function ensure_bats() {
 }
 
 function run_suite() {
-  bats tests/consistency.bats tests/release-scripts.bats
+  bats tests/consistency.bats tests/release-scripts.bats tests/test-layout.bats
 }
 
 main "${@:-}"

@@ -95,6 +95,7 @@ publish-release-images: | ensure-container
 .PHONY: build-native-local
 .PHONY: lint-gosec-local
 .PHONY: lint-helm-schema
+.PHONY: lint-test-layout
 .PHONY: test-native-integrity-local
 .PHONY: build-dev-image
 .PHONY: publish-dev-image-local
@@ -332,6 +333,12 @@ test-native-integrity-local:
 lint-gosec-local: | ensure-container
 	@echo "🔍 Running gosec on keel's own code..."
 	bash scripts/dev/run.sh bash scripts/lint/lint-gosec.local.sh
+
+## keel's unit-test layout: tests for {foo}.go in {foo}_test.go (#40); part of lint and the commit hook.
+lint: lint-test-layout
+lint-test-layout: | ensure-container
+	@echo "🔍 Checking the unit-test layout..."
+	bash scripts/dev/run.sh bash scripts/lint/lint-test-layout.local.sh
 
 ## keel's Helm schema audit: the chart's values follow the config schema (#41); its own CI job.
 lint-helm-schema: | ensure-container
