@@ -42,6 +42,10 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- `tests/unit` is the shared library for unit-test helpers that tests in more than one keel package use (#40,
+  partial): standard library only, so any package's tests import it without a cycle. Its first helper,
+  `unit.TLSTestCert` (`tests/unit/tlscert.go`, tested in `tlscert_test.go`), is the former `tlsTestCert`, unchanged
+  but for its exported name; its `tests/unit` callers use the new name.
 - 141 unit tests and 3 helpers move out of the external `tests/unit` package into the `{foo}_test.go` beside the
   source they call (#40, partial). Each drops the qualifier of the package it now lives in (`mw.RequestID` becomes
   `RequestID`), and nothing else in it changes; the 6 that land in the external `acme_test` keep `acme.`. One that

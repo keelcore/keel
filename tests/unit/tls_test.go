@@ -11,7 +11,7 @@ import (
 
 // CertLoader.Get: returns the stored certificate after a successful Reload.
 func TestCertLoader_Get_ReturnsCert(t *testing.T) {
-	certPEM, keyPEM := tlsTestCert(t, time.Now().Add(time.Hour))
+	certPEM, keyPEM := TLSTestCert(t, time.Now().Add(time.Hour))
 	certFile := tlsWriteTemp(t, "cert*.pem", certPEM)
 	keyFile := tlsWriteTemp(t, "key*.pem", keyPEM)
 

@@ -12,7 +12,7 @@ import (
 // writeCertFiles writes PEM cert and key to temp files and returns their paths.
 func writeCertFiles(t *testing.T) (certFile, keyFile string) {
 	t.Helper()
-	certPEM, keyPEM := tlsTestCert(t, time.Now().Add(time.Hour))
+	certPEM, keyPEM := TLSTestCert(t, time.Now().Add(time.Hour))
 	dir := t.TempDir()
 	certFile = filepath.Join(dir, "cert.pem")
 	keyFile = filepath.Join(dir, "key.pem")

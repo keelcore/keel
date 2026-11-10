@@ -1,14 +1,7 @@
 package unit
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
-	"math/big"
 	"net"
 	"os"
 	"testing"
@@ -41,7 +34,7 @@ func TestBuildTLSConfig_NoMaxVersionCeiling(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTLS12ConnectionRejected(t *testing.T) {
-	certPEM, keyPEM := tlsTestCert(t, time.Now().Add(time.Hour))
+	certPEM, keyPEM := TLSTestCert(t, time.Now().Add(time.Hour))
 
 	serverCert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
@@ -88,7 +81,7 @@ func TestTLS12ConnectionRejected(t *testing.T) {
 
 func TestCertExpiry_ReturnsNotAfter(t *testing.T) {
 	notAfter := time.Now().Add(72 * time.Hour).Truncate(time.Second)
-	certPEM, _ := tlsTestCert(t, notAfter)
+	certPEM, _ := TLSTestCert(t, notAfter)
 
 	f, err := os.CreateTemp(t.TempDir(), "keel-cert-*.pem")
 	if err != nil {
@@ -109,7 +102,7 @@ func TestCertExpiry_ReturnsNotAfter(t *testing.T) {
 }
 
 func TestCertExpirySeconds_PositiveForFutureCert(t *testing.T) {
-	certPEM, _ := tlsTestCert(t, time.Now().Add(time.Hour))
+	certPEM, _ := TLSTestCert(t, time.Now().Add(time.Hour))
 
 	f, err := os.CreateTemp(t.TempDir(), "keel-cert-*.pem")
 	if err != nil {
@@ -127,37 +120,4 @@ func TestCertExpirySeconds_PositiveForFutureCert(t *testing.T) {
 	if secs <= 0 {
 		t.Errorf("CertExpirySeconds = %f, want > 0 for a future cert", secs)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Helper: generate a minimal self-signed ECDSA cert.
-// ---------------------------------------------------------------------------
-
-func tlsTestCert(t *testing.T, notAfter time.Time) (certPEM, keyPEM []byte) {
-	t.Helper()
-
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "keel-test"},
-		NotBefore:    time.Now().Add(-time.Minute),
-		NotAfter:     notAfter,
-		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-
-	keyDER, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	return
 }

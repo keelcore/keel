@@ -426,7 +426,7 @@ func TestSidecarProxy_MTLS_WrongCert_Returns502(t *testing.T) {
 	defer s.close()
 
 	// Use a self-signed cert not signed by the server's CA.
-	wrongCertPEM, wrongKeyPEM := tlsTestCert(t, time.Now().Add(time.Hour))
+	wrongCertPEM, wrongKeyPEM := TLSTestCert(t, time.Now().Add(time.Hour))
 	certFile := writeTempFile(t, wrongCertPEM)
 	keyFile := writeTempFile(t, wrongKeyPEM)
 
