@@ -6,13 +6,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/keelcore/keel/pkg/config"
-	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/probes"
 	"github.com/keelcore/keel/pkg/core/sidecar"
 )
@@ -337,60 +335,6 @@ func TestCircuitBreaker_HalfOpenProbe_Fails_ReOpens(t *testing.T) {
 // ---------------------------------------------------------------------------
 // doProbe: log != nil paths (warn on failure and on unhealthy status)
 // ---------------------------------------------------------------------------
-
-func TestHealthProbe_LogsOnFailure(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(200)
-	}))
-	upstream.Close() // immediately down → probe returns err
-
-	sb := &safeBuf{}
-	log := logging.New(logging.Config{Out: sb})
-	readiness := probes.NewReadiness()
-	ctx, cancel := context.WithCancel(context.Background())
-
-	sidecar.StartHealthProbe(ctx, config.SidecarConfig{
-		UpstreamURL:            upstream.URL,
-		UpstreamHealthPath:     "/health",
-		UpstreamHealthInterval: config.DurationOf(5 * time.Millisecond),
-		UpstreamHealthTimeout:  config.DurationOf(20 * time.Millisecond),
-	}, nil, readiness, log)
-
-	time.Sleep(60 * time.Millisecond)
-	cancel()
-	time.Sleep(30 * time.Millisecond) // let goroutine exit before reading buf
-
-	if !strings.Contains(sb.String(), "upstream_health_probe_failed") {
-		t.Errorf("expected upstream_health_probe_failed log, got: %s", sb.String())
-	}
-}
-
-func TestHealthProbe_LogsOnUnhealthyStatus(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable) // 503 → unhealthy
-	}))
-	defer upstream.Close()
-
-	sb := &safeBuf{}
-	log := logging.New(logging.Config{Out: sb})
-	readiness := probes.NewReadiness()
-	ctx, cancel := context.WithCancel(context.Background())
-
-	sidecar.StartHealthProbe(ctx, config.SidecarConfig{
-		UpstreamURL:            upstream.URL,
-		UpstreamHealthPath:     "/health",
-		UpstreamHealthInterval: config.DurationOf(5 * time.Millisecond),
-		UpstreamHealthTimeout:  config.DurationOf(20 * time.Millisecond),
-	}, nil, readiness, log)
-
-	time.Sleep(60 * time.Millisecond)
-	cancel()
-	time.Sleep(30 * time.Millisecond) // let goroutine exit before reading buf
-
-	if !strings.Contains(sb.String(), "upstream_unhealthy") {
-		t.Errorf("expected upstream_unhealthy log, got: %s", sb.String())
-	}
-}
 
 // ---------------------------------------------------------------------------
 // StartHealthProbe: default timeout and interval (zero values → defaults applied)

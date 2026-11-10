@@ -104,3 +104,17 @@ func TestWaitForStop_SignalReceived(t *testing.T) {
 		t.Errorf("expected context.Canceled after signal, got %v", err)
 	}
 }
+
+// WaitForStop returns ctx.Err when the context is cancelled.
+func TestWaitForStop_CtxDone(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	o := NewShutdownOrchestrator(log)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := o.WaitForStop(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}

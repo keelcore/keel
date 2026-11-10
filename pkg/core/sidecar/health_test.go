@@ -17,6 +17,7 @@ import (
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/logging"
 	"github.com/keelcore/keel/pkg/core/probes"
+	"github.com/keelcore/keel/tests/unit"
 )
 
 // With no explicit transport the probe uses the upstream TLS settings; an
@@ -269,4 +270,58 @@ func TestHealthProbe_DefaultTimeouts(t *testing.T) {
 	}, nil, readiness, nil)
 
 	time.Sleep(20 * time.Millisecond) // let goroutine start and see ctx.Done
+}
+
+func TestHealthProbe_LogsOnFailure(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200)
+	}))
+	upstream.Close() // immediately down → probe returns err
+
+	sb := &unit.SafeBuf{}
+	log := logging.New(logging.Config{Out: sb})
+	readiness := probes.NewReadiness()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	StartHealthProbe(ctx, config.SidecarConfig{
+		UpstreamURL:            upstream.URL,
+		UpstreamHealthPath:     "/health",
+		UpstreamHealthInterval: config.DurationOf(5 * time.Millisecond),
+		UpstreamHealthTimeout:  config.DurationOf(20 * time.Millisecond),
+	}, nil, readiness, log)
+
+	time.Sleep(60 * time.Millisecond)
+	cancel()
+	time.Sleep(30 * time.Millisecond) // let goroutine exit before reading buf
+
+	if !strings.Contains(sb.String(), "upstream_health_probe_failed") {
+		t.Errorf("expected upstream_health_probe_failed log, got: %s", sb.String())
+	}
+}
+
+func TestHealthProbe_LogsOnUnhealthyStatus(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable) // 503 → unhealthy
+	}))
+	defer upstream.Close()
+
+	sb := &unit.SafeBuf{}
+	log := logging.New(logging.Config{Out: sb})
+	readiness := probes.NewReadiness()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	StartHealthProbe(ctx, config.SidecarConfig{
+		UpstreamURL:            upstream.URL,
+		UpstreamHealthPath:     "/health",
+		UpstreamHealthInterval: config.DurationOf(5 * time.Millisecond),
+		UpstreamHealthTimeout:  config.DurationOf(20 * time.Millisecond),
+	}, nil, readiness, log)
+
+	time.Sleep(60 * time.Millisecond)
+	cancel()
+	time.Sleep(30 * time.Millisecond) // let goroutine exit before reading buf
+
+	if !strings.Contains(sb.String(), "upstream_unhealthy") {
+		t.Errorf("expected upstream_unhealthy log, got: %s", sb.String())
+	}
 }

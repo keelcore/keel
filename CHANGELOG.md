@@ -42,6 +42,17 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- A test that needs a build tag its target does not have lives in `{foo}_not_{tag}_test.go` (for `!tag`) or
+  `{foo}_{tag}_test.go` (for `tag`), built under that tag (#40, partial): `log_file_notwindows_test.go`,
+  `lifecycle/shutdown_notwindows_test.go`, `server_listeners_not_no_h3_test.go` and
+  `server_apply_not_no_remotelog_notwindows_test.go` take the tag-bound tests (an OS or architecture tag joins as
+  `not{tag}`: Go reads a file ending `_windows_test.go` as Windows-only). `TestReload_AuditFailureWarns`,
+  `TestWrapMain_AuthnEnabled`, `TestBuildTLSConfig_FIPSCurves` and `TestWaitForStop_CtxDone` move to their
+  target's untagged test file. 8 more test files named after no source are gone.
+- `unit.SafeBuf` joins the shared test-helper library (`tests/unit/safebuf.go`, tested in `safebuf_test.go`): the
+  former `safeBuf` from `tests/unit/testhelpers_test.go`, now gone. Its users move beside the source they test
+  (#40, partial): `TestHealthProbe_LogsOnFailure` and `TestHealthProbe_LogsOnUnhealthyStatus` into
+  `sidecar/health_test.go`, and `TestPressureLoop_HighWatermarkTrigger` into `mw/pressure_test.go`.
 - 26 more unit tests and their helpers move into the `{foo}_test.go` of the function their name tests (#40,
   partial): the 10 `TestExtAuthz_*` from `tests/unit` into `mw/authz_test.go` (their helper `authzCfg`, which takes
   a `failOpen` the `mw` one does not, is now `authzCfgFailOpen`); the 9 `TestOWASP_*` into `mw/owasp_test.go`

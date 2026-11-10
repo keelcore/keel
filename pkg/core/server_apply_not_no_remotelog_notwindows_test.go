@@ -1,7 +1,5 @@
 //go:build !no_remotelog && !windows
 
-// server_dispatch_syslog_test.go — white-box test for buildRemoteSink syslog
-// success path. Requires the real syslog implementation (not the stub).
 package core
 
 import (
