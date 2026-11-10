@@ -42,6 +42,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- The three `TestApplyTLSCertSource_*` tests and `writeTempCertKeyPair` move into `server_listeners_test.go`
+  (#40, partial), taking its `cryptotls`/`cryptorand` import names; nothing else in them changes.
+  `server_helpers_test.go`, named after no source, is gone.
 - 46 more unit tests and 7 of their helpers move, unchanged, into the `{foo}_test.go` of the source the type
   checker confirms they call (#40, partial), freed by the matching build constraints; 6 more test files named after
   no source are gone.
