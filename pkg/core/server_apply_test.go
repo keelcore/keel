@@ -3,22 +3,28 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/logging"
-	"github.com/keelcore/keel/pkg/core/router"
+	"github.com/keelcore/keel/pkg/core/tracing"
 )
 
 // writeTestECKey writes an EC P-256 PKCS8 private key to a temp file and returns the path.
@@ -209,177 +215,9 @@ func TestApplyTracing_EmptyEndpoint(t *testing.T) {
 // wrapMain
 // ---------------------------------------------------------------------------
 
-// wrapMain with all middleware disabled must return a handler that passes
-// through to the inner handler.
-func TestWrapMain_NoMiddleware(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{
-		Security: config.SecurityConfig{OWASPHeaders: false},
-		Backpressure: config.BackpressureConfig{
-			SheddingEnabled: false,
-		},
-		Authn:    config.AuthnConfig{Enabled: false},
-		ExtAuthz: config.ExtAuthzConfig{Enabled: false},
-		Logging:  config.LoggingConfig{AccessLog: false},
-		Limits:   config.LimitsConfig{MaxConcurrent: 0},
-	}
-	s := NewServer(log, cfg)
-
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusTeapot)
-	})
-	h := s.wrapMain(inner)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	h.ServeHTTP(rr, req)
-	// TraceContext and RequestID are always applied; inner handler still runs.
-	if rr.Code != http.StatusTeapot {
-		t.Errorf("expected 418 from inner handler, got %d", rr.Code)
-	}
-}
-
-// wrapMain with OWASP headers enabled must wrap the handler.
-func TestWrapMain_OWASPEnabled(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{
-		Security: config.SecurityConfig{
-			OWASPHeaders: true,
-			HSTSMaxAge:   31536000,
-		},
-		Backpressure: config.BackpressureConfig{SheddingEnabled: false},
-		Authn:        config.AuthnConfig{Enabled: false},
-		ExtAuthz:     config.ExtAuthzConfig{Enabled: false},
-		Logging:      config.LoggingConfig{AccessLog: false},
-		Limits:       config.LimitsConfig{MaxConcurrent: 0},
-	}
-	s := NewServer(log, cfg)
-
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	h := s.wrapMain(inner)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
-	}
-}
-
-// wrapMain with access log enabled must wrap the handler.
-func TestWrapMain_AccessLogEnabled(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{
-		Security:     config.SecurityConfig{OWASPHeaders: false},
-		Backpressure: config.BackpressureConfig{SheddingEnabled: false},
-		Authn:        config.AuthnConfig{Enabled: false},
-		ExtAuthz:     config.ExtAuthzConfig{Enabled: false},
-		Logging:      config.LoggingConfig{AccessLog: true},
-		Limits:       config.LimitsConfig{MaxConcurrent: 0},
-	}
-	s := NewServer(log, cfg)
-
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	h := s.wrapMain(inner)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
-	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
-	}
-}
-
-// wrapMain with concurrency limit enabled must wrap the handler.
-func TestWrapMain_ConcurrencyLimitEnabled(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{
-		Security:     config.SecurityConfig{OWASPHeaders: false},
-		Backpressure: config.BackpressureConfig{SheddingEnabled: false},
-		Authn:        config.AuthnConfig{Enabled: false},
-		ExtAuthz:     config.ExtAuthzConfig{Enabled: false},
-		Logging:      config.LoggingConfig{AccessLog: false},
-		Limits:       config.LimitsConfig{MaxConcurrent: 10, QueueDepth: 5},
-	}
-	s := NewServer(log, cfg)
-
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	h := s.wrapMain(inner)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	h.ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
-	}
-}
-
-// wrapMain with shedding enabled wraps the handler.
-func TestWrapMain_SheddingEnabled(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{
-		Security: config.SecurityConfig{OWASPHeaders: false},
-		Backpressure: config.BackpressureConfig{
-			SheddingEnabled: true,
-			HighWatermark:   0.90,
-			LowWatermark:    0.70,
-		},
-		Authn:    config.AuthnConfig{Enabled: false},
-		ExtAuthz: config.ExtAuthzConfig{Enabled: false},
-		Logging:  config.LoggingConfig{AccessLog: false},
-		Limits:   config.LimitsConfig{MaxConcurrent: 0},
-	}
-	s := NewServer(log, cfg)
-
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	h := s.wrapMain(inner)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	h.ServeHTTP(rr, req)
-	// Readiness is not degraded so the request passes through.
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // wrapMain — AuthnJWT signers closure body (nil snapshot path)
 // ---------------------------------------------------------------------------
-
-// wrapMain with Authn.Enabled and no stored snapshot covers the return-nil
-// branch of the signers closure. A Bearer token is required for AuthnJWT to
-// call the closure at all; the token can be invalid.
-func TestWrapMain_AuthnEnabled_NilSnapshot_ClosureReturnsNil(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{
-		Authn: config.AuthnConfig{Enabled: true},
-	}
-	s := NewServer(log, cfg)
-	// Do NOT call applyAuthnState so s.authn.Load() returns nil → closure returns nil.
-
-	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	h := s.wrapMain(inner)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api", nil)
-	req.Header.Set("Authorization", "Bearer invalid.token.here")
-	h.ServeHTTP(rr, req)
-	// AuthnJWT with no signers should reject the request — closure was invoked.
-	if rr.Code == 0 {
-		t.Error("expected a response code")
-	}
-}
 
 // wrapMain with Authn.Enabled and a stored snapshot covers the return-signers
 // branch of the signers closure.
@@ -439,36 +277,294 @@ func TestApplyTracing_Enabled_StoresExporter(t *testing.T) {
 // registerDefaultRoutes
 // ---------------------------------------------------------------------------
 
-// registerDefaultRoutes with HTTPS enabled registers the default handler on
-// the HTTPS port, covering server.go:259-260.
-func TestRegisterDefaultRoutes_HTTPSEnabled(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{}
-	cfg.Listeners.HTTPS.Enabled = true
-	cfg.Listeners.HTTPS.Port = 8443
-	s := NewServer(log, cfg)
-	s.useDefaultRegistrar = true
-
-	r := router.New()
-	s.registerDefaultRoutes(r) // must not panic
-}
-
 // ---------------------------------------------------------------------------
 // startSidecar
 // ---------------------------------------------------------------------------
 
-// startSidecar with an invalid UpstreamURL triggers the warn path,
-// covering server.go:411-417.
-func TestStartSidecar_InvalidURL(t *testing.T) {
-	log := logging.New(logging.Config{Out: io.Discard})
-	cfg := config.Config{}
-	cfg.Sidecar.Enabled = true
-	cfg.Sidecar.UpstreamURL = "\x00bad" // null byte → url.Parse error
-	s := NewServer(log, cfg)
+// logging.file: every entry reaches the file (and stdout, untouched here).
+func TestFileSink_ReceivesLogLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keel.log")
+	s, _ := fileSinkServer(t, path)
+	s.applyRemoteSink(s.cfg)
+	s.logger.Info("to_the_file", nil)
+	if !logged(t, path, "to_the_file") {
+		t.Fatal("line not in the file sink")
+	}
+}
 
+// A path that cannot open: warned, and logging continues on stdout.
+func TestFileSink_OpenFailureWarns(t *testing.T) {
+	s, _ := fileSinkServer(t, filepath.Join(t.TempDir(), "missing", "keel.log"))
+	var out bytes.Buffer
+	s.logger = logging.New(logging.Config{JSON: true, Out: &out})
+	s.applyRemoteSink(s.cfg)
+	if !strings.Contains(out.String(), "log_file_open_failed") {
+		t.Fatalf("log = %q", out.String())
+	}
+}
+
+// SIGHUP: the same path keeps its file with the new policy; a new path switches; empty detaches.
+func TestFileSink_Reload(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a.log"), filepath.Join(dir, "b.log")
+	s, _ := fileSinkServer(t, a)
+	s.applyRemoteSink(s.cfg)
+	first := s.fileSink
+	cfg := s.cfg
+	cfg.Logging.Rotation.MaxBackups = 1
+	s.applyRemoteSink(cfg)
+	if s.fileSink != first {
+		t.Fatal("the same path must keep the open file")
+	}
+	cfg.Logging.File = b
+	s.applyRemoteSink(cfg)
+	s.logger.Info("in_b", nil)
+	if !logged(t, b, "in_b") {
+		t.Fatal("new path not used")
+	}
+	cfg.Logging.File = ""
+	s.applyRemoteSink(cfg)
+	if s.fileSink != nil {
+		t.Fatal("empty path must detach the file sink")
+	}
+}
+
+// backpressure.* is reloadable: a second applyBackpressure stops the running
+// loops (no two loops write the same flag), resets the backpressure flag, and
+// starts loops with the new values.
+func TestApplyBackpressure_RestartsLoopsOnReload(t *testing.T) {
+	s := NewServer(logging.New(logging.Config{Out: io.Discard}), config.Config{})
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // already cancelled so no health probe goroutine lingers
+	t.Cleanup(cancel)
+	s.runCtx = ctx
 
-	r := router.New()
-	s.startSidecar(ctx, r) // must not panic; logs warn and returns
+	var cfg config.Config
+	cfg.Backpressure.SheddingEnabled = true
+	cfg.Backpressure.HeapMaxBytes = 1 << 40
+	cfg.Backpressure.MinHeadroomBytes = 10 << 20
+	s.applyBackpressure(cfg)
+	first := s.bpCancel
+
+	s.readiness.Set(false) // as if the old pressure loop had latched
+	cfg.Backpressure.SheddingEnabled = false
+	s.applyBackpressure(cfg)
+	if s.bpCancel == nil || &first == &s.bpCancel {
+		t.Fatal("loops were not restarted")
+	}
+	if !s.readiness.Get() {
+		t.Fatal("backpressure flag left latched across reload")
+	}
+	cancel()
+	done := make(chan struct{})
+	go func() { s.bpWg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("backpressure loops did not stop")
+	}
+}
+
+func TestAuthnSnapshot_TrustedIDSetNilSafe(t *testing.T) {
+	var sn *authnSnapshot
+	if sn.trustedIDSet() != nil {
+		t.Fatal("nil snapshot returned a non-nil set")
+	}
+	set := map[string]struct{}{"alice": {}}
+	if got := (&authnSnapshot{trustedIDs: set}).trustedIDSet(); len(got) != 1 {
+		t.Fatalf("got %v", got)
+	}
+}
+
+// Reload before Run with a remote sink configured must not panic on the nil
+// run context; the sink is attached when Run applies the config.
+func TestApplyRemoteSink_BeforeRunDoesNotPanic(t *testing.T) {
+	s := NewServer(logging.New(logging.Config{Out: io.Discard}), config.Config{})
+	var cfg config.Config
+	cfg.Logging.RemoteSink.Enabled = true
+	cfg.Logging.RemoteSink.Protocol = "http"
+	cfg.Logging.RemoteSink.Endpoint = "http://127.0.0.1:1/logs"
+	s.applyRemoteSink(cfg)
+	if s.sinkOut != nil || s.sinkCancel != nil {
+		t.Fatal("sink attached before Run")
+	}
+}
+
+func TestApplyRemoteSink_BuildError(t *testing.T) {
+	orig := buildRemoteSinkFn
+	buildRemoteSinkFn = func(config.RemoteSinkConfig) (io.Writer, *logging.HTTPSink, error) {
+		return nil, nil, errors.New("build boom")
+	}
+	t.Cleanup(func() { buildRemoteSinkFn = orig })
+
+	s := NewServer(logging.New(logging.Config{Out: io.Discard}), config.Config{})
+	s.runCtx = context.Background()
+	cfg := config.Config{}
+	cfg.Logging.RemoteSink.Enabled = true
+	cfg.Logging.RemoteSink.Endpoint = "http://sink.invalid"
+	s.applyRemoteSink(cfg) // must hit the Warn + Reconfigure error path
+}
+
+func TestApplyTracing_SetupError(t *testing.T) {
+	orig := tracingSetupFn
+	tracingSetupFn = func(config.OTLPConfig) (*tracing.Exporter, error) {
+		return nil, errors.New("setup boom")
+	}
+	t.Cleanup(func() { tracingSetupFn = orig })
+
+	s := NewServer(logging.New(logging.Config{Out: io.Discard}), config.Config{})
+	cfg := config.Config{}
+	cfg.Tracing.OTLP.Enabled = true
+	cfg.Tracing.OTLP.Endpoint = "collector.invalid:4318"
+	s.applyTracing(cfg) // must hit the Warn error path
+}
+
+func TestBuildRemoteSink_HTTP_ReturnsHTTPSink(t *testing.T) {
+	cfg := config.RemoteSinkConfig{Protocol: "http", Endpoint: "http://127.0.0.1:1/ingest"}
+	w, sink, err := buildRemoteSink(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error for http protocol: %v", err)
+	}
+	if w == nil {
+		t.Error("expected non-nil writer for http protocol")
+	}
+	if sink == nil {
+		t.Error("expected non-nil HTTPSink for http protocol")
+	}
+}
+
+func TestBuildRemoteSink_EmptyProtocol_DefaultsToHTTP(t *testing.T) {
+	cfg := config.RemoteSinkConfig{Protocol: "", Endpoint: "http://127.0.0.1:1/ingest"}
+	w, sink, err := buildRemoteSink(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error for empty protocol: %v", err)
+	}
+	if w == nil {
+		t.Error("expected non-nil writer for empty (default) protocol")
+	}
+	if sink == nil {
+		t.Error("expected HTTPSink for empty (default) protocol")
+	}
+}
+
+func TestBuildRemoteSink_Syslog_ClosedPort_ReturnsError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+
+	cfg := config.RemoteSinkConfig{Protocol: "syslog", Endpoint: addr}
+	_, _, err = buildRemoteSink(cfg)
+	if err == nil {
+		t.Error("expected error when syslog endpoint is unreachable")
+	}
+}
+
+// closableSink records writes and Close, standing in for the syslog writer.
+type closableSink struct {
+	mu     sync.Mutex
+	buf    bytes.Buffer
+	closed bool
+}
+
+func (c *closableSink) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Write(p)
+}
+
+func (c *closableSink) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+	return nil
+}
+
+func (c *closableSink) state() (int, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.buf.Len(), c.closed
+}
+
+// newSinkServer returns a server whose buildRemoteSinkFn hands out sinks in order
+// (nil entry = init error).
+func newSinkServer(t *testing.T, sinks ...*closableSink) *Server {
+	t.Helper()
+	orig := buildRemoteSinkFn
+	t.Cleanup(func() { buildRemoteSinkFn = orig })
+	i := 0
+	buildRemoteSinkFn = func(config.RemoteSinkConfig) (io.Writer, *logging.HTTPSink, error) {
+		s := sinks[i]
+		i++
+		if s == nil {
+			return nil, nil, errors.New("sink init boom")
+		}
+		return s, nil, nil
+	}
+	s := NewServer(logging.New(logging.Config{Out: io.Discard}), config.Config{})
+	s.runCtx = context.Background()
+	return s
+}
+
+func sinkCfg(enabled bool) config.Config {
+	var cfg config.Config
+	cfg.Logging.Level = "info"
+	cfg.Logging.RemoteSink.Enabled = enabled
+	cfg.Logging.RemoteSink.Endpoint = "syslog.example:514"
+	cfg.Logging.RemoteSink.Protocol = "syslog"
+	return cfg
+}
+
+// Disabling the remote sink on reload detaches it from the logger (logs stop
+// reaching it) and closes it (no leaked connection).
+func TestApplyRemoteSink_DisableDetachesAndCloses(t *testing.T) {
+	sink := &closableSink{}
+	s := newSinkServer(t, sink)
+	s.applyRemoteSink(sinkCfg(true))
+	s.logger.Info("while_attached", nil)
+	before, _ := sink.state()
+	if before == 0 {
+		t.Fatal("sink received nothing while attached")
+	}
+
+	s.applyRemoteSink(sinkCfg(false))
+	s.logger.Info("after_disable", nil)
+	after, closed := sink.state()
+	if after != before {
+		t.Errorf("sink still receives logs after being disabled (%d → %d bytes)", before, after)
+	}
+	if !closed {
+		t.Error("disabled sink was not closed")
+	}
+}
+
+// Replacing the sink (SIGHUP with a new endpoint) closes the old one.
+func TestApplyRemoteSink_ReplaceClosesOld(t *testing.T) {
+	oldSink, newSink := &closableSink{}, &closableSink{}
+	s := newSinkServer(t, oldSink, newSink)
+	s.applyRemoteSink(sinkCfg(true))
+	s.applyRemoteSink(sinkCfg(true))
+	if _, closed := oldSink.state(); !closed {
+		t.Error("replaced sink was not closed")
+	}
+	if _, closed := newSink.state(); closed {
+		t.Error("active sink was closed")
+	}
+}
+
+// If the new sink fails to initialise, the old one is still detached and closed.
+func TestApplyRemoteSink_InitFailureDetachesOld(t *testing.T) {
+	sink := &closableSink{}
+	s := newSinkServer(t, sink, nil)
+	s.applyRemoteSink(sinkCfg(true))
+	s.applyRemoteSink(sinkCfg(true))
+	n, closed := sink.state()
+	s.logger.Info("after_failed_reload", nil)
+	if after, _ := sink.state(); after != n {
+		t.Error("old sink still receives logs after a failed reload")
+	}
+	if !closed {
+		t.Error("old sink was not closed after a failed reload")
+	}
 }

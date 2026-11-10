@@ -58,3 +58,11 @@ func TestRedactedConfig_AdminTokens(t *testing.T) {
 		t.Error("unset secret should stay empty")
 	}
 }
+
+func TestRedactedConfig_HidesTheOIDCClientSecret(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Authn.OIDC.ClientSecret = "topsecret"
+	if redactedConfig(cfg).Authn.OIDC.ClientSecret == "topsecret" {
+		t.Fatal("client secret not redacted")
+	}
+}

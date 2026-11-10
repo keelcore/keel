@@ -109,3 +109,13 @@ func TestRun_ServerStartup(t *testing.T) {
 		t.Errorf("expected return code 0, got %d", got)
 	}
 }
+
+// `keel audit ...` runs the subcommand instead of the server.
+func TestRun_AuditSubcommand(t *testing.T) {
+	orig := os.Args
+	t.Cleanup(func() { os.Args = orig })
+	os.Args = []string{"keel", "audit"}
+	if code := Run(nil); code == 0 {
+		t.Fatal("want a usage failure, not a server start")
+	}
+}

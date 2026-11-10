@@ -42,6 +42,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- 46 more unit tests and 7 of their helpers move, unchanged, into the `{foo}_test.go` of the source the type
+  checker confirms they call (#40, partial), freed by the matching build constraints; 6 more test files named after
+  no source are gone.
 - Each `{foo}_test.go` builds under the same constraint as its `{foo}.go` (#40): `pkg/apps/keel/audit_test.go`,
   `pkg/core/audit_wiring_test.go`, `server_apply_test.go` and `server_loops_test.go` drop the `!no_*` line their
   sources do not have. `audit_wiring_test.go` no longer calls `audit.VerifyFiles` or `audit.VerifyReader`, which

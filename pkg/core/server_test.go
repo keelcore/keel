@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -947,4 +948,250 @@ func TestRun_StartupListener(t *testing.T) {
 	ctx, cancel := cancelAfter(50 * time.Millisecond)
 	defer cancel()
 	s.Run(ctx)
+}
+
+// A 403 from the application is audited through the main chain.
+func TestWrapMain_AuditsForbidden(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	s := auditServer(t, path, func(c *config.Config) { c.Authn.Enabled = false })
+	forbid := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) })
+	s.wrapMain(forbid).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil))
+	if !strings.Contains(auditText(t, path), `"event":"forbidden"`) {
+		t.Fatalf("audit %q", auditText(t, path))
+	}
+}
+
+// wrapMain with all middleware disabled must return a handler that passes
+// through to the inner handler.
+func TestWrapMain_NoMiddleware(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{
+		Security: config.SecurityConfig{OWASPHeaders: false},
+		Backpressure: config.BackpressureConfig{
+			SheddingEnabled: false,
+		},
+		Authn:    config.AuthnConfig{Enabled: false},
+		ExtAuthz: config.ExtAuthzConfig{Enabled: false},
+		Logging:  config.LoggingConfig{AccessLog: false},
+		Limits:   config.LimitsConfig{MaxConcurrent: 0},
+	}
+	s := NewServer(log, cfg)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})
+	h := s.wrapMain(inner)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	h.ServeHTTP(rr, req)
+	// TraceContext and RequestID are always applied; inner handler still runs.
+	if rr.Code != http.StatusTeapot {
+		t.Errorf("expected 418 from inner handler, got %d", rr.Code)
+	}
+}
+
+// wrapMain with OWASP headers enabled must wrap the handler.
+func TestWrapMain_OWASPEnabled(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{
+		Security: config.SecurityConfig{
+			OWASPHeaders: true,
+			HSTSMaxAge:   31536000,
+		},
+		Backpressure: config.BackpressureConfig{SheddingEnabled: false},
+		Authn:        config.AuthnConfig{Enabled: false},
+		ExtAuthz:     config.ExtAuthzConfig{Enabled: false},
+		Logging:      config.LoggingConfig{AccessLog: false},
+		Limits:       config.LimitsConfig{MaxConcurrent: 0},
+	}
+	s := NewServer(log, cfg)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := s.wrapMain(inner)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+// wrapMain with access log enabled must wrap the handler.
+func TestWrapMain_AccessLogEnabled(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{
+		Security:     config.SecurityConfig{OWASPHeaders: false},
+		Backpressure: config.BackpressureConfig{SheddingEnabled: false},
+		Authn:        config.AuthnConfig{Enabled: false},
+		ExtAuthz:     config.ExtAuthzConfig{Enabled: false},
+		Logging:      config.LoggingConfig{AccessLog: true},
+		Limits:       config.LimitsConfig{MaxConcurrent: 0},
+	}
+	s := NewServer(log, cfg)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := s.wrapMain(inner)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+// wrapMain with concurrency limit enabled must wrap the handler.
+func TestWrapMain_ConcurrencyLimitEnabled(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{
+		Security:     config.SecurityConfig{OWASPHeaders: false},
+		Backpressure: config.BackpressureConfig{SheddingEnabled: false},
+		Authn:        config.AuthnConfig{Enabled: false},
+		ExtAuthz:     config.ExtAuthzConfig{Enabled: false},
+		Logging:      config.LoggingConfig{AccessLog: false},
+		Limits:       config.LimitsConfig{MaxConcurrent: 10, QueueDepth: 5},
+	}
+	s := NewServer(log, cfg)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := s.wrapMain(inner)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+// wrapMain with shedding enabled wraps the handler.
+func TestWrapMain_SheddingEnabled(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{
+		Security: config.SecurityConfig{OWASPHeaders: false},
+		Backpressure: config.BackpressureConfig{
+			SheddingEnabled: true,
+			HighWatermark:   0.90,
+			LowWatermark:    0.70,
+		},
+		Authn:    config.AuthnConfig{Enabled: false},
+		ExtAuthz: config.ExtAuthzConfig{Enabled: false},
+		Logging:  config.LoggingConfig{AccessLog: false},
+		Limits:   config.LimitsConfig{MaxConcurrent: 0},
+	}
+	s := NewServer(log, cfg)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := s.wrapMain(inner)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	h.ServeHTTP(rr, req)
+	// Readiness is not degraded so the request passes through.
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+// wrapMain with Authn.Enabled and no stored snapshot covers the return-nil
+// branch of the signers closure. A Bearer token is required for AuthnJWT to
+// call the closure at all; the token can be invalid.
+func TestWrapMain_AuthnEnabled_NilSnapshot_ClosureReturnsNil(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{
+		Authn: config.AuthnConfig{Enabled: true},
+	}
+	s := NewServer(log, cfg)
+	// Do NOT call applyAuthnState so s.authn.Load() returns nil → closure returns nil.
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := s.wrapMain(inner)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api", nil)
+	req.Header.Set("Authorization", "Bearer invalid.token.here")
+	h.ServeHTTP(rr, req)
+	// AuthnJWT with no signers should reject the request — closure was invoked.
+	if rr.Code == 0 {
+		t.Error("expected a response code")
+	}
+}
+
+// registerDefaultRoutes with HTTPS enabled registers the default handler on
+// the HTTPS port, covering server.go:259-260.
+func TestRegisterDefaultRoutes_HTTPSEnabled(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{}
+	cfg.Listeners.HTTPS.Enabled = true
+	cfg.Listeners.HTTPS.Port = 8443
+	s := NewServer(log, cfg)
+	s.useDefaultRegistrar = true
+
+	r := router.New()
+	s.registerDefaultRoutes(r) // must not panic
+}
+
+// startSidecar with an invalid UpstreamURL triggers the warn path,
+// covering server.go:411-417.
+func TestStartSidecar_InvalidURL(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{}
+	cfg.Sidecar.Enabled = true
+	cfg.Sidecar.UpstreamURL = "\x00bad" // null byte → url.Parse error
+	s := NewServer(log, cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled so no health probe goroutine lingers
+
+	r := router.New()
+	s.startSidecar(ctx, r) // must not panic; logs warn and returns
+}
+
+// metricsHandler with prometheus=true returns the real Prometheus handler (200, text/plain).
+func TestMetricsHandler_Enabled_Returns200(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	s := NewServer(log, config.Config{
+		Metrics: config.MetricsConfig{Prometheus: true},
+	})
+
+	rr := httptest.NewRecorder()
+	s.metricsHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rr.Code != http.StatusOK {
+		t.Errorf("prometheus=true: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// AddRoute: appends a registrar and the closure body registers the handler on the router.
+func TestServer_AddRoute(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	s := NewServer(log, config.Config{})
+
+	before := len(s.registrars)
+	s.AddRoute(8080, "/probe", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	if len(s.registrars) != before+1 {
+		t.Errorf("expected registrars len %d after AddRoute, got %d", before+1, len(s.registrars))
+	}
+
+	// Exercise the registrar closure body: call Register on a real router and verify the route exists.
+	rt := router.New()
+	for _, reg := range s.registrars[before:] {
+		reg.Register(rt)
+	}
+	if !rt.Has(8080, "/probe") {
+		t.Errorf("expected route /probe on port 8080 after Register, not found")
+	}
 }

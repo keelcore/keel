@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/keelcore/keel/pkg/config"
@@ -184,5 +185,23 @@ func TestReloadHandler_Post_FailureBodyIsGeneric(t *testing.T) {
 	}
 	if body := rr.Body.String(); body != "reload failed\n" {
 		t.Errorf("body = %q, want generic %q", body, "reload failed\n")
+	}
+}
+
+func TestAudit_ConfigReloadAndAdmin(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	s := auditServer(t, path, nil)
+	s.cfgPaths = [2]string{filepath.Join(t.TempDir(), "missing.yaml"), ""}
+	if err := s.Reload(); err == nil {
+		t.Fatal("want a reload error")
+	}
+	text := auditText(t, path)
+	if !strings.Contains(text, `"event":"config_reload"`) || !strings.Contains(text, `"outcome":"fail"`) {
+		t.Fatalf("audit %q", text)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/admin/reload", nil)
+	s.ReloadHandler().ServeHTTP(httptest.NewRecorder(), r)
+	if !strings.Contains(auditText(t, path), `"event":"admin_reload"`) {
+		t.Fatalf("audit %q", auditText(t, path))
 	}
 }

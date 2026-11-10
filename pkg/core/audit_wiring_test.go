@@ -117,35 +117,6 @@ func TestWrapMain_AuditsAuthn(t *testing.T) {
 	}
 }
 
-// A 403 from the application is audited through the main chain.
-func TestWrapMain_AuditsForbidden(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "audit.log")
-	s := auditServer(t, path, func(c *config.Config) { c.Authn.Enabled = false })
-	forbid := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) })
-	s.wrapMain(forbid).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil))
-	if !strings.Contains(auditText(t, path), `"event":"forbidden"`) {
-		t.Fatalf("audit %q", auditText(t, path))
-	}
-}
-
-func TestAudit_ConfigReloadAndAdmin(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "audit.log")
-	s := auditServer(t, path, nil)
-	s.cfgPaths = [2]string{filepath.Join(t.TempDir(), "missing.yaml"), ""}
-	if err := s.Reload(); err == nil {
-		t.Fatal("want a reload error")
-	}
-	text := auditText(t, path)
-	if !strings.Contains(text, `"event":"config_reload"`) || !strings.Contains(text, `"outcome":"fail"`) {
-		t.Fatalf("audit %q", text)
-	}
-	r := httptest.NewRequest(http.MethodPost, "/admin/reload", nil)
-	s.ReloadHandler().ServeHTTP(httptest.NewRecorder(), r)
-	if !strings.Contains(auditText(t, path), `"event":"admin_reload"`) {
-		t.Fatalf("audit %q", auditText(t, path))
-	}
-}
-
 func TestAudit_HandshakeRejection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 	s := auditServer(t, path, nil)
@@ -187,14 +158,6 @@ func TestWrapMain_OIDC(t *testing.T) {
 	bad.wrapMain(reached).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api", nil))
 	if !exited || rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("exited %v, status %d", exited, rec.Code)
-	}
-}
-
-func TestRedactedConfig_HidesTheOIDCClientSecret(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.Authn.OIDC.ClientSecret = "topsecret"
-	if redactedConfig(cfg).Authn.OIDC.ClientSecret == "topsecret" {
-		t.Fatal("client secret not redacted")
 	}
 }
 
