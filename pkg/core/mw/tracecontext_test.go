@@ -3,6 +3,7 @@ package mw
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/keelcore/keel/pkg/core/ctxkeys"
@@ -112,5 +113,51 @@ func TestTraceContext_RejectsNonHexIDs(t *testing.T) {
 	traceID, _ := traceExtractOrGenerate(r)
 	if traceID == "4bf92f3577b34da6a3ce929d0e0e47;x" || !traceHex(traceID, 32) {
 		t.Fatalf("trace id %q, want a newly generated one", traceID)
+	}
+}
+
+func TestTraceContext_GeneratesTraceparent(t *testing.T) {
+	h := TraceContext(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/", nil))
+	tp := rr.Header().Get("traceparent")
+	parts := strings.Split(tp, "-")
+	if len(parts) != 4 {
+		t.Fatalf("expected 4-part traceparent, got %q", tp)
+	}
+	if parts[0] != "00" {
+		t.Errorf("expected version 00, got %q", parts[0])
+	}
+	if len(parts[1]) != 32 {
+		t.Errorf("expected 32-char trace-id, got %q (len=%d)", parts[1], len(parts[1]))
+	}
+	if len(parts[2]) != 16 {
+		t.Errorf("expected 16-char span-id, got %q (len=%d)", parts[2], len(parts[2]))
+	}
+}
+
+// Per docs/observability.md §2.2: Keel generates a fresh span_id for this hop.
+// The response traceparent must carry a different span_id than the inbound one.
+func TestTraceContext_FreshSpanIDPerHop(t *testing.T) {
+	const incomingSpanID = "00f067aa0ba902b7"
+	const incoming = "00-4bf92f3577b34da6a3ce929d0e0e4736-" + incomingSpanID + "-01"
+
+	h := TraceContext(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("traceparent", incoming)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	tp := rr.Header().Get("traceparent")
+	parts := strings.Split(tp, "-")
+	if len(parts) != 4 {
+		t.Fatalf("expected 4-part traceparent response header, got %q", tp)
+	}
+	if parts[2] == incomingSpanID {
+		t.Errorf("response span_id %q is identical to inbound span_id — expected a freshly generated span_id per hop", incomingSpanID)
 	}
 }

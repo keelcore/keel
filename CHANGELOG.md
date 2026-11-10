@@ -42,6 +42,11 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- 141 unit tests and 3 helpers move out of the external `tests/unit` package into the `{foo}_test.go` beside the
+  source they call (#40, partial). Each drops the qualifier of the package it now lives in (`mw.RequestID` becomes
+  `RequestID`), and nothing else in it changes; the 6 that land in the external `acme_test` keep `acme.`. One that
+  shared a name with a test already in `package mw` is renamed for what it asserts
+  (`TestRequestID_GeneratesA26CharULID`). 12 `tests/unit` files are gone.
 - The three `TestApplyTLSCertSource_*` tests and `writeTempCertKeyPair` move into `server_listeners_test.go`
   (#40, partial), taking its `cryptotls`/`cryptorand` import names; nothing else in them changes.
   `server_helpers_test.go`, named after no source, is gone.

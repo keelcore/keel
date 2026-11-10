@@ -18,3 +18,14 @@ func TestH2Policy_NoH2(t *testing.T) {
 		t.Errorf("TLSNextProto = %v, want empty non-nil map", srv.TLSNextProto)
 	}
 }
+
+func TestApplyHTTP2Policy_DisablesH2(t *testing.T) {
+	srv := &http.Server{}
+	ApplyHTTP2Policy(srv)
+	if srv.TLSNextProto == nil {
+		t.Fatalf("expected TLSNextProto to be set (empty map), got nil")
+	}
+	if len(srv.TLSNextProto) != 0 {
+		t.Fatalf("expected empty TLSNextProto map, got %d entries", len(srv.TLSNextProto))
+	}
+}

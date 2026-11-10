@@ -2,6 +2,15 @@
 
 package acme_test
 
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/keelcore/keel/pkg/core/acme"
+)
+
 // Tests for the ACME http-01 challenge handler.
 //
 // Spec reference: RFC 8555 §8.3 HTTP Challenge
@@ -12,14 +21,6 @@ package acme_test
 //   - §8.3: Content-Type MUST be "application/octet-stream"
 //   - §8.3: unknown / empty tokens MUST return 404
 //   - All non-challenge paths MUST redirect to HTTPS (301)
-
-import (
-	"net/http"
-	"net/http/httptest"
-	"testing"
-
-	"github.com/keelcore/keel/pkg/core/acme"
-)
 
 func handlerWithToken(httpsPort int) http.Handler {
 	m := acme.New()
@@ -164,5 +165,115 @@ func TestHTTPHandler_Redirect_NoDomains404(t *testing.T) {
 	acme.New().HTTPHandler(443, nil).ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", w.Code)
+	}
+}
+
+func TestACME_ChallengeRouteServedWithoutRedirect(t *testing.T) {
+	mgr := acme.New()
+	mgr.SetToken("abc123", "abc123.keyauth")
+	h := mgr.HTTPHandler(443, []string{"example.com"})
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/.well-known/acme-challenge/abc123", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for challenge, got %d", rr.Code)
+	}
+	if body := rr.Body.String(); body != "abc123.keyauth" {
+		t.Errorf("expected key auth body, got %q", body)
+	}
+}
+
+func TestACME_UnknownToken_Returns404(t *testing.T) {
+	mgr := acme.New()
+	h := mgr.HTTPHandler(443, []string{"example.com"})
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/.well-known/acme-challenge/unknown", nil))
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for unknown token, got %d", rr.Code)
+	}
+}
+
+func TestACME_NonChallengePath_RedirectsToHTTPS(t *testing.T) {
+	mgr := acme.New()
+	h := mgr.HTTPHandler(8443, []string{"example.com"})
+
+	req := httptest.NewRequest("GET", "/app/path?q=1", nil)
+	req.Host = "example.com"
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMovedPermanently {
+		t.Errorf("expected 301, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("location")
+	if !strings.HasPrefix(loc, "https://") {
+		t.Errorf("expected https:// redirect, got %q", loc)
+	}
+	if !strings.Contains(loc, "8443") {
+		t.Errorf("expected port 8443 in redirect, got %q", loc)
+	}
+	if !strings.Contains(loc, "/app/path?q=1") {
+		t.Errorf("expected original path+query in redirect, got %q", loc)
+	}
+}
+
+func TestACME_DeleteToken_RemovesChallenge(t *testing.T) {
+	mgr := acme.New()
+	mgr.SetToken("tok1", "tok1.auth")
+	mgr.DeleteToken("tok1")
+	h := mgr.HTTPHandler(443, []string{"example.com"})
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/.well-known/acme-challenge/tok1", nil))
+
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("expected 404 after delete, got %d", rr.Code)
+	}
+}
+
+// HTTPHandler: redirect with httpsPort=443 → host must not include ":443".
+func TestACME_Redirect_Port443_NoPortInLocation(t *testing.T) {
+	mgr := acme.New()
+	h := mgr.HTTPHandler(443, []string{"example.com"})
+
+	req := httptest.NewRequest("GET", "/other/path", nil)
+	req.Host = "example.com"
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMovedPermanently {
+		t.Fatalf("expected 301, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("location")
+	if !strings.HasPrefix(loc, "https://example.com/") {
+		t.Errorf("expected https://example.com/... redirect, got %q", loc)
+	}
+	if strings.Contains(loc, ":443") {
+		t.Errorf("port 443 must not appear in redirect URL, got %q", loc)
+	}
+}
+
+// HTTPHandler: host includes a port (SplitHostPort succeeds → h stripped).
+func TestACME_Redirect_HostWithPort_StripsSrcPort(t *testing.T) {
+	mgr := acme.New()
+	h := mgr.HTTPHandler(8443, []string{"example.com"})
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Host = "example.com:80" // source port present → SplitHostPort succeeds
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusMovedPermanently {
+		t.Fatalf("expected 301, got %d", rr.Code)
+	}
+	loc := rr.Header().Get("location")
+	if !strings.Contains(loc, ":8443") {
+		t.Errorf("expected :8443 in redirect, got %q", loc)
+	}
+	if strings.Contains(loc, ":80") {
+		t.Errorf("source port 80 must not appear in redirect, got %q", loc)
 	}
 }

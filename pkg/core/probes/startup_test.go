@@ -43,3 +43,30 @@ func TestRegisterStartupHandler(t *testing.T) {
 		t.Fatalf("post-Done body = %q, want %q", rec.Body.String(), "started\n")
 	}
 }
+
+func TestStartupz_Returns503BeforeDone(t *testing.T) {
+	s := NewStartup()
+	mux := http.NewServeMux()
+	RegisterStartup(mux, s)
+
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/startupz", nil))
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 before Done()", rr.Code)
+	}
+}
+
+func TestStartupz_Returns200AfterDone(t *testing.T) {
+	s := NewStartup()
+	s.Done()
+	mux := http.NewServeMux()
+	RegisterStartup(mux, s)
+
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest("GET", "/startupz", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 after Done()", rr.Code)
+	}
+}

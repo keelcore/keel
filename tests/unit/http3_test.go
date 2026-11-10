@@ -5,37 +5,12 @@ package unit
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
-	"net/http"
 	"strings"
 	"testing"
 
 	khttp3 "github.com/keelcore/keel/pkg/core/http3"
 )
-
-// New: creates a non-nil Server wrapping a real quic-go HTTP/3 server.
-func TestHTTP3_New_CreatesServer(t *testing.T) {
-	s := khttp3.New(":0", http.DefaultServeMux, &tls.Config{})
-	if s == nil {
-		t.Error("expected non-nil *http3.Server from New")
-	}
-}
-
-// ListenAndServeTLS: bad cert path → error before any network bind.
-func TestHTTP3_ListenAndServeTLS_BadCert(t *testing.T) {
-	s := khttp3.New(":0", http.DefaultServeMux, &tls.Config{})
-	err := s.ListenAndServeTLS("/no/such/cert.pem", "/no/such/key.pem")
-	if err == nil {
-		t.Error("expected error from ListenAndServeTLS with missing cert files")
-	}
-}
-
-// Shutdown: calling Shutdown on a never-started server must not panic.
-func TestHTTP3_Shutdown_NotStarted(t *testing.T) {
-	s := khttp3.New(":0", http.DefaultServeMux, &tls.Config{})
-	_ = s.Shutdown(context.Background())
-}
 
 // ---------------------------------------------------------------------------
 // Mock-backend tests — cover error branch of Shutdown (unreachable via

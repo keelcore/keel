@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -215,5 +218,223 @@ func TestRotatingFile_WriteSurvivesAFailedRotation(t *testing.T) {
 func TestNewRotatingFile_OpenError(t *testing.T) {
 	if _, err := NewRotatingFile(filepath.Join(t.TempDir(), "missing", "keel.log"), RotationPolicy{}); err == nil {
 		t.Fatal("want an error for a path in a missing directory")
+	}
+}
+
+// TestLogger_Fatal_LogsBeforeExit verifies that Fatal writes the log line
+// before calling os.Exit(1). A subprocess is used because os.Exit cannot be
+// intercepted in the same process.
+func TestLogger_Fatal_LogsBeforeExit(t *testing.T) {
+	if os.Getenv("TEST_LOGGER_FATAL") == "1" {
+		// Subprocess path: call Fatal and let the process exit with code 1.
+		log := New(Config{Out: os.Stderr})
+		log.Fatal("fatal-test-event", nil)
+		return
+	}
+
+	cmd := exec.Command(os.Args[0],
+		"-test.run=^TestLogger_Fatal_LogsBeforeExit$",
+		"-test.v",
+	)
+	cmd.Env = append(os.Environ(), "TEST_LOGGER_FATAL=1")
+	var out bytes.Buffer
+	cmd.Stderr = &out
+
+	err := cmd.Run()
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected *exec.ExitError, got %v", err)
+	}
+	if exitErr.ExitCode() != 1 {
+		t.Errorf("expected exit code 1, got %d", exitErr.ExitCode())
+	}
+	if !strings.Contains(out.String(), "fatal-test-event") {
+		t.Errorf("expected 'fatal-test-event' in stderr before exit, got: %q", out.String())
+	}
+}
+
+func TestParseLevel_KnownLevels(t *testing.T) {
+	cases := []struct {
+		input string
+		want  int32
+	}{
+		{"debug", 0},
+		{"info", 1},
+		{"warn", 2},
+		{"error", 3},
+		{"", 1}, // empty → info
+	}
+	for _, tc := range cases {
+		lvl, err := ParseLevel(tc.input)
+		if err != nil {
+			t.Errorf("ParseLevel(%q) unexpected error: %v", tc.input, err)
+		}
+		if lvl != tc.want {
+			t.Errorf("ParseLevel(%q) = %d, want %d", tc.input, lvl, tc.want)
+		}
+	}
+}
+
+func TestParseLevel_CaseInsensitive(t *testing.T) {
+	for _, s := range []string{"DEBUG", "Info", "WARN", "Error"} {
+		if _, err := ParseLevel(s); err != nil {
+			t.Errorf("ParseLevel(%q) unexpected error: %v", s, err)
+		}
+	}
+}
+
+func TestParseLevel_Unknown_ReturnsError(t *testing.T) {
+	_, err := ParseLevel("trace")
+	if err == nil {
+		t.Error("expected error for unknown level, got nil")
+	}
+}
+
+func TestLogger_LevelFilter_Debug_AllMessages(t *testing.T) {
+	var buf bytes.Buffer
+	log := New(Config{JSON: true, Level: "debug", Out: &buf})
+	log.Debug("d", nil)
+	log.Info("i", nil)
+	log.Warn("w", nil)
+	log.Error("e", nil)
+	out := buf.String()
+	for _, msg := range []string{"\"d\"", "\"i\"", "\"w\"", "\"e\""} {
+		if !strings.Contains(out, msg) {
+			t.Errorf("expected %s in debug-level output, got: %s", msg, out)
+		}
+	}
+}
+
+func TestLogger_LevelFilter_Warn_SuppressesDebugAndInfo(t *testing.T) {
+	var buf bytes.Buffer
+	log := New(Config{JSON: true, Level: "warn", Out: &buf})
+	log.Debug("should_not_appear", nil)
+	log.Info("also_not_appear", nil)
+	log.Warn("visible", nil)
+	out := buf.String()
+	if strings.Contains(out, "should_not_appear") {
+		t.Error("debug message leaked through warn filter")
+	}
+	if strings.Contains(out, "also_not_appear") {
+		t.Error("info message leaked through warn filter")
+	}
+	if !strings.Contains(out, "visible") {
+		t.Error("warn message missing from output")
+	}
+}
+
+func TestLogger_LevelFilter_Error_SuppressesAll(t *testing.T) {
+	var buf bytes.Buffer
+	log := New(Config{JSON: true, Level: "error", Out: &buf})
+	log.Debug("d", nil)
+	log.Info("i", nil)
+	log.Warn("w", nil)
+	log.Error("e", nil)
+	out := buf.String()
+	if strings.Contains(out, "\"d\"") || strings.Contains(out, "\"i\"") || strings.Contains(out, "\"w\"") {
+		t.Error("non-error messages leaked through error filter")
+	}
+	if !strings.Contains(out, "\"e\"") {
+		t.Error("error message missing from error-level output")
+	}
+}
+
+func TestLogger_Reconfigure_ChangesLevel(t *testing.T) {
+	var buf bytes.Buffer
+	log := New(Config{JSON: true, Level: "error", Out: &buf})
+
+	// At error level, debug is suppressed.
+	log.Debug("before_reconfig", nil)
+	if strings.Contains(buf.String(), "before_reconfig") {
+		t.Fatal("debug should be suppressed at error level")
+	}
+
+	// Reconfigure to debug.
+	if err := log.Reconfigure(Config{Level: "debug"}); err != nil {
+		t.Fatalf("Reconfigure: %v", err)
+	}
+	log.Debug("after_reconfig", nil)
+	if !strings.Contains(buf.String(), "after_reconfig") {
+		t.Error("debug should be visible after reconfiguring to debug level")
+	}
+}
+
+func TestLogger_Reconfigure_InvalidLevel_PreservesOld(t *testing.T) {
+	var buf bytes.Buffer
+	log := New(Config{JSON: true, Level: "warn", Out: &buf})
+
+	err := log.Reconfigure(Config{Level: "trace"})
+	if err == nil {
+		t.Fatal("expected error for unknown level")
+	}
+
+	// warn level should still be in effect; debug suppressed, warn visible.
+	log.Debug("d", nil)
+	log.Warn("w", nil)
+	out := buf.String()
+	if strings.Contains(out, "\"d\"") {
+		t.Error("debug leaked after failed Reconfigure")
+	}
+	if !strings.Contains(out, "\"w\"") {
+		t.Error("warn missing after failed Reconfigure")
+	}
+}
+
+func TestLogger_Reconfigure_Concurrent_NoRace(t *testing.T) {
+	var buf bytes.Buffer
+	log := New(Config{JSON: true, Level: "info", Out: &buf})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_ = log.Reconfigure(Config{Level: "debug"})
+		}()
+		go func() {
+			defer wg.Done()
+			log.Info("concurrent_log", nil)
+		}()
+	}
+	wg.Wait()
+}
+
+func TestLogger_Error_WritesErrorLevel(t *testing.T) {
+	var buf bytes.Buffer
+	log := New(Config{JSON: true, Out: &buf})
+	log.Error("something_failed", map[string]any{"code": 42})
+
+	out := buf.String()
+	if !strings.Contains(out, `"level":"error"`) {
+		t.Errorf("expected level=error in log output, got: %s", out)
+	}
+	if !strings.Contains(out, "something_failed") {
+		t.Errorf("expected msg in log output, got: %s", out)
+	}
+}
+
+func TestLogger_TextFormat_ContainsLevelAndMsg(t *testing.T) {
+	var buf bytes.Buffer
+	log := New(Config{JSON: false, Out: &buf})
+	log.Info("text_event", map[string]any{"k": "v"})
+
+	out := buf.String()
+	if !strings.Contains(out, "[info]") {
+		t.Errorf("expected [info] in text output, got: %s", out)
+	}
+	if !strings.Contains(out, "text_event") {
+		t.Errorf("expected msg in text output, got: %s", out)
+	}
+}
+
+func TestLogger_TextFormat_NilFields(t *testing.T) {
+	var buf bytes.Buffer
+	log := New(Config{JSON: false, Out: &buf})
+	log.Warn("warn_event", nil) // nil fields → defaults to empty map
+
+	out := buf.String()
+	if !strings.Contains(out, "[warn]") {
+		t.Errorf("expected [warn] in text output, got: %s", out)
 	}
 }

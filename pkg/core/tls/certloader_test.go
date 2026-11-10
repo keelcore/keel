@@ -46,3 +46,29 @@ func TestCertLoaderGetNoCert(t *testing.T) {
 		t.Fatal("expected error when no certificate loaded")
 	}
 }
+
+// CertLoader.Get: zero-value CertLoader has nil atomic.Pointer → "no certificate loaded".
+func TestCertLoader_Get_NilCert(t *testing.T) {
+	var l CertLoader
+	_, err := l.Get(nil)
+	if err == nil {
+		t.Error("expected error from Get on zero-value CertLoader, got nil")
+	}
+}
+
+// CertLoader.Reload: fails when cert/key files do not exist.
+func TestCertLoader_Reload_Error(t *testing.T) {
+	var l CertLoader
+	err := l.Reload("/no/such/cert.pem", "/no/such/key.pem")
+	if err == nil {
+		t.Error("expected error from Reload with missing files, got nil")
+	}
+}
+
+// NewCertLoader: fails when cert/key files do not exist.
+func TestNewCertLoader_Error(t *testing.T) {
+	_, err := NewCertLoader("/no/such/cert.pem", "/no/such/key.pem")
+	if err == nil {
+		t.Error("expected error from NewCertLoader with missing files, got nil")
+	}
+}

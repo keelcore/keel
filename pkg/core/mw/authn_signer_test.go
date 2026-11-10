@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -396,5 +397,145 @@ func TestJWTSigner_WithAudience(t *testing.T) {
 		if aud != "" && got != aud {
 			t.Errorf("aud = %v, want %q", got, aud)
 		}
+	}
+}
+
+func writeRSAKeyFile(t *testing.T) (string, *rsa.PublicKey) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.CreateTemp("", "rsa-*.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(f.Name()) })
+	if err := pem.Encode(f, &pem.Block{Type: "PRIVATE KEY", Bytes: der}); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	return f.Name(), &key.PublicKey
+}
+
+func writeECKeyFile(t *testing.T, curve elliptic.Curve) (string, *ecdsa.PublicKey) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(curve, rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.CreateTemp("", "ec-*.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(f.Name()) })
+	if err := pem.Encode(f, &pem.Block{Type: "PRIVATE KEY", Bytes: der}); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	return f.Name(), &key.PublicKey
+}
+
+func TestJWTSigner_RSA_SignsAndVerifies(t *testing.T) {
+	keyFile, pub := writeRSAKeyFile(t)
+	signer, err := NewJWTSigner("svc-a", keyFile)
+	if err != nil {
+		t.Fatalf("NewJWTSigner: %v", err)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	if err := signer.SignRequest(req); err != nil {
+		t.Fatalf("SignRequest: %v", err)
+	}
+
+	auth := req.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		t.Fatalf("expected Bearer prefix, got: %s", auth)
+	}
+	raw := strings.TrimPrefix(auth, "Bearer ")
+
+	claims := jwt.MapClaims{}
+	_, err = jwt.ParseWithClaims(raw, claims, func(t *jwt.Token) (any, error) {
+		return pub, nil
+	})
+	if err != nil {
+		t.Fatalf("verify RSA JWT: %v", err)
+	}
+	if claims["sub"] != "svc-a" || claims["iss"] != "svc-a" {
+		t.Errorf("unexpected claims: %v", claims)
+	}
+}
+
+func TestJWTSigner_ECDSA_P256_SignsAndVerifies(t *testing.T) {
+	keyFile, pub := writeECKeyFile(t, elliptic.P256())
+	signer, err := NewJWTSigner("svc-b", keyFile)
+	if err != nil {
+		t.Fatalf("NewJWTSigner: %v", err)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	if err := signer.SignRequest(req); err != nil {
+		t.Fatalf("SignRequest: %v", err)
+	}
+
+	auth := req.Header.Get("Authorization")
+	raw := strings.TrimPrefix(auth, "Bearer ")
+
+	claims := jwt.MapClaims{}
+	_, err = jwt.ParseWithClaims(raw, claims, func(t *jwt.Token) (any, error) {
+		return pub, nil
+	})
+	if err != nil {
+		t.Fatalf("verify EC JWT: %v", err)
+	}
+}
+
+func TestJWTSigner_BadKeyFile_ReturnsError(t *testing.T) {
+	_, err := NewJWTSigner("x", "/nonexistent/key.pem")
+	if err == nil {
+		t.Error("expected error for missing key file, got nil")
+	}
+}
+
+func TestJWTSigner_SignRequest_ClaimsHaveTTL(t *testing.T) {
+	keyFile, _ := writeRSAKeyFile(t)
+	signer, err := NewJWTSigner("svc-c", keyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	before := time.Now().Unix()
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
+	_ = signer.SignRequest(req)
+
+	raw := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+	token, _, err := new(jwt.Parser).ParseUnverified(raw, jwt.MapClaims{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := token.Claims.(jwt.MapClaims)
+
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		t.Fatal("exp claim missing or wrong type")
+	}
+	iat, ok := claims["iat"].(float64)
+	if !ok {
+		t.Fatal("iat claim missing or wrong type")
+	}
+	if int64(iat) < before {
+		t.Errorf("iat %v before request start %v", iat, before)
+	}
+	ttl := int64(exp) - int64(iat)
+	if ttl < 290 || ttl > 310 {
+		t.Errorf("expected ~300s TTL, got %ds", ttl)
 	}
 }

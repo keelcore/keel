@@ -114,3 +114,50 @@ func TestCertExpirySecondsError(t *testing.T) {
 		t.Fatal("expected error for missing file")
 	}
 }
+
+// CertExpiry: os.ReadFile fails for a non-existent path.
+func TestCertExpiry_ReadFileError(t *testing.T) {
+	_, err := CertExpiry("/no/such/file/cert.pem")
+	if err == nil {
+		t.Error("expected error reading non-existent cert file, got nil")
+	}
+}
+
+// CertExpiry: file exists but contains no PEM block.
+func TestCertExpiry_NoPEMBlock(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "cert*.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString("not pem data\n")
+	f.Close()
+
+	_, err = CertExpiry(f.Name())
+	if err == nil {
+		t.Error("expected error for file with no PEM block, got nil")
+	}
+}
+
+// CertExpiry: PEM block present but bytes are not a valid DER certificate.
+func TestCertExpiry_InvalidDER(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "cert*.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := &pem.Block{Type: "CERTIFICATE", Bytes: []byte("not valid DER")}
+	_ = pem.Encode(f, block)
+	f.Close()
+
+	_, err = CertExpiry(f.Name())
+	if err == nil {
+		t.Error("expected error for invalid DER certificate bytes, got nil")
+	}
+}
+
+// CertExpirySeconds: propagates CertExpiry error (bad path).
+func TestCertExpirySeconds_PropagatesError(t *testing.T) {
+	_, err := CertExpirySeconds("/no/such/file.pem")
+	if err == nil {
+		t.Error("expected error from CertExpirySeconds, got nil")
+	}
+}

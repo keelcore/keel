@@ -229,3 +229,139 @@ func TestProtocolRejectionCounters(t *testing.T) {
 		}
 	}
 }
+
+// IncFIPSMonitorFailure increments a counter visible in /metrics output.
+func TestMetrics_IncFIPSMonitorFailure_AppearsInOutput(t *testing.T) {
+	m := New()
+	m.IncFIPSMonitorFailure()
+	m.IncFIPSMonitorFailure()
+
+	rr := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rr.Body.String()
+
+	if !strings.Contains(body, "keel_fips_monitor_failures_total") {
+		t.Errorf("expected keel_fips_monitor_failures_total in /metrics output, got:\n%s", body)
+	}
+}
+
+// IncFIPSMonitorFailure is cumulative: two calls produce count 2.
+func TestMetrics_IncFIPSMonitorFailure_Cumulative(t *testing.T) {
+	m := New()
+	m.IncFIPSMonitorFailure()
+	m.IncFIPSMonitorFailure()
+	m.IncFIPSMonitorFailure()
+
+	rr := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rr.Body.String()
+
+	if !strings.Contains(body, "keel_fips_monitor_failures_total 3") {
+		t.Errorf("expected count 3, got:\n%s", body)
+	}
+}
+
+// A fresh Metrics instance starts at zero (counter absent or zero).
+func TestMetrics_IncFIPSMonitorFailure_StartsAtZero(t *testing.T) {
+	m := New()
+
+	rr := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rr.Body.String()
+
+	// Counter at zero may be omitted or present as 0 — either is acceptable.
+	// It must NOT show a non-zero value.
+	if strings.Contains(body, "keel_fips_monitor_failures_total") &&
+		!strings.Contains(body, "keel_fips_monitor_failures_total 0") {
+		t.Errorf("expected zero count, got:\n%s", body)
+	}
+}
+
+func TestMetrics_HandlerContentType(t *testing.T) {
+	m := New()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rr := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	ct := rr.Header().Get("content-type")
+	if !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("expected text/plain content-type, got %q", ct)
+	}
+}
+
+func TestMetrics_RequestsTotal(t *testing.T) {
+	m := New()
+	h := m.Instrument(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	// Verify keel_requests_total appears in /metrics output with correct labels.
+	rr := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rr, httptest.NewRequest("GET", "/metrics", nil))
+	body, _ := io.ReadAll(rr.Body)
+	out := string(body)
+
+	if !strings.Contains(out, "keel_requests_total") {
+		t.Error("expected keel_requests_total in /metrics output")
+	}
+	if !strings.Contains(out, `method="GET"`) {
+		t.Errorf("expected method label in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, `status="200"`) {
+		t.Errorf("expected status label in output, got:\n%s", out)
+	}
+}
+
+func TestMetrics_Inflight(t *testing.T) {
+	m := New()
+
+	var inflightDuring float64
+	h := m.Instrument(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		inflightDuring = m.Inflight()
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	if before := m.Inflight(); before != 0 {
+		t.Errorf("expected inflight=0 before request, got %g", before)
+	}
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+
+	if inflightDuring != 1 {
+		t.Errorf("expected inflight=1 during request, got %g", inflightDuring)
+	}
+	if after := m.Inflight(); after != 0 {
+		t.Errorf("expected inflight=0 after request, got %g", after)
+	}
+}
+
+// SetCertExpiry: stores the value; verifiable via the /metrics handler output.
+func TestMetrics_SetCertExpiry(t *testing.T) {
+	m := New()
+	m.SetCertExpiry(3600.0)
+
+	rr := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rr, httptest.NewRequest("GET", "/metrics", nil))
+
+	if !strings.Contains(rr.Body.String(), "keel_tls_cert_expiry_seconds 3600") {
+		t.Errorf("expected cert expiry 3600 in metrics, got: %s", rr.Body.String())
+	}
+}
+
+// SetLogDrops: stores the value; verifiable via the /metrics handler output.
+func TestMetrics_SetLogDrops(t *testing.T) {
+	m := New()
+	m.SetLogDrops(42)
+
+	rr := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rr, httptest.NewRequest("GET", "/metrics", nil))
+
+	if !strings.Contains(rr.Body.String(), "keel_log_drops_total 42") {
+		t.Errorf("expected log drops 42 in metrics, got: %s", rr.Body.String())
+	}
+}
