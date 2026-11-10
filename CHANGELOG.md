@@ -42,6 +42,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- Every Go source file has its `{foo}_test.go` beside it (#40, stage 1): 60 new test files, each holding only the
+  source's package clause and build constraint, ready for the tests that move in next. `cmd/*/main.go` and `doc.go`
+  are exempt, as in keelcore/knobs.
 - **Breaking:** Helm values follow the config schema (#41): `values.keel` takes every field of
   `pkg/config/schema.yaml` with the schema's names and nesting (`keel.sidecar.upstream_url`, `keel.ext_authz.fail_open`,
   `keel.security.owasp_headers`), and the chart renders it as `keel.yaml` whole instead of field by field; a field left
