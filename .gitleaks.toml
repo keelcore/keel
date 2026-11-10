@@ -11,8 +11,8 @@ useDefault = true
 
 [[allowlists]]
 id          = "authn-test-fixtures"
-description = "Short literal strings used as HMAC test-fixture keys in authn_test.go and authn_signer_test.go; entropy matches generic-api-key but these are not real secrets"
-paths       = ['''tests/unit/authn_test\.go''', '''tests/unit/authn_gaps_test\.go''', '''tests/unit/authn_signer_test\.go''']
+description = "Short literal strings used as HMAC test-fixture keys in authn_test.go and authn_signer_test.go (now pkg/core/mw/authn_jwt_test.go); entropy matches generic-api-key but these are not real secrets"
+paths       = ['''tests/unit/authn_test\.go''', '''tests/unit/authn_gaps_test\.go''', '''tests/unit/authn_signer_test\.go''', '''pkg/core/mw/authn_jwt_test\.go''']
 regexes     = ['''"0123456789abcdef"''', '''"fedcba9876543210"''', '''"wrong-key-16byte"''']
 
 [[allowlists]]
@@ -20,6 +20,12 @@ id          = "acme-marshal-func-alias"
 description = "Go source identifier 'marshalECKey = x509.MarshalECPrivateKey' in acme/manager.go; the generic-api-key rule matches its entropy, but it is a function alias, not a secret"
 paths       = ['''pkg/core/acme/manager\.go''']
 regexes     = ['''marshalECKey\s+= x509\.MarshalECPrivateKey''']
+
+[[allowlists]]
+id          = "tlscert-marshal-func-seam"
+description = "Go source identifier 'marshalECPrivateKey = x509.MarshalECPrivateKey' in tests/unit/tlscert.go, a test seam; the generic-api-key rule matches its entropy, but it is a function alias, not a secret"
+paths       = ['''tests/unit/tlscert\.go''']
+regexes     = ['''marshalECPrivateKey\s+= x509\.MarshalECPrivateKey''']
 
 [[allowlists]]
 id          = "bats-admin-token-fixture"
@@ -35,6 +41,6 @@ regexes     = ['''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJjbGllbnQifQ\.c2lnbmF0dXJl''']
 
 [[allowlists]]
 id          = "audit-events-hmac-fixture"
-description = "Literal HMAC key auditTestSecret in audit_events_test.go, signing tokens for an in-process test; generic-api-key matches its name and entropy, but it is a test fixture, not a secret"
-paths       = ['''pkg/core/mw/audit_events_test\.go''']
+description = "Literal HMAC key auditTestSecret in audit_events_test.go (now authn_jwt_test.go), signing tokens for an in-process test; generic-api-key matches its name and entropy, but it is a test fixture, not a secret"
+paths       = ['''pkg/core/mw/audit_events_test\.go''', '''pkg/core/mw/authn_jwt_test\.go''']
 regexes     = ['''0123456789abcdef0123456789abcdef''']

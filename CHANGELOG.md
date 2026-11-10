@@ -145,6 +145,9 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- Secret Scan passes again (#40): the `.gitleaks.toml` allowlists follow the test fixtures to where the test moves
+  put them (`pkg/core/mw/authn_jwt_test.go`), keeping their old paths for history, and a new entry covers the
+  `marshalECPrivateKey` seam in `tests/unit/tlscert.go`, the same function-alias false positive as acme's.
 - Every make target that runs a tool image or Apple container starts the container system when it is stopped
   (`| ensure-container`), instead of failing at once; canonical targets that lack it get it from keel's Makefile until
   keelcore/standards#32 ships (#43). A consistency test checks the merged make database (#42).
