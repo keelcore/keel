@@ -206,3 +206,27 @@ func TestClientIP_XFFMultipleEntries(t *testing.T) {
 		t.Errorf("expected ip=peer and xff verbatim, got %s", buf.String())
 	}
 }
+
+// hostile carries each log destination's delimiters: field and list separators,
+// quotes, backslash, CR/LF, NUL and non-ASCII.
+const hostile = "1.2.3.4, x;y=\"z\"\\\r\n{\"forged\":1}\x00é"
+
+// AccessLog logs req_id, trace_id, span_id when set by upstream middleware.
+func TestAccessLog_LogsContextIDs(t *testing.T) {
+	var buf bytes.Buffer
+	log := logging.New(logging.Config{JSON: true, Out: &buf})
+	// Layer RequestID + TraceContext in front of AccessLog so all context keys are populated.
+	h := RequestID(TraceContext(AccessLog(log, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+
+	out := buf.String()
+	if !strings.Contains(out, `"req_id"`) {
+		t.Errorf("expected req_id in log, got: %s", out)
+	}
+	if !strings.Contains(out, `"trace_id"`) {
+		t.Errorf("expected trace_id in log, got: %s", out)
+	}
+	if !strings.Contains(out, `"span_id"`) {
+		t.Errorf("expected span_id in log, got: %s", out)
+	}
+}

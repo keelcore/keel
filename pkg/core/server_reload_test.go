@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/keelcore/keel/pkg/config"
 	"github.com/keelcore/keel/pkg/core/logging"
@@ -203,5 +204,57 @@ func TestAudit_ConfigReloadAndAdmin(t *testing.T) {
 	s.ReloadHandler().ServeHTTP(httptest.NewRecorder(), r)
 	if !strings.Contains(auditText(t, path), `"event":"admin_reload"`) {
 		t.Fatalf("audit %q", auditText(t, path))
+	}
+}
+
+// A reload arriving while startup holds reloadMu waits for startup to finish.
+func TestReload_WaitsForStartup(t *testing.T) {
+	s := NewServer(logging.New(logging.Config{Out: io.Discard}), config.Config{},
+		WithConfigPaths("/nonexistent/keel-reload-wait.yaml", ""))
+	s.reloadMu.Lock() // as Run holds it during startup
+	done := make(chan error, 1)
+	go func() { done <- s.Reload() }()
+	select {
+	case <-done:
+		t.Fatal("Reload ran while startup held the lock")
+	case <-time.After(150 * time.Millisecond):
+	}
+	s.reloadMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Reload did not proceed after startup released the lock")
+	}
+}
+
+// ReloadHandler returns 200 on successful POST when config paths produce valid config.
+func TestReloadHandler_PostSuccess_Returns200(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "keel.yaml")
+	if err := os.WriteFile(cfgPath, []byte("keel:\n  logging:\n    json: true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	log := logging.New(logging.Config{Out: io.Discard})
+	s := NewServer(log, config.Config{}, WithConfigPaths(cfgPath, ""))
+
+	rr := httptest.NewRecorder()
+	s.ReloadHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/admin/reload", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 on successful reload, got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ReloadHandler returns 422 when config is invalid (Reload returns error).
+func TestReloadHandler_PostBadConfig_Returns422(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	s := NewServer(log, config.Config{}, WithConfigPaths("/nonexistent.yaml", ""))
+
+	rr := httptest.NewRecorder()
+	s.ReloadHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/admin/reload", nil))
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 on failed reload, got %d", rr.Code)
 	}
 }

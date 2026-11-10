@@ -1388,3 +1388,19 @@ func TestNew_Signing_ReplacesClientAuthAndFailsClosed(t *testing.T) {
 		t.Fatalf("upstream hit %d times, want 1 (unsigned request forwarded)", hits)
 	}
 }
+
+// RoundTrip returns the upstream error and records failure when inner fails.
+func TestCBTransport_InnerError_RecordsFailure(t *testing.T) {
+	b := newBreaker(5, time.Minute)
+	boom := errors.New("boom")
+	ct := &cbTransport{inner: errRoundTripper{err: boom}, breaker: b}
+
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/", nil)
+	_, err := ct.RoundTrip(req)
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected boom error, got %v", err)
+	}
+	if b.failures != 1 {
+		t.Errorf("expected failures=1 after inner error, got %d", b.failures)
+	}
+}

@@ -42,6 +42,14 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- 10 more unit tests move into the `{foo}_test.go` of the function their name tests (#40, partial):
+  `TestReload_WaitsForStartup` and the two `TestReloadHandler_*` into `server_reload_test.go`,
+  `TestWrapMain_TrustedIDsReload` into `server_test.go`, the two `TestPrune_*` into `logging/rotate_test.go`,
+  `TestCBTransport_InnerError_RecordsFailure` into `sidecar/proxy_test.go`, `TestOutboundTLSPolicy_NoOtherPath`
+  into `tlspolicy/client_test.go`, and, out of `tests/unit` with the package rebind, `TestMetrics_FIPSActive` into
+  `metrics/metrics_test.go` and `TestAccessLog_LogsContextIDs` into `mw/accesslog_test.go`. `hostile` moves to
+  `mw/accesslog_test.go`, which every build compiles, so `go test -tags no_authz` compiles again. 5 more test files
+  named after no source are gone.
 - 13 test helpers move, unchanged, into the file whose tests call them (#40, partial): `writeCachedCert`,
   `writeRSACachedCert`, `makeTLSCert`, `makeFile`, `makeMgrTLSCert`, `makeECDSACertDER`, `stubACMEClient` (with its
   methods), `stubSignedCert`, `withStubClient` and `assertOutboundPolicy` into `pkg/core/acme/manager_test.go`, and

@@ -3,7 +3,10 @@ package tlspolicy
 import (
 	"crypto/tls"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -55,5 +58,32 @@ func TestClientConfig_IsTheListenerPolicy(t *testing.T) {
 	}
 	if b := Base(); len(c.CurvePreferences) != len(b.CurvePreferences) {
 		t.Fatalf("curves %v, policy %v", c.CurvePreferences, b.CurvePreferences)
+	}
+}
+
+// TestOutboundTLSPolicy_NoOtherPath: non-test code in pkg/ and cmd/ reaches the network only
+// through this package: no tls.Config or http.Transport literal, no default transport or client,
+// no http.Client without an explicit Transport, no package-level http.Get and friends.
+func TestOutboundTLSPolicy_NoOtherPath(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	var findings []string
+	for _, dir := range []string{"pkg", "cmd"} {
+		err := filepath.Walk(filepath.Join(root, dir), func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+				strings.Contains(path, filepath.Join("core", "tlspolicy")) {
+				return nil
+			}
+			findings = append(findings, scan(t, path)...)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(findings) > 0 {
+		t.Fatalf("outbound TLS outside pkg/core/tlspolicy:\n%s", strings.Join(findings, "\n"))
 	}
 }

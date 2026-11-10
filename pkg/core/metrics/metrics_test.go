@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/keelcore/keel/pkg/core/version"
 )
 
 func TestLabelCounter(t *testing.T) {
@@ -363,5 +365,22 @@ func TestMetrics_SetLogDrops(t *testing.T) {
 
 	if !strings.Contains(rr.Body.String(), "keel_log_drops_total 42") {
 		t.Errorf("expected log drops 42 in metrics, got: %s", rr.Body.String())
+	}
+}
+
+func TestMetrics_FIPSActive(t *testing.T) {
+	m := New()
+	v := m.FIPSActive()
+	if v != 0 && v != 1 {
+		t.Errorf("keel_fips_active must be 0 or 1, got %g", v)
+	}
+	// It reports runtime FIPS mode (FIPS build + crypto/fips140.Enabled), the
+	// same answer as /version — not merely the build tag.
+	want := 0.0
+	if version.FIPSActive() {
+		want = 1
+	}
+	if v != want {
+		t.Errorf("keel_fips_active = %g, want %g (version.FIPSActive)", v, want)
 	}
 }
