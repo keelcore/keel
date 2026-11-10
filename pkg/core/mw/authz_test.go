@@ -10,10 +10,12 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/audit"
 	"github.com/keelcore/keel/pkg/core/logging"
 )
 
@@ -420,4 +422,129 @@ func TestAuthzClient_UnixSocketDoesNotFollowRedirects(t *testing.T) {
 	if authzClient(config.ExtAuthzConfig{Endpoint: "unix:///tmp/opa.sock"}).CheckRedirect == nil {
 		t.Fatal("unix-socket authz client follows redirects")
 	}
+}
+
+func TestExtAuthz_AuditsADeny(t *testing.T) {
+	policy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]bool{"result": false})
+	}))
+	defer policy.Close()
+	cfg := config.Defaults()
+	cfg.ExtAuthz.Enabled = true
+	cfg.ExtAuthz.Endpoint = policy.URL
+	cfg.ExtAuthz.Transport = "opa"
+	cfg.ExtAuthz.Timeout = config.DurationOf(time.Second)
+	var got []audit.Event
+	h := ExtAuthz(cfg, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		logging.New(logging.Config{Out: io.Discard}), func(e audit.Event) { got = append(got, e) })
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, auditRequest(""))
+	want := audit.Event{Event: "authz_deny", SourceIP: "203.0.113.7", Outcome: "deny", Detail: "/x"}
+	if rec.Code != http.StatusForbidden || len(got) != 1 || got[0] != want {
+		t.Fatalf("status %d, events %+v, want 403 and [%+v]", rec.Code, got, want)
+	}
+}
+
+// ExtAuthz allows the request through to next when the decision endpoint permits it.
+func TestExtAuthz_Allow_CallsNext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	cfg := config.Config{ExtAuthz: config.ExtAuthzConfig{
+		Endpoint:  srv.URL,
+		Timeout:   config.DurationOf(2 * time.Second),
+		Transport: "http",
+	}}
+	log := logging.New(logging.Config{Out: io.Discard})
+	called := false
+	h := ExtAuthz(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}), log)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api", nil)
+	h.ServeHTTP(rr, req)
+
+	if !called || rr.Code != http.StatusOK {
+		t.Errorf("expected allow → next called with 200, got called=%v code=%d", called, rr.Code)
+	}
+}
+
+// ExtAuthz returns 403 and does not call next when the decision endpoint denies.
+func TestExtAuthz_Deny_403(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	cfg := config.Config{ExtAuthz: config.ExtAuthzConfig{
+		Endpoint:  srv.URL,
+		Timeout:   config.DurationOf(2 * time.Second),
+		Transport: "http",
+	}}
+	log := logging.New(logging.Config{Out: io.Discard})
+	called := false
+	h := ExtAuthz(cfg, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}), log)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api", nil)
+	h.ServeHTTP(rr, req)
+
+	if called {
+		t.Error("expected next NOT to be called on deny")
+	}
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 on deny, got %d", rr.Code)
+	}
+}
+
+// A redirect from the decision endpoint is not followed and is not an allow.
+func TestExtAuthz_RedirectNotFollowed(t *testing.T) {
+	var followed atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { followed.Store(true) }))
+	t.Cleanup(target.Close)
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(redirector.Close)
+	if code := serveAuthz(t, authzCfg(redirector.URL, "http")); code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 for a redirecting authz endpoint", code)
+	}
+	if followed.Load() {
+		t.Fatal("authz client followed the redirect")
+	}
+}
+
+// An oversized OPA decision body is not read in full and does not allow.
+func TestExtAuthz_OPABodyCapped(t *testing.T) {
+	opa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"pad":"`+strings.Repeat("x", 2*maxAuthzResponseBytes)+`","result":true}`)
+	}))
+	t.Cleanup(opa.Close)
+	if code := serveAuthz(t, authzCfg(opa.URL, "opa")); code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 for an oversized OPA body", code)
+	}
+}
+
+func serveAuthz(t *testing.T, cfg config.Config) int {
+	t.Helper()
+	h := ExtAuthz(cfg, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), logging.New(logging.Config{Out: io.Discard}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	return rec.Code
+}
+
+func authzCfg(endpoint, transport string) config.Config {
+	var cfg config.Config
+	cfg.ExtAuthz = config.ExtAuthzConfig{
+		Enabled: true, Endpoint: endpoint, Transport: transport,
+		Timeout: config.DurationOf(2 * time.Second),
+	}
+	return cfg
 }

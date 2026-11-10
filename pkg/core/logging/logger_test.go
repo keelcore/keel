@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -202,23 +201,6 @@ func failRename(t *testing.T) error {
 	rotateRename = func(string, string) error { return boom }
 	t.Cleanup(func() { rotateRename = orig })
 	return boom
-}
-
-// A rotation that fails leaves the write in the current file.
-func TestRotatingFile_WriteSurvivesAFailedRotation(t *testing.T) {
-	r, path := newRotating(t, RotationPolicy{MaxSizeMB: 1})
-	write(t, r, "first\n")
-	failRename(t)
-	write(t, r, strings.Repeat("x", 1024*1024))
-	if got := backups(t, path); len(got) != 0 {
-		t.Fatalf("backups = %v, want none", got)
-	}
-}
-
-func TestNewRotatingFile_OpenError(t *testing.T) {
-	if _, err := NewRotatingFile(filepath.Join(t.TempDir(), "missing", "keel.log"), RotationPolicy{}); err == nil {
-		t.Fatal("want an error for a path in a missing directory")
-	}
 }
 
 // TestLogger_Fatal_LogsBeforeExit verifies that Fatal writes the log line

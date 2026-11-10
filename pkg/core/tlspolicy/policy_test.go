@@ -1,7 +1,6 @@
 package tlspolicy
 
 import (
-	"crypto/tls"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,16 +10,6 @@ import (
 	"strings"
 	"testing"
 )
-
-func TestClientConfig_IsTheListenerPolicy(t *testing.T) {
-	c := ClientConfig()
-	if c.MinVersion != tls.VersionTLS13 {
-		t.Fatalf("MinVersion = %x, want TLS 1.3", c.MinVersion)
-	}
-	if b := Base(); len(c.CurvePreferences) != len(b.CurvePreferences) {
-		t.Fatalf("curves %v, policy %v", c.CurvePreferences, b.CurvePreferences)
-	}
-}
 
 // TestOutboundTLSPolicy_NoOtherPath: non-test code in pkg/ and cmd/ reaches the network only
 // through this package: no tls.Config or http.Transport literal, no default transport or client,

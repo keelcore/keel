@@ -47,3 +47,13 @@ func TestClientConfig_FIPSCurves(t *testing.T) {
 		t.Fatalf("curves = %v, want P-256, P-384", c.CurvePreferences)
 	}
 }
+
+func TestClientConfig_IsTheListenerPolicy(t *testing.T) {
+	c := ClientConfig()
+	if c.MinVersion != tls.VersionTLS13 {
+		t.Fatalf("MinVersion = %x, want TLS 1.3", c.MinVersion)
+	}
+	if b := Base(); len(c.CurvePreferences) != len(b.CurvePreferences) {
+		t.Fatalf("curves %v, policy %v", c.CurvePreferences, b.CurvePreferences)
+	}
+}

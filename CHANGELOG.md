@@ -42,6 +42,10 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- 49 unit tests move, unchanged, into the `{foo}_test.go` of the function their name tests (#40, partial), and
+  5 `mw` helpers follow their users into a file every user builds with (`auditRequest`, `auditAuthn`,
+  `auditTestSecret`, `serveAuthz`, `authzCfg`). 8 more test files named after no source are gone, among them
+  `jwks_authz_hardening_test.go`, so `go test -tags no_authz` compiles again.
 - 117 unit tests and 2 helpers in `pkg/` move into the `{foo}_test.go` of the source the type checker confirms they
   call (#40, partial), taking that file's build constraint. `pkg/core/acme/manager_test.go` becomes
   `package acme` (its `acme.` qualifiers go) so the internal acme tests can join it. Five tests stay with the

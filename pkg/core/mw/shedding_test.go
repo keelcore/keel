@@ -77,3 +77,39 @@ func TestShedding_ResponseBody_Overloaded(t *testing.T) {
 		t.Errorf("expected shedding response body to contain %q, got %q", "overloaded", rr.Body.String())
 	}
 }
+
+// Shedding passes through when readiness is OK.
+func TestShedding_Ready_PassesThrough(t *testing.T) {
+	r := probes.NewReadiness()
+	r.Set(true)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := Shedding(r, inner)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 when readiness=true, got %d", rr.Code)
+	}
+}
+
+// Shedding returns 503 when readiness is false.
+func TestShedding_NotReady_Returns503(t *testing.T) {
+	r := probes.NewReadiness()
+	r.Set(false)
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := Shedding(r, inner)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 when readiness=false, got %d", rr.Code)
+	}
+}

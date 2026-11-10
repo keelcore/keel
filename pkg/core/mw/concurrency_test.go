@@ -146,3 +146,104 @@ func TestConcurrencyLimit_QueuedContextTimeout(t *testing.T) {
 		t.Errorf("expected 503 for timed-out queued request, got %d", rr.Code)
 	}
 }
+
+// ConcurrencyLimit with MaxConcurrent <= 0 is a no-op pass-through.
+func TestConcurrencyLimit_Zero_Passthrough(t *testing.T) {
+	cfg := config.Config{Limits: config.LimitsConfig{MaxConcurrent: 0}}
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := ConcurrencyLimit(cfg, inner)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 from pass-through, got %d", rr.Code)
+	}
+}
+
+// ConcurrencyLimit allows requests within the limit.
+func TestConcurrencyLimit_WithinLimit_OK(t *testing.T) {
+	cfg := config.Config{Limits: config.LimitsConfig{MaxConcurrent: 5, QueueDepth: 0}}
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := ConcurrencyLimit(cfg, inner)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 within limit, got %d", rr.Code)
+	}
+}
+
+// ConcurrencyLimit returns 429 when at capacity and queue is full.
+func TestConcurrencyLimit_AtCapacity_Returns429(t *testing.T) {
+	cfg := config.Config{Limits: config.LimitsConfig{MaxConcurrent: 1, QueueDepth: 0}}
+	// Block the single slot.
+	ready := make(chan struct{})
+	release := make(chan struct{})
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(ready)
+		<-release
+		w.WriteHeader(http.StatusOK)
+	})
+	h := ConcurrencyLimit(cfg, inner)
+
+	// First request occupies the slot.
+	go func() {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		h.ServeHTTP(rr, req)
+	}()
+	<-ready // first request is now in flight
+
+	// Second request: slot full, queue depth=0 → 429.
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	h.ServeHTTP(rr, req)
+
+	close(release)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429 when at capacity, got %d", rr.Code)
+	}
+}
+
+// ConcurrencyLimit returns 503 when request context is cancelled while queued.
+func TestConcurrencyLimit_ContextCancelled_Returns503(t *testing.T) {
+	cfg := config.Config{Limits: config.LimitsConfig{MaxConcurrent: 1, QueueDepth: 5}}
+	// Block the single slot forever.
+	release := make(chan struct{})
+	ready := make(chan struct{})
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(ready)
+		<-release
+		w.WriteHeader(http.StatusOK)
+	})
+	h := ConcurrencyLimit(cfg, inner)
+
+	// First request occupies the slot.
+	go func() {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		h.ServeHTTP(rr, req)
+	}()
+	<-ready
+
+	// Second request: queued but ctx cancelled immediately → 503.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	h.ServeHTTP(rr, req)
+
+	close(release)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 when context cancelled in queue, got %d", rr.Code)
+	}
+}

@@ -22,6 +22,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/keelcore/keel/pkg/config"
+	"github.com/keelcore/keel/pkg/core/audit"
+	"github.com/keelcore/keel/pkg/core/ctxkeys"
 	"github.com/keelcore/keel/pkg/core/logging"
 )
 
@@ -876,3 +878,179 @@ func TestAuthnJWT_SecondSignerAccepted(t *testing.T) {
 		t.Errorf("expected 200 (second signer accepted), got %d", rr.Code)
 	}
 }
+
+func TestAuthnJWT_AuditsEveryOutcome(t *testing.T) {
+	ok := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	for _, tc := range []struct {
+		name    string
+		trusted []string
+		token   func(t *testing.T) string
+		want    audit.Event
+	}{
+		{"no token", nil, func(*testing.T) string { return "" },
+			audit.Event{Event: "authn_failure", SourceIP: "203.0.113.7", Outcome: "deny", Detail: "missing bearer token"}},
+		{"bad token", nil, func(*testing.T) string { return "garbage" },
+			audit.Event{Event: "authn_failure", SourceIP: "203.0.113.7", Outcome: "deny", Detail: "invalid token"}},
+		{"valid", nil, func(t *testing.T) string { return hs256Token(t, auditTestSecret, "alice") },
+			audit.Event{Event: "authn_success", Principal: "alice", SourceIP: "203.0.113.7", Outcome: "allow"}},
+		{"not on the allow list", []string{"bob"}, func(t *testing.T) string { return hs256Token(t, auditTestSecret, "alice") },
+			audit.Event{Event: "authn_forbidden", Principal: "alice", SourceIP: "203.0.113.7", Outcome: "deny"}},
+	} {
+		h, got := auditAuthn(t, tc.trusted, ok)
+		h.ServeHTTP(httptest.NewRecorder(), auditRequest(tc.token(t)))
+		if len(*got) != 1 || (*got)[0] != tc.want {
+			t.Errorf("%s: events = %+v, want [%+v]", tc.name, *got, tc.want)
+		}
+	}
+}
+
+// The authenticated subject reaches later middleware through the request context.
+func TestAuthnJWT_PutsThePrincipalInTheContext(t *testing.T) {
+	var principal any
+	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { principal = r.Context().Value(ctxkeys.Principal) })
+	h, _ := auditAuthn(t, nil, next)
+	h.ServeHTTP(httptest.NewRecorder(), auditRequest(hs256Token(t, auditTestSecret, "alice")))
+	if principal != "alice" {
+		t.Fatalf("principal = %v", principal)
+	}
+}
+
+func TestAuthnJWT_MissingBearer_401(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	h := AuthnJWT(config.Config{}, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), log)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for missing bearer, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_InvalidToken_401(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{"secret-key"}}}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), log)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("authorization", "Bearer not.a.valid.token")
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for invalid token, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_ValidToken_NoAllowList_200(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{Authn: config.AuthnConfig{TrustedSigners: []string{"secret-key"}}}
+	called := false
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}), log)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("authorization", "Bearer "+hs256Token(t, "secret-key", "alice"))
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK || !called {
+		t.Errorf("expected 200 and inner called, got %d called=%v", rr.Code, called)
+	}
+}
+
+func TestAuthnJWT_ValidToken_AllowedSub_200(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedSigners: []string{"secret-key"},
+		TrustedIDs:     []string{"alice"},
+	}}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), log)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("authorization", "Bearer "+hs256Token(t, "secret-key", "alice"))
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for allowed sub, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_ValidToken_ForbiddenSub_403(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	cfg := config.Config{Authn: config.AuthnConfig{
+		TrustedSigners: []string{"secret-key"},
+		TrustedIDs:     []string{"bob"},
+	}}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), log)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("authorization", "Bearer "+hs256Token(t, "secret-key", "alice"))
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for forbidden sub, got %d", rr.Code)
+	}
+}
+
+func TestAuthnJWT_GetSignersDynamic_200(t *testing.T) {
+	log := logging.New(logging.Config{Out: io.Discard})
+	getSigners := func() []string { return []string{"secret-key"} }
+	h := AuthnJWT(config.Config{}, getSigners, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), log)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("authorization", "Bearer "+hs256Token(t, "secret-key", "alice"))
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 via dynamic getSigners, got %d", rr.Code)
+	}
+}
+
+// With WithTrustedIDs the allowlist is read per request, so a reload that
+// removes a principal revokes it immediately.
+func TestAuthnJWT_WithTrustedIDsIsLive(t *testing.T) {
+	set := TrustedIDSet([]string{"alice"})
+	var cfg config.Config
+	cfg.Authn.TrustedSigners = []string{policySecret}
+	h := AuthnJWT(cfg, nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}),
+		logging.New(logging.Config{Out: io.Discard}), WithTrustedIDs(func() map[string]struct{} { return set }))
+	call := func() int {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+policyToken(t, jwt.MapClaims{"sub": "alice", "exp": time.Now().Add(time.Minute).Unix()}))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := call(); code != http.StatusOK {
+		t.Fatalf("allowed principal: status %d, want 200", code)
+	}
+	set = TrustedIDSet([]string{"bob"}) // reload removes alice
+	if code := call(); code != http.StatusForbidden {
+		t.Fatalf("revoked principal: status %d, want 403", code)
+	}
+}
+
+func auditAuthn(t *testing.T, trusted []string, next http.Handler) (http.Handler, *[]audit.Event) {
+	t.Helper()
+	var got []audit.Event
+	cfg := config.Defaults()
+	cfg.Authn.Enabled = true
+	cfg.Authn.TrustedSigners = []string{auditTestSecret}
+	cfg.Authn.TrustedIDs = trusted
+	h := AuthnJWT(cfg, nil, next, logging.New(logging.Config{Out: io.Discard}),
+		WithAudit(func(e audit.Event) { got = append(got, e) }))
+	return h, &got
+}
+
+const auditTestSecret = "0123456789abcdef0123456789abcdef"
