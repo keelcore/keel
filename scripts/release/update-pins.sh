@@ -530,14 +530,18 @@ function discover_npmlock() {
   done < <(files_of 'package.json' '*/package.json')
 }
 
-# digest_pinned_filter: drop file:line:text matches from a Containerfile whose image is
-# named by its build context (containers/NAME/image.ref) — packages it installs at build time are
-# fixed by that digest.
+# digest_pinned_filter: drop file:line:text matches from a build file whose image is named by its
+# build context — packages it installs at build time are fixed by that image: a
+# containers/NAME/Containerfile with containers/NAME/image.ref, or a build file
+# config/tool-images.local.txt lists with its <BUILD FILE>.image.ref (scripts/lib/dev-image.sh tool_images).
 function digest_pinned_filter() {
-  local line file
+  local line file listed=''
+  [ ! -f config/tool-images.local.txt ] \
+    || listed="$(sed 's/#.*//' config/tool-images.local.txt | awk -F'\t' 'NF >= 3 { print $2 }')"
   while IFS= read -r line; do
     file="${line%%:*}"
     [[ "${file}" == */Containerfile ]] && [ -s "$(dirname "${file}")/image.ref" ] && continue
+    grep -qxF -- "${file}" <<< "${listed}" && [ -s "${file}.image.ref" ] && continue
     printf '%s\n' "${line}"
   done
 }
@@ -1114,9 +1118,13 @@ function held() {
 # ── Dependabot union ─────────────────────────────────────────────────────────
 # The recommendation set is the union of update-pins' own resolution and
 # Dependabot's (open PRs and alerts). Each resolved pin gains an 11th field,
-# its SOURCE: update-pins | dependabot | both (stale pins), else "-". Where the
-# two disagree, the newer candidate is taken; the verification loop treats both
-# alike.
+# its SOURCE: update-pins | dependabot | both (stale pins), else "-". A PR is
+# held to update-pins' own eligibility (the cooldown, no prereleases, majors
+# report-only): it agrees with update-pins' candidate (SOURCE both), or it is
+# a note. update-pins' candidate is the newest eligible release, so a PR for
+# a newer one is not eligible. An alert's patched version is a security fix:
+# no cooldown, and the newer of it and update-pins' candidate is taken. The
+# verification loop treats both alike.
 
 # repo_slug: owner/repo of the first GitHub remote.
 function repo_slug() {
@@ -1141,41 +1149,69 @@ function dependabot_suggestions() {
   fi
 }
 
-# suggestion_for KIND NAME SUGGESTIONS: the newest suggested "<version>\t<origin>"
+# suggestions_for KIND NAME CURRENT SUGGESTIONS: each suggested "<version>\t<origin>"
 # for a pin. Names match exactly, as an action sub-path (owner/repo/sub), or as
-# an image's repository without tag (golang:1.27.3 ↔ golang).
-function suggestion_for() {
-  local -r kind="${1}" name="${2}" suggestions="${3}"
-  local key="${name}" sname sver sorigin best='' best_origin=''
+# an image's repository without tag (golang:1.27.3 ↔ golang). Dependabot drops
+# the "v" the pin may carry; the version keeps the pin's own style.
+function suggestions_for() {
+  local -r kind="${1}" name="${2}" current="${3}" suggestions="${4}"
+  local key="${name}" sname sver sorigin
   [ "${kind}" = 'image' ] && key="$(sed -E 's#^(docker\.io/)?(library/)?##; s#:[^:/]*$##' <<< "${name}")"
   while IFS=$'\t' read -r sname sver sorigin; do
     [ -n "${sname}" ] || continue
     [ "${sname}" = "${key}" ] || [[ "${key}" == "${sname}/"* ]] || continue
-    { [ -z "${best}" ] || newer "${sver}" "${best}"; } && { best="${sver}"; best_origin="${sorigin}"; }
+    [[ "${current}" == v* && "${sver}" != v* ]] && sver="v${sver}"
+    printf '%s\t%s\n' "${sver}" "${sorigin}"
   done <<< "${suggestions}"
+}
+
+# suggestion_for KIND NAME CURRENT SUGGESTIONS: the newest of suggestions_for.
+function suggestion_for() {
+  local sver sorigin best='' best_origin=''
+  while IFS=$'\t' read -r sver sorigin; do
+    [ -n "${sver}" ] || continue
+    { [ -z "${best}" ] || newer "${sver}" "${best}"; } && { best="${sver}"; best_origin="${sorigin}"; }
+  done < <(suggestions_for "$@")
   [ -n "${best}" ] && printf '%s\t%s' "${best}" "${best_origin}"
 }
 
 function dependabot_union() {
   local -r resolved="${1}"
-  local suggestions kind name loc current source status cand age note locs sug sver sorigin origin
+  local suggestions prs alerts kind name loc current source status cand age note locs sug sver sorigin origin bound
   suggestions="$(dependabot_suggestions)"
+  prs="$(awk -F '\t' '$3 ~ /^PR /' <<< "${suggestions}")"
+  alerts="$(awk -F '\t' '$3 !~ /^PR /' <<< "${suggestions}")"
   while IFS=$'\t' read -r kind name loc current source status cand age note locs; do
     [ -n "${kind}" ] || continue
     origin='-'
     [ "${status}" = 'stale' ] && origin='update-pins'
-    sug="$(suggestion_for "${kind}" "${name}" "${suggestions}")"
+    # An image suggestion changes the tag; the image adapter refreshes digests
+    # only, so it stays a note (report-only), as does one for a pin update-pins
+    # does not move.
+    if [ "${kind}" = 'image' ] || [[ "${status}" =~ ^(hold|unpinned|unresolved)$ ]]; then
+      sug="$(suggestion_for "${kind}" "${name}" "${current}" "${suggestions}")"
+      if [ -n "${sug}" ]; then
+        IFS=$'\t' read -r sver sorigin <<< "${sug}"
+        note="${note#-} (dependabot: ${sver}, ${sorigin})"
+      fi
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "${kind}" "${name}" "${loc}" "${current}" "${source}" \
+        "${status}" "${cand}" "${age}" "${note:--}" "${locs}" "${origin}"
+      continue
+    fi
+    bound="${current}"
+    [ "${status}" = 'stale' ] && bound="${cand}"
+    while IFS=$'\t' read -r sver sorigin; do
+      [ -n "${sver}" ] || continue
+      if [ "${status}" = 'stale' ] && [ "${sver}" = "${cand}" ]; then
+        origin='both'
+      elif newer "${sver}" "${bound}"; then
+        note="${note#-} (dependabot: ${sver}, ${sorigin}: not eligible)"
+      fi
+    done < <(suggestions_for "${kind}" "${name}" "${current}" "${prs}")
+    sug="$(suggestion_for "${kind}" "${name}" "${current}" "${alerts}")"
     if [ -n "${sug}" ]; then
       IFS=$'\t' read -r sver sorigin <<< "${sug}"
-      # Dependabot drops the "v" the pin may carry; keep the pin's own style.
-      [[ "${current}" == v* && "${sver}" != v* ]] && sver="v${sver}"
-      # An image suggestion changes the tag; the image adapter refreshes digests
-      # only, so it stays a note (report-only).
-      [ "${kind}" = 'image' ] && status="note:${status}"
       case "${status}" in
-        hold | unpinned | unresolved | note:*)
-          status="${status#note:}"
-          note="${note#-} (dependabot: ${sver}, ${sorigin})" ;;
         stale)
           if newer "${sver}" "${cand}"; then
             note="update-pins: ${cand}, dependabot: ${sver} (${sorigin})"

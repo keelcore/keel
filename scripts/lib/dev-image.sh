@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # scripts/lib/dev-image.sh
-# Naming and identity of a repository's tool images (containers/NAME/Containerfile),
-# shared by scripts/dev/run.sh (runs make targets in them) and
-# scripts/dev/publish.sh (builds and pushes them to the registry).
+# Naming and identity of a repository's tool images (containers/NAME/Containerfile, and each build
+# file config/tool-images.local.txt lists: tool_images), shared by scripts/dev/run.sh (runs make
+# targets in them) and scripts/dev/publish.sh (builds and pushes them to the registry).
 #
-# An image is identified by its build context: the Containerfile, every file it
-# COPYs, and — for a Containerfile with `ARG BASE_DEV_IMAGE` — the .standards dev
-# image it builds on. Published images are tagged ctx-<hash>, and containers/NAME/image.ref names the
-# one built from each commit (scripts/dev/update-dev-image-ref.sh):
+# An image is identified by its build file, wherever it lives: the build file, every file it
+# COPYs from its context directory, and — for a build file with `ARG BASE_DEV_IMAGE` — the .standards
+# dev image it builds on. Published images are tagged ctx-<hash>, and containers/NAME/image.ref (a
+# listed image: <BUILD FILE>.image.ref) names the one built from each commit
+# (scripts/dev/update-dev-image-ref.sh):
 #   ghcr.io/keelcore/<repo>-<name>:ctx-<hash>
 #
 # Environment: KEELCORE_DEV_IN_HOOK (default empty; scripts/hooks/pre-commit sets 1: run.sh never builds
@@ -94,25 +95,95 @@ function dev_repository() {
   printf '%s/%s-%s' "$(dev_registry)" "$(dev_repo_name "${1}")" "${2}"
 }
 
+# tool_images [FROM]: every tool image of the repository at the working directory, one per line:
+#   NAME<TAB>BUILD FILE<TAB>CONTEXT DIR<TAB>REF FILE
+# first each containers/NAME/Containerfile (context ., named in containers/NAME/image.ref), then each
+# line of config/tool-images.local.txt, `NAME<TAB>BUILD FILE<TAB>CONTEXT DIR` (named in
+# <BUILD FILE>.image.ref, beside it). FROM: empty for the working tree, staged for the index. A
+# malformed line, a name that is not [a-z0-9-] or that another image has, fails naming the line:
+# capture the list (list="$(tool_images)") so the failure stops the caller.
+function tool_images() {
+  local -r from="${1:-}" list='config/tool-images.local.txt'
+  local cf containers=''
+  if [ "${from}" = 'staged' ]; then
+    containers="$(git ls-files -c -- 'containers/*/Containerfile' | grep -E '^containers/[^/]+/Containerfile$' || true)"
+  else
+    for cf in containers/*/Containerfile; do
+      [ -f "${cf}" ] && containers+="${cf}"$'\n'
+    done
+  fi
+  {
+    printf '%s\n' "${containers}" | awk 'NF { split($0, p, "/"); print "C\t" p[2] "\t" $0 }'
+    tool_images_read "${list}" "${from}" | awk '{ print "L\t" NR "\t" $0 }'
+  } | awk -F'\t' -v list="${list}" '
+    $1 == "C" { name[$2] = 1; printf "%s\t%s\t.\tcontainers/%s/image.ref\n", $2, $3, $2; next }
+    {
+      line = $0; sub(/^L\t[0-9]+\t/, "", line); sub(/#.*/, "", line); sub(/[[:space:]]+$/, "", line)
+      if (line == "") next
+      n = split(line, f, "\t")
+      where = list ":" $2
+      if (n != 3 || f[2] == "" || f[3] == "") { bad = where ": expected NAME<TAB>BUILD FILE<TAB>CONTEXT DIR"; exit 1 }
+      if (f[1] !~ /^[a-z0-9][a-z0-9-]*$/) { bad = where ": " f[1] " is not a name of [a-z0-9-]"; exit 1 }
+      if (f[1] in name) { bad = where ": " f[1] " names another tool image"; exit 1 }
+      name[f[1]] = 1
+      ctx = f[3]; sub(/\/+$/, "", ctx); if (ctx == "") ctx = "."
+      printf "%s\t%s\t%s\t%s.image.ref\n", f[1], f[2], ctx, f[2]
+    }
+    END { if (bad != "") { print "❌ " bad > "/dev/stderr"; exit 1 } }'
+}
+
+# tool_images_read FILE [FROM]: FILE as the working tree (or, with staged, the index) holds it; nothing when absent.
+function tool_images_read() {
+  if [ "${2:-}" = 'staged' ]; then
+    git show ":${1}" 2> /dev/null || true
+  elif [ -f "${1}" ]; then
+    cat "${1}"
+  fi
+}
+
+# dev_image_field NAME FIELD [DIR [FROM]]: one field of NAME's tool_images line in DIR (2: build file, 3:
+# context dir, 4: ref file); an image not listed is containers/NAME.
+function dev_image_field() {
+  local -r name="${1}" field="${2}" dir="${3:-.}" from="${4:-}"
+  local list
+  list="$(cd "${dir}" && tool_images "${from}")" || return 1
+  awk -F'\t' -v n="${name}" -v f="${field}" '$1 == n { print $f; found = 1; exit } END { exit !found }' <<< "${list}" \
+    && return 0
+  case "${field}" in
+    2) printf 'containers/%s/Containerfile\n' "${name}" ;;
+    3) printf '.\n' ;;
+    4) printf 'containers/%s/image.ref\n' "${name}" ;;
+  esac
+}
+
+# dev_containerfile NAME [DIR [FROM]]: the build file of DIR's NAME image.
 function dev_containerfile() {
-  printf 'containers/%s/Containerfile' "${1}"
+  dev_image_field "${1}" 2 "${2:-.}" "${3:-}"
 }
 
+# dev_context_dir NAME [DIR [FROM]]: the build context directory of DIR's NAME image (. for containers/NAME).
+function dev_context_dir() {
+  dev_image_field "${1}" 3 "${2:-.}" "${3:-}"
+}
+
+# dev_ref_file NAME [DIR [FROM]]: the file naming DIR's NAME image: containers/NAME/image.ref, or
+# <BUILD FILE>.image.ref for a listed image.
 function dev_ref_file() {
-  printf 'containers/%s/image.ref' "${1}"
+  dev_image_field "${1}" 4 "${2:-.}" "${3:-}"
 }
 
-# dev_has_base DIR NAME: whether DIR's NAME Containerfile builds on the .standards dev image.
+# dev_has_base DIR NAME: whether DIR's NAME build file builds on the .standards dev image.
 function dev_has_base() {
-  grep -qE '^ARG BASE_DEV_IMAGE' "${1}/$(dev_containerfile "${2}")"
+  grep -qE '^ARG BASE_DEV_IMAGE' "${1}/$(dev_containerfile "${2}" "${1}")"
 }
 
-# dev_context_files DIR NAME [staged]: the Containerfile and every file it COPYs from the build context:
-# the files the index holds with staged, else the tree's.
+# dev_context_files DIR NAME [staged]: the build file and every file it COPYs from its build context
+# directory: the files the index holds with staged, else the tree's.
 function dev_context_files() {
   local -r dir="${1}" from="${3:-}"
-  local cf
-  cf="$(dev_containerfile "${2}")"
+  local cf ctx
+  cf="$(dev_containerfile "${2}" "${dir}" "${from}")"
+  ctx="$(dev_context_dir "${2}" "${dir}" "${from}")"
   printf '%s\n' "${cf}"
   dev_context_read "${dir}" "${cf}" "${from}" | awk '
     { line = line $0 }
@@ -120,10 +191,12 @@ function dev_context_files() {
     { print line; line = "" }
   ' | awk '$1 == "COPY" && $2 !~ /^--from=/ { for (i = 2; i < NF; i++) print $i }' \
     | while IFS= read -r src; do
+        src="${src%/}"
+        [ "${ctx}" = '.' ] || src="${ctx}/${src}"
         if [ "${from}" = 'staged' ]; then
-          (cd "${dir}" && git ls-files -c -- "${src%/}")
+          (cd "${dir}" && git ls-files -c -- "${src}")
         else
-          (cd "${dir}" && git ls-files -co --exclude-standard -- "${src%/}")
+          (cd "${dir}" && git ls-files -co --exclude-standard -- "${src}")
         fi
       done | sort -u
 }
@@ -161,7 +234,7 @@ function dev_context_hash() {
 # dev_base_ref DIR NAME: the image NAME builds on: the name its .standards pins, empty if it builds on none.
 function dev_base_ref() {
   dev_has_base "${1}" "${2}" || return 0
-  head -1 "${1}/.standards/$(dev_ref_file dev)"
+  head -1 "${1}/.standards/$(dev_ref_file dev "${1}/.standards")"
 }
 
 # dev_tree_hash DIR NAME [staged]: the context hash of DIR's NAME image, with the base it builds on.
@@ -173,6 +246,15 @@ function dev_tree_hash() {
 # context as the index holds it with staged (the commit being made), else as the tree holds it.
 function dev_pin_ref() {
   printf '%s:ctx-%s' "$(dev_repository "${1}" "${2}")" "$(dev_tree_hash "${1}" "${2}" "${3:-}")"
+}
+
+# dev_tool_image NAME: the reference of this repository's NAME tool image, on this machine: the published
+# image, pulled, else a local build of the same context (scripts/dev/run.sh), so a script pulls an image
+# instead of building one of its own.
+function dev_tool_image() {
+  local -r run="$(dirname "${BASH_SOURCE[0]}")/../dev/run.sh"
+  bash "${run}" --image "${1}" --fetch-image >&2 || return 1
+  bash "${run}" --image "${1}" --image-ref
 }
 
 # dev_published_ref REPOSITORY HASH: REPOSITORY:ctx-HASH when the registry holds it (registry metadata

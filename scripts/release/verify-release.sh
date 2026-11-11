@@ -2,12 +2,14 @@
 # scripts/release/verify-release.sh
 # The release verifies its own output as its last step. Fails unless every
 # published artifact carries this workflow's signatures and attestations:
-#   - each image index: cosign signature, OpenVEX attestation,
-#     GitHub SLSA provenance; each arch image behind it: cosign signature and
-#     SPDX SBOM attestation;
+#   - each image index: what every published image carries (cosign signature, SPDX SBOM and SLSA
+#     provenance attestations in the registry, the provenance in GitHub's store: sign-image.sh) and an
+#     OpenVEX attestation; each arch image behind it: what every published image carries;
 #   - vX.Y, vX and latest resolve to the max index;
 #   - each release binary and SHA256SUMS: cosign bundle and GitHub provenance;
-#   - the Helm chart: cosign signature.
+#   - the Helm chart: cosign signature;
+#   - each tool image the release names (dev-image.txt), by its ctx-<hash> index, and each arch image behind
+#     it: what every published image carries, from the workflow that published it (dev-image.yml).
 #
 # Required environment variables:
 #   <VARIANT>_DIGEST                   — each variant's index digest (sha256:...) from publish-release-images.sh
@@ -51,8 +53,14 @@ CHART="ghcr.io/${REPO%%/*}/charts/$(chart_name)"
 readonly CHART
 readonly DIST='dist'
 readonly SBOM_PREDICATE='https://spdx.dev/Document'
+readonly PROVENANCE_PREDICATE='https://slsa.dev/provenance/v1'
 readonly -a VERIFY_IDENTITY=(
   --certificate-identity-regexp "$(release_identity)"
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+)
+# Tool images are signed by the workflow that publishes them (dev-image.yml, called by ci.yml), not the release.
+readonly -a TOOL_IDENTITY=(
+  --certificate-identity-regexp "^https://github\\.com/${REPO}/\\.github/workflows/"
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 )
 # One at a time: concurrent runs of gh attestation verify failed to initialize their verifier on the runner.
@@ -71,7 +79,7 @@ function main() {
   local tag
   tag="$(git describe --tags --exact-match)"
   log "Verifying release ${tag}"
-  local -a steps=(aliases blobs chart)
+  local -a steps=(aliases blobs chart tool-images)
   local variant
   while IFS= read -r variant; do
     steps+=("index-${variant}")
@@ -88,6 +96,7 @@ function verify_step() {
     aliases) verify_aliases "${tag}" "$(variant_digest "$(primary_variant)")" ;;
     blobs) verify_blobs ;;
     chart) [ -z "$(chart_name)" ] || verify_chart "${tag#v}" ;;
+    tool-images) verify_tool_images ;;
   esac
 }
 
@@ -130,9 +139,8 @@ function verify_index() {
   local -r tag_ref="${3}"
   log "🔍 ${flavor}: ${ref}"
   expect_digest "${tag_ref}" "${2}"
-  cosign verify "${VERIFY_IDENTITY[@]}" "${ref}" >/dev/null
+  verify_image "${ref}" "${VERIFY_IDENTITY[@]}"
   cosign verify-attestation "${VERIFY_IDENTITY[@]}" --type openvex "${ref}" >/dev/null
-  gh_attest "oci://${ref}"
   local digests
   digests="$(arch_digests "${tag_ref}")"
   local -a refs=()
@@ -146,8 +154,7 @@ function verify_index() {
 function verify_arch() {
   local -r ref="${1}"
   log "   arch image ${ref}"
-  cosign verify "${VERIFY_IDENTITY[@]}" "${ref}" >/dev/null
-  cosign verify-attestation "${VERIFY_IDENTITY[@]}" --type "${SBOM_PREDICATE}" "${ref}" >/dev/null
+  verify_image "${ref}" "${VERIFY_IDENTITY[@]}"
 }
 
 # arch_digests prints the platform manifest digests behind an index.
@@ -189,6 +196,35 @@ function verify_blob() {
   log "🔍 blob ${blob}"
   cosign verify-blob "${VERIFY_IDENTITY[@]}" --bundle "${blob}.bundle" "${blob}" >/dev/null
   [ "${blob}" = "${DIST}/SHA256SUMS" ] || gh_attest "${blob}"
+}
+
+# verify_image REF IDENTITY...: what every published image index carries (scripts/release/sign-image.sh): its
+# signature, SPDX SBOM and SLSA provenance in the registry, and the provenance in GitHub's attestation store.
+function verify_image() {
+  local -r ref="${1}"
+  shift
+  cosign verify "$@" "${ref}" >/dev/null
+  cosign verify-attestation "$@" --type "${SBOM_PREDICATE}" "${ref}" >/dev/null
+  cosign verify-attestation "$@" --type "${PROVENANCE_PREDICATE}" "${ref}" >/dev/null
+  gh_attest "oci://${ref}"
+}
+
+# verify_tool_images: each tool image the release names (release_tool_images: dev-image.txt) carries what every
+# published image does (verify_image), by the index digest its ctx-<hash> tag resolves to and each arch image
+# behind it.
+function verify_tool_images() {
+  local image digest arches ref
+  while IFS= read -r image; do
+    [ -n "${image}" ] || continue
+    digest="$(docker buildx imagetools inspect "${image}" --format '{{json .Manifest}}' | jq -r '.digest')"
+    arches="$(arch_digests "${image}")"
+    for digest in "${digest}" ${arches}; do
+      ref="${image%:*}@${digest}"
+      log "🔍 tool image ${image}: ${ref}"
+      # Not the list on stdin: cosign (run.sh: docker run -i) would take the rest of it.
+      verify_image "${ref}" "${TOOL_IDENTITY[@]}" < /dev/null
+    done
+  done <<< "$(release_tool_images)"
 }
 
 function verify_chart() {

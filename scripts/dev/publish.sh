@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # scripts/dev/publish.sh
-# Publish the repository's tool images (containers/*/Containerfile) to the
-# registry, tagged by build context.
+# Publish the repository's tool images (containers/*/Containerfile, and each build file
+# config/tool-images.local.txt lists: tool_images in scripts/lib/dev-image.sh) to the registry, tagged
+# by build context. Each is built from its build file, in its context directory.
 #
 # Usage:
 #   publish.sh push ARCH   (CI, docker) build each image natively for ARCH (amd64 | arm64)
 #                          and push <repository>:ctx-<hash>-ARCH; skipped when the
 #                          multi-arch ctx-<hash> tag already exists
 #   publish.sh merge       (CI, docker) join the per-arch images into the multi-arch
-#                          <repository>:ctx-<hash> index and sign it keyless (cosign, in
-#                          the dev image)
+#                          <repository>:ctx-<hash> index and give it and each arch image behind it the
+#                          canonical signature, SBOM and SLSA provenance (scripts/release/sign-image.sh,
+#                          in the dev image)
 #   publish.sh local       (macOS, Apple container) build every unpublished image for
 #                          linux/amd64 and linux/arm64 and push it; the dev-image workflow signs it
 #
@@ -86,25 +88,27 @@ function registry_login() {
     | docker login "$(dev_registry | cut -d/ -f1)" -u "${GITHUB_ACTOR:?GITHUB_ACTOR is required}" --password-stdin
 }
 
-# for_each_image FN [ARG...]: FN NAME HASH ARG... for every image; images that build on the
-# .standards dev image come after the others.
+# for_each_image FN [ARG...]: FN NAME HASH BASE ARG... for every tool image (tool_images); images that
+# build on the .standards dev image come after the others. FN never reads the list: run.sh (docker run -i)
+# would take the rest of it.
 function for_each_image() {
   local -r fn="${1}"
   shift
-  local cf name base hash
-  for cf in containers/*/Containerfile; do
-    name="$(basename "$(dirname "${cf}")")"
+  local list name base hash
+  list="$(tool_images)"
+  while IFS=$'\t' read -r name _; do
+    [ -n "${name}" ] || continue
     dev_has_base . "${name}" && continue
     hash="$(dev_context_hash . "${name}")"
-    "${fn}" "${name}" "${hash}" '' "$@"
-  done
-  for cf in containers/*/Containerfile; do
-    name="$(basename "$(dirname "${cf}")")"
+    "${fn}" "${name}" "${hash}" '' "$@" < /dev/null
+  done <<< "${list}"
+  while IFS=$'\t' read -r name _; do
+    [ -n "${name}" ] || continue
     dev_has_base . "${name}" || continue
     base="$(standards_ref)"
     hash="$(dev_context_hash . "${name}" "${base}")"
-    "${fn}" "${name}" "${hash}" "${base}" "$@"
-  done
+    "${fn}" "${name}" "${hash}" "${base}" "$@" < /dev/null
+  done <<< "${list}"
 }
 
 # standards_ref: the .standards dev image an image builds on. Never an unpublished base.
@@ -129,7 +133,7 @@ function push_image() {
   local -a args=(build --platform "linux/${arch}" -f "$(dev_containerfile "${name}")" -t "${tag}-${arch}")
   [ -z "${base}" ] || args+=(--build-arg "BASE_DEV_IMAGE=${base}")
   log "🔨 ${tag}-${arch}"
-  docker "${args[@]}" .
+  docker "${args[@]}" "$(dev_context_dir "${name}")"
   docker push "${tag}-${arch}"
 }
 
@@ -137,17 +141,26 @@ function merge_image() {
   local -r name="${1}" hash="${2}"
   local -r tag="$(dev_repository . "${name}"):ctx-${hash}"
   if published "${tag}"; then
-    log "✅ ${tag} already published (signing it if it is not signed yet)"
+    log "✅ ${tag} already published (signing and attesting it if it is not yet)"
   else
     docker buildx imagetools create -t "${tag}" "${tag}-amd64" "${tag}-arm64"
   fi
   local digest
   digest="$(docker buildx imagetools inspect "${tag}" --format '{{json .Manifest}}' | jq -r '.digest')"
   [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || { log "❌ no digest for ${tag}"; exit 1; }
-  bash scripts/dev/run.sh bash scripts/dev/sign-dev-image.sh "${tag%:*}@${digest}"
+  local images image
+  images="$(arch_digests "${tag}")"
+  for image in "${digest}" ${images}; do
+    bash scripts/dev/run.sh bash scripts/release/sign-image.sh "${tag%:*}@${image}" "ctx-${hash}"
+  done
   log "✅ ${tag}@${digest}"
   [ -z "${GITHUB_STEP_SUMMARY}" ] || printf '`%s`: `%s@%s`\n' "$(dev_ref_file "${name}")" "${tag}" "${digest}" \
     >> "${GITHUB_STEP_SUMMARY}"
+}
+
+# arch_digests TAG: the platform images behind an index (not its build attestation manifests).
+function arch_digests() {
+  docker buildx imagetools inspect "${1}" --raw | jq -r '.manifests[] | select(.platform.os == "linux") | .digest'
 }
 
 # local_login: registry login for Apple `container` with the developer's gh credentials
@@ -180,7 +193,7 @@ function local_image() {
     while IFS= read -r opt; do args+=("${opt}"); done < <(dev_builder_args)
     [ -z "${base}" ] || args+=(--build-arg "BASE_DEV_IMAGE=${base}")
     log "🔨 ${tag} (linux/amd64, linux/arm64)"
-    container "${args[@]}" .
+    container "${args[@]}" "$(dev_context_dir "${name}")"
     container image push "${tag}"
   fi
 }

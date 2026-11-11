@@ -8,7 +8,8 @@
 #        run.sh [--image NAME] --image-ref     print the image reference; nothing fetched or built
 #        run.sh [--image NAME] --fetch-image   put the image on this machine
 #
-# Images: containers/NAME/Containerfile (default NAME: dev).
+# Images: containers/NAME/Containerfile (default NAME: dev), and each image config/tool-images.local.txt
+# lists, built from its build file in its context directory (scripts/lib/dev-image.sh tool_images).
 #
 # Mounts: the repository read-only, except its output directories (builds, coverage,
 # reports), which are writable: those listed in containers/writable, one per line, else
@@ -114,7 +115,7 @@ function dev_image() {
     hook_image "${dir}" "${name}"
     return
   fi
-  local -r cf="$(dev_containerfile "${name}")"
+  local -r cf="$(dev_containerfile "${name}" "${dir}")"
   [ -f "${dir}/${cf}" ] || { log "❌ ${dir}/${cf} not found"; exit 1; }
   local base hash tag
   base="$(dev_base_ref "${dir}" "${name}")"
@@ -138,7 +139,7 @@ function dev_image() {
     log "ℹ️  ctx-${hash} of ${dir} is not published yet; building it locally"
     local build_base=''
     [ -z "${base}" ] || build_base="$(dev_image "${dir}/.standards" dev)" || return 1
-    build_image "${dir}" "${cf}" "${tag}" "${build_base}" || { log "❌ building ${tag} failed"; exit 1; }
+    build_image "${dir}" "${name}" "${tag}" "${build_base}" || { log "❌ building ${tag} failed"; exit 1; }
   fi
   printf '%s' "${tag}"
 }
@@ -161,8 +162,13 @@ function hook_image() {
   return 1
 }
 
+# build_image DIR NAME TAG BASE: build DIR's NAME image from its build file, in its context directory, as TAG.
 function build_image() {
-  local -r dir="${1}" cf="${2}" tag="${3}" base="${4}"
+  local -r dir="${1}" name="${2}" tag="${3}" base="${4}"
+  local cf ctx
+  cf="$(dev_containerfile "${name}" "${dir}")"
+  ctx="$(dev_context_dir "${name}" "${dir}")"
+  if [ "${ctx}" = '.' ]; then ctx="${dir}"; else ctx="${dir}/${ctx}"; fi
   local -a args=(build -f "${dir}/${cf}" -t "${tag}")
   [ -z "${base}" ] || args+=(--build-arg "BASE_DEV_IMAGE=${base}")
   if [ "$(runtime)" = 'container' ]; then
@@ -171,7 +177,7 @@ function build_image() {
     while IFS= read -r opt; do args+=("${opt}"); done < <(dev_builder_args)
   fi
   log "🔨 Building image ${tag}..."
-  dev_watch "building ${tag}" "${KEELCORE_DEV_BUILD_TIMEOUT}" "$(runtime)" "${args[@]}" "${dir}"
+  dev_watch "building ${tag}" "${KEELCORE_DEV_BUILD_TIMEOUT}" "$(runtime)" "${args[@]}" "${ctx}"
 }
 
 # fetch_image NAME: NAME's image on this machine, built or pulled, ready for runs that follow.

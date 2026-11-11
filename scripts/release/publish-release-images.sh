@@ -12,10 +12,12 @@
 #
 # Per flavor and architecture: build → SBOM from the local image + grype scan
 # (fail on fixable HIGH/CRITICAL) → push the arch tag → sign + attest that SBOM
-# by digest. Then per flavor: assemble the multi-arch index under the primary
-# tag → sign it → attest the OpenVEX document to it → record its digest in
-# $GITHUB_OUTPUT → move aliases (the primary variant only). Aliases move last, so a failure
-# never leaves vX.Y / vX / latest on an unsigned image.
+# by digest → the treatment every published image gets (scripts/release/sign-image.sh: its SLSA
+# provenance, in the registry and GitHub's attestation store). Then per flavor: assemble the multi-arch
+# index under the primary tag → sign it → attest the OpenVEX document to it → the treatment every
+# published image gets (the index's SBOM and SLSA provenance; the job needs id-token, packages and
+# attestations: write) → record its digest in $GITHUB_OUTPUT → move aliases (the primary variant only).
+# Aliases move last, so a failure never leaves vX.Y / vX / latest on an unsigned image.
 #
 # Image metadata is reproducible: org.opencontainers.image.created and
 # SOURCE_DATE_EPOCH come from the commit time (UTC), never the wall clock.
@@ -170,12 +172,14 @@ function publish_flavor() {
   index="$(create_index "${primary_tag}" "${arch_digests[@]}")"
   sign_image "${index}"
   attest_predicate "${index}" "${VEX_DOCUMENT}" 'openvex'
+  bash scripts/dev/run.sh bash scripts/release/sign-image.sh "${index}" "${tag}" >&5
   record_digest "${flavor}" "${index}"
   push_aliases "${flavor}" "${tag}" "${primary_tag}"
 }
 
-# publish_arch builds, scans, pushes, signs and attests one arch image and
-# writes its digest reference (<image>@sha256:...) to DIGESTS/ARCH.
+# publish_arch builds, scans, pushes, signs and attests one arch image (its own SBOM, then the treatment
+# every published image gets: scripts/release/sign-image.sh) and writes its digest reference
+# (<image>@sha256:...) to DIGESTS/ARCH.
 function publish_arch() {
   local -r arch="${1}"
   local -r flavor="${2}"
@@ -186,6 +190,7 @@ function publish_arch() {
   digest="$(push_image "${ref}")"
   sign_image "${digest}"
   attest_predicate "${digest}" "$(sbom_path "${flavor}" "${arch}")" "${SBOM_PREDICATE}"
+  bash scripts/dev/run.sh bash scripts/release/sign-image.sh "${digest}" "${3}" >&5
   printf '%s\n' "${digest}" > "${5}/${arch}"
 }
 
@@ -212,8 +217,9 @@ function build_image() {
   log "  Building ${ref} (flavor=${flavor}, linux/${arch})"
   # --provenance/--sbom off: this script attests its own SBOM and the workflow
   # attests SLSA provenance, so each pushed arch image stays a plain manifest.
-  local -a dev_image=()
-  [ -z "$(release_dev_image)" ] || dev_image=(--label "io.keelcore.dev-image=$(release_dev_image)")
+  local -a tool_labels=()
+  [ -z "$(release_dev_image)" ] || tool_labels=(--label "io.keelcore.dev-image=$(release_dev_image)")
+  [ -z "$(release_tool_images)" ] || tool_labels+=(--label "io.keelcore.tool-images=$(release_tool_images | paste -sd " " -)")
   docker build \
     --platform "linux/${arch}" --provenance=false --sbom=false \
     --file "${DOCKERFILE}" \
@@ -223,7 +229,7 @@ function build_image() {
     --label "org.opencontainers.image.version=${tag}" \
     --label "org.opencontainers.image.created=$(utc_timestamp "${epoch}")" \
     --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
-    ${dev_image[@]+"${dev_image[@]}"} \
+    ${tool_labels[@]+"${tool_labels[@]}"} \
     "${ctx}" >&5
   rm -rf "${ctx}"
 }

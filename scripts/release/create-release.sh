@@ -29,7 +29,7 @@
 # override is still audit-logged: in the signed tag message (Pins-Override
 # trailers: reason, git identity, UTC time, every stale pin), and appended as a
 # JSON line to <git-dir>/release-audit.log. Every tag message carries the pin
-# summary.
+# summary, and names the dev image (Dev-Image) and every tool image (Tool-Image) that built the release.
 #
 # Usage:
 #   create-release.sh [--force vX.Y.Z] [--dry-run] [--allow-stale-pins "<reason>"]
@@ -603,6 +603,10 @@ function build_tag_message() {
   fi
   printf '\n'
   [ -z "$(release_dev_image)" ] || printf 'Dev-Image: %s\n' "$(release_dev_image)"
+  local image
+  while IFS= read -r image; do
+    [ -z "${image}" ] || printf 'Tool-Image: %s\n' "${image}"
+  done <<< "$(release_tool_images)"
   pin_trailers
   printf 'Generated-by: scripts/release/create-release.sh\n'
 }

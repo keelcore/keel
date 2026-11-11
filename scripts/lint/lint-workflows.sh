@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # scripts/lint/lint-workflows.sh
 # Workflow security lint: actionlint (syntax, expressions, shellcheck of run: blocks) and
-# zizmor (template injection, credential persistence, cache poisoning, pin/version drift).
+# zizmor (template injection, credential persistence, cache poisoning, pin/version drift); first, every step
+# from one action repository pins one ref within a workflow (check_action_refs).
 # zizmor runs online audits when GH_TOKEN is set, offline otherwise.
 # Install with: make setup-actionlint setup-zizmor
 # Environment: GH_TOKEN (default empty).
@@ -33,6 +34,8 @@ function main() {
     log 'ℹ️  No workflows; nothing to lint'
     return 0
   fi
+  log '🔍 action refs'
+  check_action_refs
   require_tool actionlint
   require_tool zizmor
   log '🔍 actionlint'
@@ -61,6 +64,39 @@ function run_zizmor() {
   [ -n "${GH_TOKEN}" ] || { run=(env -u GH_TOKEN zizmor); mode=('--offline'); }
   [ ! -f "${ZIZMOR_CONFIG}" ] || mode+=(--config "${ZIZMOR_CONFIG}")
   "${run[@]}" ${mode[@]+"${mode[@]}"} "${WORKFLOWS}"
+}
+
+# check_action_refs: within each workflow, every step from one action repository (owner/repo, any sub-path)
+# uses one ref. Sub-actions of one release work together only at the same version: CodeQL's init and analyze
+# fail at different ones. Local (./) and docker:// steps are not action repositories.
+function check_action_refs() {
+  local failed=0 file finding
+  while IFS= read -r file; do
+    while IFS= read -r finding; do
+      [ -n "${finding}" ] || continue
+      log "❌ ${file}: ${finding}"
+      failed=1
+    done < <(awk '
+      {
+        line = $0
+        gsub(/["\047]/, "", line)
+        if (!match(line, /uses:[ \t]*[^ \t#]+/)) next
+        s = substr(line, RSTART, RLENGTH)
+        sub(/^uses:[ \t]*/, "", s)
+        if (s ~ /^(\.|docker:)/ || index(s, "@") == 0) next
+        at = index(s, "@")
+        split(substr(s, 1, at - 1), part, "/")
+        repo = part[1] "/" part[2]
+        ref = substr(s, at + 1)
+        if (!(repo in seen)) { seen[repo] = ref; next }
+        if (seen[repo] != ref && !(repo in reported)) {
+          reported[repo] = 1
+          printf "%s is pinned to both %s and %s; pin every step from it to one ref\n", repo, seen[repo], ref
+        }
+      }
+    ' "${file}")
+  done < <(find "${WORKFLOWS}" -name '*.yml' | sort)
+  return "${failed}"
 }
 
 function require_tool() {

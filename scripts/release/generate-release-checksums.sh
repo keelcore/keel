@@ -83,8 +83,9 @@ function generate_checksums() {
     exit 1
   fi
 
-  if [ -n "$(release_dev_image)" ]; then
-    release_dev_image > dist/dev-image.txt
+  # dist/dev-image.txt: every tool image that built the release, the dev image first.
+  if [ -n "$(release_tool_images)" ]; then
+    release_tool_images > dist/dev-image.txt
     sha256_generate dist/dev-image.txt >> "${SUMS_FILE}"
     log '  dist/dev-image.txt'
   fi

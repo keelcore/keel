@@ -95,3 +95,19 @@ function chart_name() {
 function release_dev_image() {
   [ ! -s containers/dev/image.ref ] || head -1 containers/dev/image.ref
 }
+
+# release_tool_images: the name of every tool image that built this tree, one per line, the dev image
+# first: containers/dev/image.ref, each other containers/NAME/image.ref, then each build file
+# config/tool-images.local.txt lists, by its <BUILD FILE>.image.ref (scripts/dev/update-dev-image-ref.sh).
+function release_tool_images() {
+  local file
+  {
+    printf 'containers/dev/image.ref\n'
+    for file in containers/*/image.ref; do
+      [ "${file}" = containers/dev/image.ref ] || printf '%s\n' "${file}"
+    done
+    config_lines config/tool-images.local.txt | awk -F'\t' 'NF >= 3 { print $2 ".image.ref" }'
+  } | while IFS= read -r file; do
+    [ ! -s "${file}" ] || head -1 "${file}"
+  done
+}

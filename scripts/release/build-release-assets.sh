@@ -13,7 +13,8 @@
 #     (*.github-attestations.json) and the checksum database record (*.zip.sumdb.txt)
 #   - one SBOM per published artifact (scripts/release/generate-sbom.sh): name, version, contents
 #   - one build-environment SBOM per tool image the release was built in (TAG's
-#     containers/*/image.ref), completed with the pinned tools syft cannot identify
+#     containers/*/image.ref and each listed <BUILD FILE>.image.ref), completed with the pinned tools
+#     syft cannot identify; dev-image.txt names every one of them
 #   - current_pins.md: every pinned input of TAG (its docs/current_pins.md)
 #   - LICENSE: the repository's license file at TAG
 #   - SHA256SUMS over all of the above, and a keyless cosign bundle per file
@@ -48,11 +49,25 @@ readonly FETCH_TRIES=30
 readonly FETCH_DELAY=30
 readonly LOCAL_HOOK='scripts/release/build-release-assets.local.sh'
 
-# copy_dev_image TAG DIR: the name of the dev image that built TAG, as a release asset.
+# copy_dev_image TAG DIR: the name of every tool image that built TAG, as the release asset
+# DIR/dev-image.txt, the dev image first: containers/dev/image.ref, each other containers/NAME/image.ref,
+# then each build file TAG's config/tool-images.local.txt lists, by its <BUILD FILE>.image.ref. Prints
+# each file it read.
 function copy_dev_image() {
-  if git cat-file -e "${1}:containers/dev/image.ref" 2> /dev/null; then
-    git show "${1}:containers/dev/image.ref" > "${2}/dev-image.txt"
-  fi
+  local -r tag="${1}" out="${2}/dev-image.txt"
+  local file
+  rm -f "${out}"
+  {
+    printf 'containers/dev/image.ref\n'
+    git ls-tree -r --name-only "${tag}" -- containers | grep -E '^containers/[^/]+/image\.ref$' \
+      | grep -vxF containers/dev/image.ref || true
+    git show "${tag}:config/tool-images.local.txt" 2> /dev/null | sed 's/#.*//' \
+      | awk -F'\t' 'NF >= 3 { print $2 ".image.ref" }' || true
+  } | while IFS= read -r file; do
+    git cat-file -e "${tag}:${file}" 2> /dev/null || continue
+    git show "${tag}:${file}" | head -1 >> "${out}"
+    printf '%s\n' "${file}"
+  done
 }
 
 function main() {
@@ -75,17 +90,19 @@ function main() {
   for f in "${artifacts[@]}"; do
     fetch_github_attestations "${f}"
   done
-  local ref_file image tools
+  local ref_file build tools
   while IFS= read -r ref_file; do
     [ -n "${ref_file}" ] || continue
-    image="$(basename "$(dirname "${ref_file}")")"
+    case "${ref_file}" in
+      containers/*/image.ref) build="$(dirname "${ref_file}")/Containerfile" ;;
+      *) build="${ref_file%.image.ref}" ;;
+    esac
     tools="$(mktemp)"
-    image_tools "${tag}" "${image}" > "${tools}"
+    image_tools "${tag}" "${build}" > "${tools}"
     bash scripts/release/generate-sbom.sh --out-dir "${dir}" --name "${name}-build-environment" --version "${version}" \
-      --tools "${tools}" "$(git show "${tag}:${ref_file}")"
+      --tools "${tools}" "$(git show "${tag}:${ref_file}" | head -1)"
     rm -f "${tools}"
-  done < <(git ls-tree -r --name-only "${tag}" -- containers | grep -E '/image\.ref$' || true)
-  copy_dev_image "${tag}" "${dir}"
+  done < <(copy_dev_image "${tag}" "${dir}")
   if git cat-file -e "${tag}:docs/current_pins.md" 2> /dev/null; then
     git show "${tag}:docs/current_pins.md" > "${dir}/current_pins.md"
   fi
@@ -255,11 +272,11 @@ function fetch_github_attestations() {
   log "✅ GitHub attestations for $(basename "${file}")"
 }
 
-# image_tools TAG IMAGE: name, version, purl and release URL (TSV) of every tool TAG's
-# containers/IMAGE/Containerfile installs with a pinned setup script that downloads a GitHub
+# image_tools TAG BUILD_FILE: name, version, purl and release URL (TSV) of every tool BUILD_FILE (a tool
+# image's, as TAG holds it) installs with a pinned setup script that downloads a GitHub
 # release or clones a release tag — the rows generate-sbom.sh --tools adds when syft cannot identify them.
 function image_tools() {
-  local -r tag="${1}" image="${2}"
+  local -r tag="${1}" build="${2}"
   local script content version repo tool v
   while IFS= read -r script; do
     content="$(tag_file "${tag}" "${script}")"
@@ -272,7 +289,7 @@ function image_tools() {
     # The release tag as the download URL spells it (v-prefixed for most tools; staticcheck: 2026.2.2).
     if grep -qE 'v\$\{[A-Z0-9_]+_VERSION\}' <<< "${content}"; then v="v${version#v}"; else v="${version}"; fi
     printf '%s\t%s\t%s\t%s\n' "${tool}" "${version#v}" "pkg:github/${repo}@${v}" "https://github.com/${repo}/releases/tag/${v}"
-  done < <(tag_file "${tag}" "containers/${image}/Containerfile" \
+  done < <(tag_file "${tag}" "${build}" \
     | grep -oE 'scripts/ci/setup-[a-z0-9-]+\.sh' | sort -u)
 }
 
