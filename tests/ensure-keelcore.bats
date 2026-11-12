@@ -3,8 +3,9 @@
 # keelcore's own releases take no update-pins cooldown: scripts/release/ensure-keelcore.sh moves each
 # github.com/keelcore/* module go.mod requires to its latest release, and each `FROM golang:` base image
 # to the Go release go.mod's toolchain names. `make update-pins` runs it first (make ensure-keelcore).
-# It runs here in a throwaway git tree against stubs of curl (the Go module proxy and Docker Hub),
-# the dev image (go get) and make (the verification).
+# It edits configuration only: no container, build or test runs. It runs here in a throwaway git tree
+# against stubs of curl (the Go module proxy and Docker Hub) and go; make and the dev image (run.sh) are
+# stubbed only to show they are never called.
 
 setup_file() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -40,8 +41,8 @@ export OLD NEW NEW_ALPINE
 
 # stub_tools writes the fake commands; every call lands in STATE/calls. curl answers the module proxy's
 # version list with LATEST_<last path element> between an older release and a newer prerelease, and a
-# Docker Hub manifest HEAD for golang:1.27.5 with NEW (NEW_ALPINE for -alpine); run.sh rewrites go.mod
-# for `go get M@V` and vendors a new file; make fails when MAKE_FAILS is set.
+# Docker Hub manifest HEAD for golang:1.27.5 with NEW (NEW_ALPINE for -alpine). go prints noise, rewrites
+# go.mod for `go get M@V`, vendors a new file for `go mod vendor`, and fails a call matching GO_FAILS.
 stub_tools() {
   cat > "${WORK}/bin/curl" <<'CURL'
 #!/usr/bin/env bash
@@ -58,22 +59,23 @@ case "${url}" in
   *) exit 22 ;;
 esac
 CURL
-  cat > "${WORK}/bin/make" <<'MAKE'
+  cat > "${WORK}/bin/go" <<'GO'
 #!/usr/bin/env bash
-printf 'make %s\n' "$*" >> "${STATE}/calls"
-[ -z "${MAKE_FAILS:-}" ]
-MAKE
-  cat > "${WORK}/scripts/dev/run.sh" <<'RUN'
-#!/usr/bin/env bash
-printf 'run.sh %s\n' "$*" >> "${STATE}/calls"
-spec="$(grep -oE 'go get [^ ]+@[^ ]+' <<< "$*")"
-spec="${spec#go get }"
-sed -i.bak -E "s#^([[:space:]]*)${spec%@*} v[^ ]+#\\1${spec%@*} ${spec#*@}#" go.mod
-rm -f go.mod.bak
-printf '# %s %s\n' "${spec%@*}" "${spec#*@}" > vendor/modules.txt
-: > vendor/new-file.go
-RUN
-  chmod +x "${WORK}/bin/curl" "${WORK}/bin/make" "${WORK}/scripts/dev/run.sh"
+printf 'go %s\n' "$*" >> "${STATE}/calls"
+printf 'go: downloading noise\n'
+printf 'go: stderr noise\n' >&2
+if [ -n "${GO_FAILS:-}" ] && [[ "$*" =~ ${GO_FAILS} ]]; then exit 1; fi
+case "$1 ${2:-}" in
+  'get '*)
+    spec="$2"
+    sed -i.bak -E "s#^([[:space:]]*)${spec%@*} v[^ ]+#\\1${spec%@*} ${spec#*@}#" go.mod
+    rm -f go.mod.bak ;;
+  'mod vendor') : > vendor/new-file.go ;;
+esac
+GO
+  printf '#!/usr/bin/env bash\nprintf "%%s %%s\\n" "$(basename "$0")" "$*" >> "${STATE}/calls"\n' > "${WORK}/bin/make"
+  cp "${WORK}/bin/make" "${WORK}/scripts/dev/run.sh"
+  chmod +x "${WORK}/bin/curl" "${WORK}/bin/go" "${WORK}/bin/make" "${WORK}/scripts/dev/run.sh"
 }
 
 # toolchain VERSION: go.mod's toolchain line names goVERSION, committed.
@@ -89,7 +91,7 @@ toolchain() {
   [ "${status}" -eq 0 ]
   [[ "${output}" == *'github.com/keelcore/knobs v0.8.7 → v0.8.8'* ]] || false
   grep -qxF $'\tgithub.com/keelcore/knobs v0.8.7' go.mod
-  ! grep -qE '^(run.sh|make)' "${STATE}/calls" || false
+  ! grep -qE '^(go|run.sh|make) ' "${STATE}/calls" || false
 }
 
 @test "ensure-keelcore: only github.com/keelcore/* modules are looked up, indirect ones included" {
@@ -104,18 +106,18 @@ toolchain() {
 @test "ensure-keelcore: --apply with everything current writes nothing" {
   run bash scripts/release/ensure-keelcore.sh --apply
   [ "${status}" -eq 0 ]
-  ! grep -qE '^(run.sh|make)' "${STATE}/calls" || false
+  ! grep -qE '^(go|run.sh|make) ' "${STATE}/calls" || false
   [ -z "$(git status --porcelain)" ]
 }
 
-@test "ensure-keelcore: --apply moves a keelcore module in the dev image, then builds and tests" {
+@test "ensure-keelcore: --apply moves a keelcore module with go get, tidy and vendor, quietly, and builds nothing" {
   export LATEST_knobs=v0.8.8
   run bash scripts/release/ensure-keelcore.sh --apply
   [ "${status}" -eq 0 ]
   grep -qxF $'\tgithub.com/keelcore/knobs v0.8.8' go.mod
-  grep -qE '^run.sh --writable .*go get github.com/keelcore/knobs@v0.8.8 && go mod tidy && go mod vendor' "${STATE}/calls"
-  grep -qx 'make build-min build-max test' "${STATE}/calls"
-  [ "$(grep -n '^run.sh' "${STATE}/calls" | cut -d: -f1)" -lt "$(grep -n '^make' "${STATE}/calls" | cut -d: -f1)" ]
+  [ "$(grep '^go ' "${STATE}/calls")" = $'go get github.com/keelcore/knobs@v0.8.8\ngo mod tidy\ngo mod vendor' ]
+  [[ "${output}" != *'noise'* ]] || false
+  ! grep -qE '^(run.sh|make) ' "${STATE}/calls" || false
 }
 
 @test "ensure-keelcore: a golang base image behind go.mod's toolchain is reported, and nothing is written" {
@@ -127,13 +129,13 @@ toolchain() {
   [ -z "$(git status --porcelain)" ]
 }
 
-@test "ensure-keelcore: --apply moves each golang base image to the toolchain's release by digest, then builds and tests" {
+@test "ensure-keelcore: --apply moves each golang base image to the toolchain's release by digest, and builds nothing" {
   toolchain 1.27.5
   run bash scripts/release/ensure-keelcore.sh --apply
   [ "${status}" -eq 0 ]
   grep -qxF "FROM golang:1.27.5@${NEW} AS builder" build/Dockerfile
   grep -qxF "FROM golang:1.27.5-alpine@${NEW_ALPINE}" build/Containerfile
-  grep -qx 'make build-min build-max test' "${STATE}/calls"
+  ! grep -qE '^(go|run.sh|make) ' "${STATE}/calls" || false
 }
 
 @test "ensure-keelcore: --apply fails, writing nothing, when the toolchain's golang image has no digest" {
@@ -142,15 +144,15 @@ toolchain() {
   [ "${status}" -ne 0 ]
   [[ "${output}" == *'no digest for golang:1.27.9'* ]] || false
   [ -z "$(git status --porcelain)" ]
-  ! grep -q '^make' "${STATE}/calls" || false
 }
 
-@test "ensure-keelcore: --apply restores every file it changed when the verification fails" {
-  export LATEST_knobs=v0.8.8 MAKE_FAILS=1
+@test "ensure-keelcore: --apply restores every file it changed when go fails, and names its log" {
+  export LATEST_knobs=v0.8.8 GO_FAILS='^mod vendor'
   toolchain 1.27.5
   run bash scripts/release/ensure-keelcore.sh --apply
   [ "${status}" -ne 0 ]
   [[ "${output}" == *'restored'* ]] || false
+  [[ "${output}" == *'/tmp/keel_ensure_keelcore.log'* ]] || false
   [ -z "$(git status --porcelain)" ]
 }
 
@@ -160,7 +162,7 @@ toolchain() {
   run bash scripts/release/ensure-keelcore.sh --apply
   [ "${status}" -ne 0 ]
   [[ "${output}" == *'uncommitted'* ]] || false
-  ! grep -qE '^(run.sh|make)' "${STATE}/calls" || false
+  ! grep -q '^go ' "${STATE}/calls" || false
   grep -qx 'local' go.sum
 }
 
@@ -170,8 +172,9 @@ toolchain() {
   ! grep -q '^curl' "${STATE}/calls" || false
 }
 
-@test "make update-pins runs ensure-keelcore first and passes it APPLY" {
+@test "make update-pins runs ensure-keelcore first and passes it APPLY; it needs no container runtime" {
   grep -qxF 'update-pins: | ensure-keelcore' "${REPO_ROOT}/Makefile"
+  grep -qxF 'ensure-keelcore:' "${REPO_ROOT}/Makefile"
   grep -qxF $'\tbash scripts/release/ensure-keelcore.sh $(if $(APPLY),--apply,)' "${REPO_ROOT}/Makefile"
   grep -qxF '.PHONY: ensure-keelcore' "${REPO_ROOT}/Makefile"
 }

@@ -8,9 +8,9 @@
 #
 # Usage: ensure-keelcore.sh [--apply]
 #   (no args)  report each one behind; nothing is written
-#   --apply    write them (go get, tidy and vendor in the dev image), then verify with
-#              `make build-min build-max test`; a failure restores every file it changed. It refuses
-#              while any of those files has uncommitted changes, so the restore loses nothing.
+#   --apply    write them: go get, tidy and vendor (Go's output goes to the log), and each FROM line.
+#              Configuration only: nothing is built or run. A failure restores every file it changed;
+#              it refuses while any of those files has uncommitted changes, so the restore loses nothing.
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -24,7 +24,6 @@ set -o pipefail
 
 readonly LOG_FILE='/tmp/keel_ensure_keelcore.log'
 readonly PROXY='https://proxy.golang.org'
-readonly -a VERIFY_TARGETS=(build-min build-max test)
 
 # Pending changes: "module<TAB>version" and "file<TAB>line<TAB>old ref<TAB>new tag".
 MODULES=''
@@ -123,7 +122,7 @@ function image_digest() {
     | tr -d '\r' | awk 'tolower($1) == "docker-content-digest:" { print $2 }'
 }
 
-# apply_all: refuse on uncommitted changes, resolve every digest, write, verify; restore on failure.
+# apply_all: refuse on uncommitted changes, resolve every digest, then write; restore on failure.
 function apply_all() {
   local -a paths=()
   local file line ref tag digest resolved='' dirty
@@ -144,17 +143,17 @@ function apply_all() {
     log "${dirty}"
     exit 1
   fi
-  if write_all "${resolved}" && make "${VERIFY_TARGETS[@]}"; then
-    log "✅ keelcore: applied and verified (make ${VERIFY_TARGETS[*]})"
+  if write_all "${resolved}"; then
+    log '✅ keelcore: applied'
     return 0
   fi
   git checkout -- "${paths[@]}"
   [ -z "${MODULES}" ] || git clean -fdq -- vendor
-  log "❌ keelcore: the update or its verification failed; restored ${paths[*]}"
+  log "❌ keelcore: the update failed (log: ${LOG_FILE}); restored ${paths[*]}"
   exit 1
 }
 
-# write_all RESOLVED: go get the modules in the dev image, then rewrite each image line.
+# write_all RESOLVED: go get, tidy and vendor the modules (output to the log), then rewrite each image line.
 function write_all() {
   local -r resolved="${1}"
   local file line ref new
@@ -164,7 +163,8 @@ function write_all() {
     [ -n "${module}" ] && specs+=("${module}@${version}")
   done <<< "${MODULES}"
   if [ "${#specs[@]}" -gt 0 ]; then
-    bash scripts/dev/run.sh --writable sh -c "go get ${specs[*]} && go mod tidy && go mod vendor" || return 1
+    { GOFLAGS=-mod=mod go get "${specs[@]}" && go mod tidy && go mod vendor; } >> "${LOG_FILE}" 2>&1 || return 1
+    log "📝 go.mod, go.sum, vendor/ → ${specs[*]}"
   fi
   while IFS=$'\t' read -r file line ref new; do
     [ -n "${file}" ] || continue

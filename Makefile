@@ -361,8 +361,8 @@ lint-helm-schema: | ensure-container
 	bash scripts/dev/run.sh bash scripts/lint/lint-helm-schema.local.sh
 
 ## keelcore modules to their latest release and golang base images to go.mod's toolchain, with no cooldown
-## (APPLY=1 writes and verifies them); `make update-pins` runs it first
-ensure-keelcore: | ensure-container
+## (APPLY=1 writes them; configuration only, nothing is built); `make update-pins` runs it first
+ensure-keelcore:
 	@echo "📌 Ensuring keelcore releases..."
 	bash scripts/release/ensure-keelcore.sh $(if $(APPLY),--apply,)
 
