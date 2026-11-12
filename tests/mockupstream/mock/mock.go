@@ -30,9 +30,18 @@ import (
 	"github.com/keelcore/keel/pkg/core/logging"
 )
 
+// Test seams: package-level indirections defaulting to the real logger, socket
+// and run loop, so the unit tests exercise Run and the upstream without binding
+// a port (the logger's ExitFn turns Fatal into a recoverable panic).
+var (
+	newLogger = func() *logging.Logger { return logging.New(logging.Config{JSON: true}) }
+	listen    = net.Listen
+	runServer = (*keelcore.Server).Run
+)
+
 // Run starts keel and the upstream socket and blocks until signalled.
 func Run() int {
-	log := logging.New(logging.Config{JSON: true})
+	log := newLogger()
 	cfg := keelconfig.Defaults()
 	cfg.Authn.Enabled = false // control routes are test-only; nothing to authenticate
 	cfg, err := keelconfig.From(&cfg)
@@ -63,7 +72,7 @@ func Run() int {
 	onBound()
 	go func() { <-ctx.Done(); u.down() }()
 
-	srv.Run(ctx)
+	runServer(srv, ctx)
 	return 0
 }
 
@@ -108,7 +117,7 @@ func (u *upstream) up() error {
 	if u.ln != nil {
 		return nil
 	}
-	ln, err := net.Listen("tcp", u.addr)
+	ln, err := listen("tcp", u.addr)
 	if err != nil {
 		return err
 	}

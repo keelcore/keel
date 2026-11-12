@@ -19,9 +19,8 @@ include .standards/templates/Makefile.canonical
 # leading slash (clients/x/cmd/), so it is a silent no-op here; (^|/)cmd/ matches
 # both. cmd/*/main.go is exercised only via the built binary under BATS and
 # integration tests, which are not coverage-instrumented — mirroring the Rust
-# scope's src/bin/ exclusion. coverage-go.sh honors this override. tests/mockupstream is the
-# sidecar stack tests' mock upstream, likewise run only as a built binary.
-export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/|^tests/mockupstream/
+# scope's src/bin/ exclusion. coverage-go.sh honors this override.
+export GO_COVERAGE_IGNORE_REGEX := (^|/)cmd/
 # Workflow step env that tool targets read reaches the dev image (scripts/dev/run.sh passes only
 # the variables KEELCORE_DEV_ENV names): GOOS/GOARCH for the release cross-builds, GH_TOKEN for
 # zizmor's online audits and gh attestation verify, the image index digests for verify-release.

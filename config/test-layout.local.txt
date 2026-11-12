@@ -2,4 +2,3 @@
 # Integration suites: they test the built keel from outside, so they have no {foo}.go to pair with (#40).
 ^tests/compose/
 ^tests/integration/
-^tests/mockupstream/
