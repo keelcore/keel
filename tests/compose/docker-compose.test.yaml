@@ -68,10 +68,8 @@ services:
   # socket :9300 is network-internal; :9380 is its control plane
   # (POST /mode/{mode}, /down, /up; GET /captures).
   mockupstream:
-    build:
-      context: tests/mockupstream
-      dockerfile: Containerfile
     image: keel-mockupstream:test
+    pull_policy: never      # built by scripts/build/build-mockupstream-image.sh
     networks:
       - keel-test
     environment:

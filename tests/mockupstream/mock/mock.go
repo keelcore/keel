@@ -1,6 +1,6 @@
 // tests/mockupstream/mock/mock.go
 // Package mock is a test upstream for keel's sidecar that can misbehave the way
-// legacy services do. It embeds the pinned keel release as a library:
+// legacy services do. It embeds keel, built from this tree, as a library:
 //   - keel serves the control plane (HTTP :8080), /healthz and /readyz, and
 //     logs listener_up;
 //   - the upstream socket (MOCK_UPSTREAM_ADDR, default :9000) is a raw TCP

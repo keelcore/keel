@@ -22,8 +22,8 @@ Lowest to highest precedence; a key takes the value of the highest layer that se
 | --- | --- | --- |
 | 1 | code | values the application sets in code |
 | 2 | schema | the schema's `default` for the key, when it gives one |
-| 3 | global file | `/etc/<app>/config.yaml` |
-| 4 | user file | `$XDG_CONFIG_HOME/<app>/config.yaml` |
+| 3 | global file | `/etc/<app>/config.yaml` (the file name is the knob `<app>.knobs.file_name`) |
+| 4 | user file | `$XDG_CONFIG_HOME/<app>/config.yaml` (the same file name) |
 | 5 | secrets file | `<app>-secrets.yaml`, readable by its owner only; every value from it is secret |
 | 6 | env | `<APP>_<MODULE>_<NAME>` |
 | 7 | cli | `--knob <app>.<module>.<name>=<value>` |
@@ -76,7 +76,7 @@ if err != nil {
 if err := engine.Attach(httpd.Knobs, store.Knobs); err != nil { // each module brings its own knobs
     return err
 }
-if err := engine.AddStandard(knobs.Standard{Env: os.LookupEnv, Knobs: flagValues}); err != nil {
+if err := engine.AddStandard(knobs.Standard{Args: os.Args[1:]}); err != nil { // --knob arguments; env read by knobs
     return err
 }
 config, err := engine.Resolve() // every layer validated; errors name the layer and key

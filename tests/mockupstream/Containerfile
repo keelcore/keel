@@ -1,13 +1,10 @@
 # tests/mockupstream/Containerfile
-# Mock upstream for the sidecar integration tests, built from the vendored
-# module (keel pinned release as a library). Built by both test stacks:
+# Mock upstream for the sidecar integration tests: packages the binary
+# scripts/build/build-mockupstream-image.sh compiles from this tree in the dev
+# image (keel as a library, no tag needed). Its build context is that binary's
+# directory, target/mockupstream. Built by both test stacks:
 # docker-compose.test.yaml (CI) and scripts/container/test-container-stack.sh (local).
-FROM golang:1.27.3@sha256:e519d3b0a5b285e5aa53ab9eef02bc6bbb9cb04608389b743a136a9ce75f0d1e AS builder
-WORKDIR /src
-COPY . .
-RUN CGO_ENABLED=0 go build -mod=vendor -trimpath -ldflags='-s -w -buildid=' -o /mockupstream .
-
 FROM scratch
-COPY --from=builder /mockupstream /mockupstream
+COPY mockupstream /mockupstream
 USER 65532:65532
 ENTRYPOINT ["/mockupstream"]

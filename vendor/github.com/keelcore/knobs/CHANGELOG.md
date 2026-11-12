@@ -14,6 +14,11 @@ Security vulnerabilities are reported via [GitHub Security Advisories](https://g
 
 ### Changed
 
+- `AddStandard` reads the process environment itself when `Standard.Env` is nil (it read none before), for the env
+  layer and the path knobs alike; a `Standard.Env` still replaces it. A program passes only its application name and
+  its command-line knobs (#14).
+- The conformance runners in `doc_test.go` and `internal/conform` copy a case's whole directory, subdirectories
+  included, as `tests/conformance.bats` does.
 - All unit tests for `{foo}.go` are in `{foo}_test.go` beside it (#13). The tests of `branches_test.go`,
   `knobs_test.go`, `servotrim_test.go`, `fuzz_test.go`, `jsonschema_test.go` and `keel_schema_test.go` moved, unchanged,
   into the test file of the source each asserts (new: `bind_test.go`, `config_test.go`, `engine_test.go`,
@@ -35,6 +40,15 @@ Security vulnerabilities are reported via [GitHub Security Advisories](https://g
   conformance harness's error object (`keywords`). Draft 4, 6 and 7 schemas fail with `schema_invalid`: knobs can
   check every keyword of 2019-09 and 2020-12 only (#12).
 
+- `dev-image.yml` matches `.standards`' copy: its merge job, and the `dev-image` job in `ci.yml` that calls it, grant
+  `attestations: write`, which `scripts/release/sign-image.sh` needs to put an image's SBOM and provenance in GitHub's
+  attestation store (keelcore/standards#33). Without it the store refused them (HTTP 403) and the dev-image job failed.
+- `.standards` refreshed from v0.11.0 to v0.11.1: the Claude adapter links every governance document
+  (keelcore/standards#28); `DIST_OWNER` reaches `set-dist-permissions` in the dev image again (keelcore/standards#31);
+  every tool-image target starts the container system (keelcore/standards#32); `lint-workflows` fails when one workflow
+  pins an action repository to two refs; `update-pins` holds open Dependabot PRs to its cooldown. knobs' layout linter
+  takes the form `.standards` gives its own linters (`lint-test-layout-local`, a `make lint` prerequisite), and the
+  `scripts/lint-all.local.sh` hook with its `lint-all-local` target, added only to satisfy CI audit rule 2, is gone.
 - `.standards` refreshed from v0.10.24 to v0.11.0: `scripts/dev/run.sh` passes into the dev image each name the script
   it runs imports (keelcore/standards#22); `build-native.sh` records the module root package as `.`
   (keelcore/standards#23); `test-native-integrity.sh` puts the native build on `PATH` in the host's own form and sets
@@ -78,10 +92,19 @@ Security vulnerabilities are reported via [GitHub Security Advisories](https://g
 
 ### Added
 
-- `make lint-test-layout` (`scripts/lint/lint-test-layout.sh`), part of `make lint` and, through
-  `scripts/lint-all.local.sh` (`make lint-all-local`), the pre-commit hook: a test file with no `{foo}.go` beside
-  it, or a source with no `{foo}_test.go`, fails, naming the file; `cmd/*/main.go`, `doc.go` and the helpers-only
-  files `config/test-layout.local.txt` lists are exempt (#13).
+- `Standard.Args`, the program's command line, and `KnobArgs`: `--knob KEY=VALUE` and `--knob=KEY=VALUE` are the cli
+  layer, every other argument (and all from `--` on) is the program's, and a `--knob` with no value fails with
+  `invalid_argument`. A program passes `knobs.Standard{Args: os.Args[1:]}`, its whole contract with knobs besides
+  its name; `Standard.Knobs` still adds KEY=VALUE pairs. The harness takes `--arg`, and two cases cover it (#14).
+- The file-name knob `<app>.knobs.file_name` (`--knob`, else `<APP>_KNOBS_FILE_NAME`; default `config.yaml`): the
+  global and user files' name at their default locations (`/etc/<app>/<name>`, `$XDG_CONFIG_HOME/<app>/<name>`; the
+  Windows equivalents), resolved before any file loads. A full-path knob outranks it; a name that is a path fails
+  with `invalid_argument`, naming the knob (#14). The conformance harness takes `--standard`, which resolves through
+  `AddStandard`, and five cases cover the file name.
+- `make lint-test-layout-local` (`scripts/lint/lint-test-layout.local.sh`), part of `make lint`, as `.standards`
+  runs its own linters: a test file with no `{foo}.go` beside it, or a source with no `{foo}_test.go`, fails, naming
+  the file; `cmd/*/main.go`, `doc.go` and the helpers-only files `config/test-layout.local.txt` lists are exempt
+  (#13).
 - Nested objects and arrays in schemas (#12). A property with `properties` of its own is a nested object; any other
   property is a knob of any type, keyed by its dotted path (`demo.listeners.http.port`, env
   `DEMO_LISTENERS_HTTP_PORT`) through every layer. Array text from env, cli, runtime and connection is a JSON list or
@@ -145,3 +168,9 @@ Security vulnerabilities are reported via [GitHub Security Advisories](https://g
 - Unit tests for parallel connections and for the memory 100, 1000 and 10000 live connections hold (bounded per
   connection, independent of the count); fuzz targets for text conversion, file layers and connection values.
 - `config/gosec-sites.local.txt`: the two reviewed G304 sites, each reading a config path the operator names.
+
+### Security
+
+- `.standards` refreshed from v0.11.2 to v0.11.3: the pinned markdownlint takes `minimatch` 11.0.3 through an npm
+  override, fixing [GHSA-g3hv-75wg-m249](https://osv.dev/GHSA-g3hv-75wg-m249), and its OSV exception is gone
+  (keelcore/standards#15); Kubescape 4.0.17. The dev image is rebuilt from it (`containers/dev/image.ref`).

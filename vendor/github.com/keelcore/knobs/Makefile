@@ -55,21 +55,14 @@ build-conform:
 	@echo "🔨 Building conformance harnesses..."
 	bash scripts/dev/run.sh bash scripts/build/build-conform.sh $(IMPL)
 
-.PHONY: lint-test-layout
+.PHONY: lint-test-layout-local
 
-## Unit-test layout: all unit tests for {foo}.go in {foo}_test.go (knobs#13); part of lint
-lint-test-layout: | ensure-container
+lint: lint-test-layout-local
+
+## Unit-test layout: all unit tests for {foo}.go in {foo}_test.go (knobs#13) — also run by `make lint`
+lint-test-layout-local: | ensure-container
 	@echo "🔍 Checking the unit-test layout..."
-	bash scripts/dev/run.sh bash scripts/lint/lint-test-layout.sh
-
-lint: lint-test-layout
-
-.PHONY: lint-all-local
-
-## knobs' own linters, as lint-all and the pre-commit hook run them first (scripts/lint-all.local.sh)
-lint-all-local: | ensure-container
-	@echo "🔍 Running knobs' own linters..."
-	bash scripts/dev/run.sh bash scripts/lint-all.local.sh
+	bash scripts/dev/run.sh bash scripts/lint/lint-test-layout.local.sh
 
 .PHONY: check-schema-types
 

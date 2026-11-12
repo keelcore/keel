@@ -70,11 +70,7 @@ function build_image() {
     -f "${REPO_ROOT}/scripts/deploy/docker/Dockerfile" \
     "${REPO_ROOT}"
   log '✅ keel:test-max image built'
-  log '🐳 Building keel-mockupstream:test image via Apple container...'
-  container build -t 'keel-mockupstream:test' \
-    -f "${REPO_ROOT}/tests/mockupstream/Containerfile" \
-    "${REPO_ROOT}/tests/mockupstream"
-  log '✅ keel-mockupstream:test image built'
+  KEEL_IMAGE_TOOL=container bash "${REPO_ROOT}/scripts/build/build-mockupstream-image.sh"
 }
 
 function install_tests() {

@@ -48,6 +48,14 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- `github.com/keelcore/knobs` v0.8.4 → v0.8.7 (`go.mod`, `go.sum`, `vendor/`), taken inside its 14-day `update-pins`
+  cooldown.
+- The sidecar tests' mock upstream (`tests/mockupstream`) builds from this tree, tagged or not: it is a package of
+  keel's module (its own `go.mod`, `go.sum` and `vendor/`, which pinned keel v0.9.14, are gone), and
+  `scripts/build/build-mockupstream-image.sh` compiles it in the dev image, with the repository mounted read-only, into
+  `target/mockupstream`. Its Containerfile packages that binary on `scratch`, with no compiler stage; the compose and
+  Apple container stacks both build it with the script, and `tests/consistency.bats` tests all of it.
+
 - `unit.AssertOutboundPolicy` joins the shared test-helper library (`tests/unit/outboundpolicy.go`, tested in
   `outboundpolicy_test.go`), the former `assertOutboundPolicy` of `mw/outbound_tls_test.go`, which had no source and
   is gone (#40, partial). Its one test, which checked two clients, is now one per client beside its source:

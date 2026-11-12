@@ -732,3 +732,42 @@ site_issues() {
     }
   done
 }
+
+@test "mockupstream: part of keel's module, so it builds from this tree, tagged or not" {
+  [ ! -e "${REPO_ROOT}/tests/mockupstream/go.mod" ]
+  [ ! -e "${REPO_ROOT}/tests/mockupstream/go.sum" ]
+  [ ! -e "${REPO_ROOT}/tests/mockupstream/vendor" ]
+  run grep -F '`github.com/keelcore/keel`' "${REPO_ROOT}/docs/current_pins.md"
+  [ "${status}" -eq 1 ] || { echo "${output}"; return 1; }
+}
+
+@test "mockupstream Containerfile: packages the prebuilt mock, with no compiler stage" {
+  local -r file="${REPO_ROOT}/tests/mockupstream/Containerfile"
+  [ "$(grep -cE '^FROM ' "${file}")" -eq 1 ]
+  grep -qxF 'FROM scratch' "${file}"
+  grep -qxF 'COPY mockupstream /mockupstream' "${file}"
+}
+
+@test "build-mockupstream-image.sh: compiles the mock from this tree; the image builds from its binary alone" {
+  mkdir -p "${BATS_TEST_TMPDIR}/bin"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/docker.log"\n' "${BATS_TEST_TMPDIR}" \
+    > "${BATS_TEST_TMPDIR}/bin/docker"
+  chmod +x "${BATS_TEST_TMPDIR}/bin/docker"
+  PATH="${BATS_TEST_TMPDIR}/bin:${PATH}" run bash "${REPO_ROOT}/scripts/build/build-mockupstream-image.sh"
+  [ "${status}" -eq 0 ] || { echo "${output}"; return 1; }
+  [ -x "${REPO_ROOT}/target/mockupstream/mockupstream" ]
+  [ "$(ls -A "${REPO_ROOT}/target/mockupstream")" = 'mockupstream' ]
+  grep -qxF "build -t keel-mockupstream:test -f ${REPO_ROOT}/tests/mockupstream/Containerfile ${REPO_ROOT}/target/mockupstream" \
+    "${BATS_TEST_TMPDIR}/docker.log"
+}
+
+@test "the compose and Apple container stacks build the mock with build-mockupstream-image.sh" {
+  grep -qF 'bash "${REPO_ROOT}/scripts/build/build-mockupstream-image.sh"' "${REPO_ROOT}/scripts/test/test-compose.sh"
+  grep -qF 'KEEL_IMAGE_TOOL=container bash "${REPO_ROOT}/scripts/build/build-mockupstream-image.sh"' \
+    "${REPO_ROOT}/scripts/container/test-container-stack.sh"
+  local service
+  service="$(awk '/^  mockupstream:$/ { on = 1; next } on && /^  [a-z]/ { exit } on' \
+    "${REPO_ROOT}/tests/compose/docker-compose.test.yaml")"
+  [[ "${service}" != *'build:'* ]] || false
+  [[ "${service}" == *'pull_policy: never'* ]] || false
+}
