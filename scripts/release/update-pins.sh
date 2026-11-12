@@ -1804,8 +1804,10 @@ function apply_pin() {
     image) replace_all "${root}" "${name}@${current}" "${name}@${cand}" ;;
     tool) replace_at "${root}" "${locs}" "${current}" "${new}" && refresh_checksums "${root}" "${locs}" "${source#github:}" "${current}" "${cand}" \
       && refresh_commits "${root}" "${locs}" "${source#github:}" "${cand}" ;;
-    gotool | toolchain | npm | python | runner) replace_at "${root}" "${locs}" "${current}" "${new}" ;;
-    node) replace_at "${root}" "${locs}" "${current}" "${new}" && follow_node_images "${root}" "${current}" "${new}" ;;
+    gotool | npm | runner) replace_at "${root}" "${locs}" "${current}" "${new}" ;;
+    toolchain) replace_at "${root}" "${locs}" "${current}" "${new}" && follow_images "${root}" golang "${current}" "${new}" ;;
+    node) replace_at "${root}" "${locs}" "${current}" "${new}" && follow_images "${root}" node "${current}" "${new}" ;;
+    python) replace_at "${root}" "${locs}" "${current}" "${new}" && follow_images "${root}" python "${current}" "${new}" ;;
     gomod) apply_gomod "${root}" "${name}" "${cand}" "${locs}" ;;
     pypi) replace_at "${root}" "${locs}" "${current}" "${new}" && refresh_pypi_hashes "${root}" "${locs}" "${name}" "${new}" ;;
     npmlock) replace_at "${root}" "${locs}" "${current}" "${new}" && relock_npm "${root}" "${locs}" ;;
@@ -1934,21 +1936,23 @@ function release_assets() {
   return 1
 }
 
-# follow_node_images ROOT CURRENT NEW: every `node:CURRENT-<variant>@sha256:<digest>` image
-# moves to NEW with that tag's current digest, so the image that supplies Node stays in step
-# with .nvmrc.
-function follow_node_images() {
-  local -r root="${1}" cur="${2#v}" new="${3#v}"
-  local ref variant digest
+# follow_images ROOT IMAGE CURRENT NEW: every `IMAGE:CURRENT[-<variant>]@sha256:<digest>` image
+# moves to NEW with that tag's current digest, so the image that supplies a language (node,
+# golang, python) stays in step with its version pin (.nvmrc, go.mod toolchain, .python-version).
+function follow_images() {
+  local -r root="${1}" image="${2}"
+  local cur="${3#v}" new="${4#v}" ref variant digest
+  cur="${cur#go}"
+  new="${new#go}"
   while IFS= read -r ref; do
     [ -n "${ref}" ] || continue
-    variant="${ref#"node:${cur}"}"
+    variant="${ref#"${image}:${cur}"}"
     variant="${variant%%@*}"
-    digest="$(image_digest "node:${new}${variant}")"
-    [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || { printf 'no digest for node:%s%s\n' "${new}" "${variant}"; return 1; }
-    replace_all "${root}" "${ref}" "node:${new}${variant}@${digest}"
-    printf 'node:%s%s → %s\n' "${new}" "${variant}" "${digest}"
-  done < <(cd "${root}" && source_files | xargs grep -ohE "node:${cur//./\\.}(-[a-z0-9.-]+)?@sha256:[0-9a-f]{64}" 2>/dev/null | sort -u)
+    digest="$(image_digest "${image}:${new}${variant}")"
+    [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]] || { printf 'no digest for %s:%s%s\n' "${image}" "${new}" "${variant}"; return 1; }
+    replace_all "${root}" "${ref}" "${image}:${new}${variant}@${digest}"
+    printf '%s:%s%s → %s\n' "${image}" "${new}" "${variant}" "${digest}"
+  done < <(cd "${root}" && source_files | xargs grep -ohE "${image}:${cur//./\\.}(-[a-z0-9.-]+)?@sha256:[0-9a-f]{64}" 2>/dev/null | sort -u)
 }
 
 # refresh_commits ROOT LOCS REPO CAND: every committed `*_COMMIT=<sha>` in the
