@@ -62,8 +62,11 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   (pulled when published, else built from its context by `scripts/dev/run.sh`); neither builds an image of its own.
   `.github/workflows/dev-image.yml` is the `.standards` copy again, which `ci.yml` calls on every push and which
   publishes every listed image. `tests/tool-images.bats` tests it.
-- `github.com/keelcore/knobs` v0.8.4 → v0.8.7 (`go.mod`, `go.sum`, `vendor/`), taken inside its 14-day `update-pins`
-  cooldown.
+- `github.com/keelcore/knobs` v0.8.4 → v0.8.8 (`go.mod`, `go.sum`, `vendor/`): keelcore releases take no `update-pins`
+  cooldown (`make ensure-keelcore`).
+- The keel image builder (`scripts/deploy/docker/Dockerfile`) and the toolbox (`scripts/container/toolbox/Containerfile`)
+  build on `golang:1.27.4` and `golang:1.27.4-alpine`, the Go release `go.mod`'s `toolchain` names; both were on
+  1.27.3. The toolbox's tool image moves to the new build context (`Containerfile.image.ref`).
 - The sidecar tests' mock upstream (`tests/mockupstream`) builds from this tree, tagged or not: it is a package of
   keel's module (its own `go.mod`, `go.sum` and `vendor/`, which pinned keel v0.9.14, are gone), and
   `scripts/build/build-mockupstream-image.sh` compiles it in the dev image, with the repository mounted read-only, into
