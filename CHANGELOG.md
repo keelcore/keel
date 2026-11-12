@@ -45,6 +45,11 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   `no_authn` (the `min` flavor builds with `no_authn`).
 - HTTPS responses advertise HTTP/3 (`Alt-Svc`) when `listeners.h3` is enabled.
 - net/http server errors are logged as `http_server_error` (debug) instead of written to stderr.
+- `make ensure-keelcore` (`scripts/release/ensure-keelcore.sh`), which `make update-pins` runs first: keelcore's own
+  releases take no cooldown. Each `github.com/keelcore/*` module `go.mod` requires moves to its latest release, and
+  each `FROM golang:` base image to the Go release `go.mod`'s `toolchain` names, by digest. `APPLY=1` writes them (go
+  get, tidy and vendor in the dev image) and verifies with `make build-min build-max test`; a failure restores every
+  file it changed. `tests/ensure-keelcore.bats` tests it.
 
 ### Changed
 

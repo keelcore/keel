@@ -37,6 +37,8 @@ merge-dev-image: | ensure-container
 pull-dev-image: | ensure-container
 update-dev-image-ref: | ensure-container
 publish-release-images: | ensure-container
+# keelcore's own releases take no update-pins cooldown: ensure-keelcore moves them before update-pins runs.
+update-pins: | ensure-keelcore
 
 .PHONY: build-all
 .PHONY: clean
@@ -93,6 +95,7 @@ publish-release-images: | ensure-container
 .PHONY: lint-all-local
 .PHONY: create-release-local
 .PHONY: update-pins-local
+.PHONY: ensure-keelcore
 .PHONY: publish-release-images-local
 .PHONY: build-native-local
 .PHONY: lint-gosec-local
@@ -356,6 +359,12 @@ lint-test-layout: | ensure-container
 lint-helm-schema: | ensure-container
 	@echo "🔍 Auditing helm/keel values against the config schema..."
 	bash scripts/dev/run.sh bash scripts/lint/lint-helm-schema.local.sh
+
+## keelcore modules to their latest release and golang base images to go.mod's toolchain, with no cooldown
+## (APPLY=1 writes and verifies them); `make update-pins` runs it first
+ensure-keelcore: | ensure-container
+	@echo "📌 Ensuring keelcore releases..."
+	bash scripts/release/ensure-keelcore.sh $(if $(APPLY),--apply,)
 
 ## Pin hook (WHAT=pins|holds) — also called by canonical update-pins.sh (`make update-pins`)
 update-pins-local:
