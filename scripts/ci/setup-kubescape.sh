@@ -22,9 +22,9 @@ set -o pipefail
 # shellcheck source=../lib/local-hook.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/local-hook.sh"
 
-readonly KUBESCAPE_VERSION='4.0.16'
-readonly KUBESCAPE_SHA256_AMD64='fcf172f0d1fb5683379586bcf8875091da4d0d815bd304f8098d58be65ecab0d'
-readonly KUBESCAPE_SHA256_ARM64='ea0a5c51d299e88209e2f17877dd76f66d36b772cf313e8fe68ee37325c9b382'
+readonly KUBESCAPE_VERSION='4.0.17'
+readonly KUBESCAPE_SHA256_AMD64='d070dd27faf7282ce8af4e30263385a51fe4ee3ba59f46d57f6f30c0b3ccb342'
+readonly KUBESCAPE_SHA256_ARM64='2e7a48c7a0577c9d4ec81e8cdf0149fbb67f2e2b649165f77a1da9bb72f30fa7'
 if [ "$(uname -m)" = 'aarch64' ]; then
   readonly KUBESCAPE_SHA256="${KUBESCAPE_SHA256_ARM64}" KUBESCAPE_ARCH='arm64'
 else
