@@ -1,0 +1,7 @@
+# keel's tool images beyond containers/dev: NAME<TAB>BUILD FILE<TAB>CONTEXT DIR, one per line (scripts/lib/dev-image.sh
+# tool_images). Each is named by its build context in <BUILD FILE>.image.ref, published, signed and attested
+# like the dev image (governance/ci.md, Tool Images); scripts use it by name (run.sh --image NAME).
+# The Apple container harness control plane (scripts/container/setup.sh).
+toolbox	scripts/container/toolbox/Containerfile	scripts/container/toolbox
+# The CA bundle keel's images copy their root allowlist from (scripts/build/build-certs-image.sh).
+certs	scripts/deploy/docker/Dockerfile.certs	scripts/deploy/docker

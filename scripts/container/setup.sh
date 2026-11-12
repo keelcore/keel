@@ -7,7 +7,8 @@
 # guest-to-guest; the host only drives the `container` CLI (vsock). Nothing
 # depends on host -> guest networking (routing or Local Network privacy).
 # Env: KEEL_CLUSTER_NAME (default keel-k8s), KEEL_CLUSTER_CPU (default 4), KEEL_CLUSTER_MEMORY
-# (default 6G), KEEL_TOOLBOX_NAME (default keel-toolbox).
+# (default 6G), KEEL_TOOLBOX_NAME (default keel-toolbox), KEELCORE_RUN_SH (default scripts/dev/run.sh, run
+# from the repository root; a seam, so tests stub it).
 
 # bash configuration:
 # 1) Exit script if you try to use an uninitialized variable.
@@ -20,12 +21,15 @@ set -o errexit
 set -o pipefail
 
 REPO_ROOT=''
+# The toolbox tool image (config/tool-images.local.txt), named by its build context; set by fetch_toolbox.
+TOOLBOX_IMAGE=''
 readonly LOG_FILE='/tmp/keel_container_setup.log'
 
 declare -rx KEEL_CLUSTER_NAME="${KEEL_CLUSTER_NAME:-keel-k8s}"
 declare -rx KEEL_CLUSTER_CPU="${KEEL_CLUSTER_CPU:-4}"
 declare -rx KEEL_CLUSTER_MEMORY="${KEEL_CLUSTER_MEMORY:-6G}"
 declare -rx KEEL_TOOLBOX_NAME="${KEEL_TOOLBOX_NAME:-keel-toolbox}"
+declare -rx KEELCORE_RUN_SH="${KEELCORE_RUN_SH:-scripts/dev/run.sh}"
 
 function main() {
   exec 5>&1
@@ -33,7 +37,7 @@ function main() {
   REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   log '🔧 Setting up Keel local k8s environment via Apple container...'
   install_container
-  build_toolbox
+  fetch_toolbox
   start_cluster "${KEEL_CLUSTER_NAME}"
   start_toolbox "${KEEL_TOOLBOX_NAME}"
   install_kubeconfig "${KEEL_CLUSTER_NAME}" "${KEEL_TOOLBOX_NAME}"
@@ -60,12 +64,13 @@ function install_container() {
   make -C "${REPO_ROOT}" --no-print-directory setup-apple-container
 }
 
-function build_toolbox() {
-  log '🧰 Building keel-toolbox image...'
-  container build -t 'keel-toolbox:latest' \
-    -f "${REPO_ROOT}/scripts/container/toolbox/Containerfile" \
-    "${REPO_ROOT}/scripts/container/toolbox"
-  log '✅ keel-toolbox image built'
+# fetch_toolbox: the toolbox tool image of this checkout's build context, pulled when published, else built
+# locally from that context (scripts/dev/run.sh).
+function fetch_toolbox() {
+  log '🧰 Fetching the toolbox tool image...'
+  (cd "${REPO_ROOT}" && bash "${KEELCORE_RUN_SH}" --image toolbox --fetch-image)
+  TOOLBOX_IMAGE="$(cd "${REPO_ROOT}" && bash "${KEELCORE_RUN_SH}" --image toolbox --image-ref)"
+  log "✅ toolbox image: ${TOOLBOX_IMAGE}"
 }
 
 function is_running() {
@@ -107,7 +112,7 @@ function start_toolbox() {
   container rm -f "${toolbox}" > /dev/null 2>&1 || true
   log "🧰 Starting ${toolbox} (repo mounted at /work)..."
   container run -d --name "${toolbox}" -v "${REPO_ROOT}:/work" -w /work \
-    'keel-toolbox:latest' sleep infinity
+    "${TOOLBOX_IMAGE}" sleep infinity
   log "✅ ${toolbox} started"
 }
 

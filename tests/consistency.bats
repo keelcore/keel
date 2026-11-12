@@ -567,8 +567,9 @@ size-report report-size
 RENAMED
 }
 
-# container_stubs: a fake container CLI that logs every call and reports NODE_STATE from inspect, and a
-# fake make and brew that log their calls.
+# container_stubs: a fake container CLI that logs every call and reports NODE_STATE from inspect, a
+# fake make and brew that log their calls, and a fake scripts/dev/run.sh (KEELCORE_RUN_SH) that names a
+# tool image without fetching it.
 container_stubs() {
   mkdir -p "${BATS_TEST_TMPDIR}/bin"
   cat > "${BATS_TEST_TMPDIR}/bin/container" <<STUB
@@ -579,6 +580,11 @@ case "\${1}" in
 esac
 exit 0
 STUB
+  cat > "${BATS_TEST_TMPDIR}/bin/run.sh" <<'STUB'
+#!/usr/bin/env bash
+[ "${*: -1}" != '--image-ref' ] || printf 'ghcr.io/keelcore/keel-stub:ctx-0123456789abcdef\n'
+STUB
+  export KEELCORE_RUN_SH="${BATS_TEST_TMPDIR}/bin/run.sh"
   local tool
   for tool in make brew; do
     printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/%s.log"\n' "${BATS_TEST_TMPDIR}" "${tool}" \

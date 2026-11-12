@@ -1,24 +1,22 @@
 name: dev-image
 
-# Publishes the tool images (containers/*/Containerfile) to GHCR, tagged by build
-# context (ctx-<hash>), built natively per architecture, joined into a multi-arch
-# index and signed keyless. Pin the result with `make update-dev-image-ref` (writes
-# containers/NAME/image.ref) and commit it.
+# Publishes the tool images (containers/*/Containerfile, and each build file config/tool-images.local.txt
+# lists) to GHCR, tagged by build context (ctx-<hash>), built natively per architecture, joined into a
+# multi-arch index; the index and each arch image signed keyless, with an SPDX SBOM attestation and SLSA build
+# provenance.
+# scripts/dev/run.sh pulls a published context by its tag, and the pre-commit hook names it in
+# containers/NAME/image.ref (a listed image: <BUILD FILE>.image.ref). ci.yml calls this on every push to
+# main, so a listed build file or context needs no paths trigger of its own.
 
 on:
-  push:
-    branches: ["main"]
-    paths:
-      - "containers/**"
-      - "scripts/ci/**"
-      - "scripts/lib/**"
-      - "scripts/release/pypi/**"
-      - ".github/workflows/dev-image.yml"
-      - ".standards"
+  # Called first by ci.yml on every push, so each build context is published once, before
+  # the jobs that run in it; publish.sh skips a context GHCR already holds.
+  workflow_call:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Named explicitly: in a called workflow, github.workflow is the caller's name.
+  group: dev-image-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -59,7 +57,7 @@ jobs:
           DOCKER_CONFIG: ${{ runner.temp }}/docker-config
 
   merge:
-    name: dev-image / merge + sign
+    name: dev-image / merge + sign + attest
     needs: push
     runs-on: ubuntu-26.04
     timeout-minutes: 30
@@ -67,7 +65,6 @@ jobs:
       contents: read
       packages: write
       id-token: write
-      # merge-dev-image uploads each index's provenance to GitHub's attestation store.
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -76,6 +73,8 @@ jobs:
           # A consumer's Makefile includes .standards/templates/Makefile.canonical from the submodule.
           submodules: recursive
 
+      # Each index gets what every published image gets (scripts/release/sign-image.sh): a signature, an SPDX
+      # SBOM and SLSA provenance, in GHCR and in GitHub's attestation store (attestations: write).
       - run: make merge-dev-image
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

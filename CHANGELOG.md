@@ -53,6 +53,15 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Changed
 
+- The toolbox (`scripts/container/toolbox/Containerfile`) and the CA bundle image (`scripts/deploy/docker/Dockerfile.certs`)
+  are tool images, listed in `config/tool-images.local.txt` where their build files are: each is named by its build
+  context in `<BUILD FILE>.image.ref` (`ghcr.io/keelcore/keel-toolbox`, `ghcr.io/keelcore/keel-certs`, `ctx-<hash>`),
+  published, signed and attested with an SBOM and provenance like the dev image, and its build-time packages are bound
+  to it, so `update-pins` no longer reports their `apk add` lines as unpinned. `scripts/container/setup.sh` starts the
+  toolbox from that image and `make build-certs-image` puts the certs image on the machine as `keel-certs:latest`
+  (pulled when published, else built from its context by `scripts/dev/run.sh`); neither builds an image of its own.
+  `.github/workflows/dev-image.yml` is the `.standards` copy again, which `ci.yml` calls on every push and which
+  publishes every listed image. `tests/tool-images.bats` tests it.
 - `github.com/keelcore/knobs` v0.8.4 → v0.8.7 (`go.mod`, `go.sum`, `vendor/`), taken inside its 14-day `update-pins`
   cooldown.
 - The sidecar tests' mock upstream (`tests/mockupstream`) builds from this tree, tagged or not: it is a package of
