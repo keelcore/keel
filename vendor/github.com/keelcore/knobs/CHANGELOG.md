@@ -58,6 +58,10 @@ Security vulnerabilities are reported via [GitHub Security Advisories](https://g
 
 ### Fixed
 
+- `.standards` refreshed from v0.11.3 to v0.11.4: its dev image builds on `golang:1.27.4`, so the knobs dev image,
+  rebuilt from it (`containers/dev/image.ref`), compiles with the `go1.27.4` toolchain `go.mod` names, where it used
+  `golang:1.27.3` under `GOTOOLCHAIN=local`; `update-pins` moves a `golang:` or `python:` base image with its version
+  pin (`scripts/release/update-pins.sh`).
 - knobs' own scripts import their environment as `governance/bash.md` R37 requires (`declare -rx NAME="${NAME:-…}"`):
   `apply-rulesets.sh`, `publish-go-module.sh`, `pull-release-module.sh` and the `stub-curl.sh` test fixture, so
   `make lint` passes on `.standards` v0.11.0 and `make check-rulesets` receives `GH_TOKEN` in the dev image (#7).
