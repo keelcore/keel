@@ -74,9 +74,9 @@ services:
       - keel-test
     environment:
       MOCK_UPSTREAM_ADDR: ":9300"
-      KEEL_HTTP_PORT: "9380"
-      KEEL_HEALTH_PORT: "9381"
-      KEEL_READY_PORT: "9382"
+      KEEL_LISTENERS_HTTP_PORT: "9380"
+      KEEL_LISTENERS_HEALTH_PORT: "9381"
+      KEEL_LISTENERS_READY_PORT: "9382"
     ports:
       - "9380:9380"         # mock control plane
 

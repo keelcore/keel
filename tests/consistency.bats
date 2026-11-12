@@ -771,3 +771,12 @@ site_issues() {
   [[ "${service}" != *'build:'* ]] || false
   [[ "${service}" == *'pull_policy: never'* ]] || false
 }
+
+@test "the compose and k8s stacks set only KEEL_ env names docs/config-reference.md documents" {
+  local name missing=''
+  for name in $(grep -ohE 'KEEL_[A-Z0-9_]+' "${REPO_ROOT}/tests/compose/docker-compose.test.yaml" \
+    "${REPO_ROOT}/tests/compose/k8s-stack.yaml" | sort -u); do
+    grep -qF "\`${name}\`" "${REPO_ROOT}/docs/config-reference.md" || missing="${missing} ${name}"
+  done
+  [ -z "${missing}" ] || { echo "undocumented, so keel ignores them:${missing}"; return 1; }
+}

@@ -348,3 +348,12 @@ job_permissions() {
   done
   [ -z "${missing}" ] || { printf '%s' "${missing}"; return 1; }
 }
+
+@test "dev-image.yml: merge + sign holds attestations: write, which merge-dev-image's provenance upload needs" {
+  local perms
+  perms="$(awk '$0 == "  merge:" { on = 1; next } on && /^  [a-z-]+:$/ { exit } on' \
+    "${REPO_ROOT}/.github/workflows/dev-image.yml" \
+    | awk '/^    permissions:$/ { on = 1; next } on && /^ +#/ { next } on && /^      / { sub(/^ +/, ""); print; next } on { exit }' \
+    | sort)"
+  [ "$(printf '%s\n' "${perms}" | paste -sd, -)" = 'attestations: write,contents: read,id-token: write,packages: write' ]
+}

@@ -121,9 +121,9 @@ spec:
           imagePullPolicy: Never
           env:
             - { name: MOCK_UPSTREAM_ADDR, value: ":9300" }
-            - { name: KEEL_HTTP_PORT, value: "9380" }
-            - { name: KEEL_HEALTH_PORT, value: "9381" }
-            - { name: KEEL_READY_PORT, value: "9382" }
+            - { name: KEEL_LISTENERS_HTTP_PORT, value: "9380" }
+            - { name: KEEL_LISTENERS_HEALTH_PORT, value: "9381" }
+            - { name: KEEL_LISTENERS_READY_PORT, value: "9382" }
           ports:
             - { containerPort: 9300 }
             - { containerPort: 9380, hostPort: 9380 }

@@ -204,6 +204,15 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- The mock upstream answers on its stack ports again: the compose and k8s stacks set them with the schema-path names
+  `KEEL_LISTENERS_HTTP_PORT`, `KEEL_LISTENERS_HEALTH_PORT` and `KEEL_LISTENERS_READY_PORT`. The mock now built from this
+  tree reads only those, so it had listened on keel's defaults and the sidecar compose tests timed out.
+  `tests/consistency.bats` checks every `KEEL_` name the stacks set is one `docs/config-reference.md` documents.
+- `make build-mockupstream-image` runs `scripts/build/build-mockupstream-image.sh`, as every script needs a make target
+  (CI Audit). `tests/mockupstream` joins `cmd/` in `GO_COVERAGE_IGNORE_REGEX`: it runs only as a built binary, so the
+  per-file coverage gate skips it.
+- dev-image's merge + sign job holds `attestations: write`, which `make merge-dev-image` needs to upload each index's
+  provenance to GitHub's attestation store (it failed with 403); `tests/release-scripts.bats` checks it.
 - CI Audit passes again: `make lint-all-local` invokes `scripts/lint-all.local.sh`, as every script needs a make
   target (#40).
 - A log or audit rotation never replaces an existing backup (`pkg/core/logging/rotate.go`): each backup's time is

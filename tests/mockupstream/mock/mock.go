@@ -6,7 +6,7 @@
 //   - the upstream socket (MOCK_UPSTREAM_ADDR, default :9000) is a raw TCP
 //     listener the mock owns, enrolled in keel's /readyz via RegisterListener.
 //
-// Control routes (keel HTTP listener, default :8080, moved by KEEL_HTTP_PORT):
+// Control routes (keel HTTP listener, default :8080, moved by KEEL_LISTENERS_HTTP_PORT):
 //
 //	POST /mode/{mode}  switch behavior, clear captures, drop open connections
 //	POST /down         close the upstream socket (dials are refused)
@@ -46,7 +46,7 @@ func Run() int {
 	}
 	u := &upstream{addr: addr, mode: modeOK, log: log, conns: map[net.Conn]struct{}{}}
 
-	// Routes attach to the configured HTTP port (KEEL_HTTP_PORT moves it).
+	// Routes attach to the configured HTTP port (KEEL_LISTENERS_HTTP_PORT moves it).
 	control := cfg.Listeners.HTTP.Port
 	srv := keelcore.NewServer(log, cfg)
 	srv.AddRoute(control, "POST /mode/{mode}", http.HandlerFunc(u.handleMode))
