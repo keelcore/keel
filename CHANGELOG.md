@@ -12,6 +12,7 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Added
 
+- refresh governance
 - `make lint-test-layout` (`scripts/lint/lint-test-layout.local.sh`), part of `make lint` and the commit hook
   (`scripts/lint-all.local.sh`), so CI's Lint job runs it: all unit tests for `{foo}.go` are in `{foo}_test.go`
   (#40). It fails, naming each file, on a test file with no source and a source with no test file; `main.go` and

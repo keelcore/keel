@@ -6,7 +6,7 @@ toolchain go1.27.4
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/keelcore/knobs v0.8.8
+	github.com/keelcore/knobs v0.8.9
 	github.com/quic-go/quic-go v0.64.1
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.58.0

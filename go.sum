@@ -4,8 +4,8 @@ github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63Y
 github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
 github.com/hectane/go-acl v1.0.0 h1:DTXtp1AVzhivUybviDuSxDajGbeMhttvpQcdsK6ViFE=
 github.com/hectane/go-acl v1.0.0/go.mod h1:vUh/P9HeteX8HLHKDq7QDVJhmNue4YKd4vs5ZfktoUo=
-github.com/keelcore/knobs v0.8.8 h1:JOanVIKtpe2tam2MOxf1F6OEyWgmdwTXhXQnhtrEpfg=
-github.com/keelcore/knobs v0.8.8/go.mod h1:x5Aizhi03+CaSRcJtKHuNG4lW0oj9Z1HsZMiChnNyH8=
+github.com/keelcore/knobs v0.8.9 h1:VK8P26MPv6cSJQlHIe8cbz5uQm0qttzHk6httQNIVC0=
+github.com/keelcore/knobs v0.8.9/go.mod h1:x5Aizhi03+CaSRcJtKHuNG4lW0oj9Z1HsZMiChnNyH8=
 github.com/quic-go/go-ossfuzz-seeds v0.1.0 h1:APacT+iIaNF6fd8AGEiN3bT/Jtkd2jz4v4TzM7MFjy0=
 github.com/quic-go/go-ossfuzz-seeds v0.1.0/go.mod h1:3IOHRbJIc+L6YKMwfDtJAM9Vj9k0YY4muhuyUYk5tbk=
 github.com/quic-go/qpack v0.6.0 h1:g7W+BMYynC1LbYLSqRt8PBg5Tgwxn214ZZR34VIOjz8=

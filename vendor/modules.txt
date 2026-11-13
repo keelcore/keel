@@ -1,7 +1,7 @@
 # github.com/golang-jwt/jwt/v5 v5.3.1
 ## explicit; go 1.21
 github.com/golang-jwt/jwt/v5
-# github.com/keelcore/knobs v0.8.8
+# github.com/keelcore/knobs v0.8.9
 ## explicit; go 1.27
 github.com/keelcore/knobs
 # github.com/quic-go/qpack v0.6.0

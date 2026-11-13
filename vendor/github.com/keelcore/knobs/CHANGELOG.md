@@ -14,6 +14,7 @@ Security vulnerabilities are reported via [GitHub Security Advisories](https://g
 
 ### Changed
 
+- refresh governance
 - `AddStandard` reads the process environment itself when `Standard.Env` is nil (it read none before), for the env
   layer and the path knobs alike; a `Standard.Env` still replaces it. A program passes only its application name and
   its command-line knobs (#14).
