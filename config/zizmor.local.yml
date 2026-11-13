@@ -1,0 +1,5 @@
+# This repository's workflows call each other within one repository and one tag, so ./ is the
+# intended reference.
+rules:
+  self-repository:
+    disable: true
