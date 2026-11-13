@@ -227,6 +227,10 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   `tests/consistency.bats` checks every `KEEL_` name the stacks set is one `docs/config-reference.md` documents.
 - `make build-mockupstream-image` runs `scripts/build/build-mockupstream-image.sh`, as every script needs a make target
   (CI Audit).
+- Release: Publish Images holds `attestations: write`. `make publish-release-images` signs each image with
+  `scripts/release/sign-image.sh`, which puts its SBOM and provenance in GitHub's attestation store; without it the
+  store refused them (HTTP 403) and the v0.9.36 release stopped. `tests/release-scripts.bats` checks the job's
+  permissions.
 - CI Coverage No-Regression passes again: `tests/mockupstream/main.go` joins `cmd/` in `GO_COVERAGE_IGNORE_REGEX`, as
   it runs only as the mock upstream binary the sidecar stack tests build; `tests/consistency.bats` checks the regex. The
   mock package itself (`tests/mockupstream/mock`) has unit tests (`mock_test.go`, `behaviors_test.go`) covering every

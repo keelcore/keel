@@ -302,7 +302,7 @@ job_permissions() {
   [ "$(job_permissions approve)" = 'contents: read' ]
   [ "$(job_permissions sign-blobs | paste -sd, -)" = 'contents: read,id-token: write' ]
   [ "$(job_permissions attest-blobs | paste -sd, -)" = 'attestations: write,contents: read,id-token: write' ]
-  [ "$(job_permissions images | paste -sd, -)" = 'contents: read,id-token: write,packages: write' ]
+  [ "$(job_permissions images | paste -sd, -)" = 'attestations: write,contents: read,id-token: write,packages: write' ]
   [ "$(job_permissions helm | paste -sd, -)" = 'contents: read,id-token: write,packages: write' ]
   [ "$(job_permissions upload)" = 'contents: write' ]
   [ "$(job_permissions image-provenance | paste -sd, -)" = 'attestations: write,contents: read,id-token: write,packages: write' ]

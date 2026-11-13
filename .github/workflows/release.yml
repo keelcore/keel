@@ -182,9 +182,12 @@ jobs:
     needs: approve
     runs-on: ubuntu-26.04
     timeout-minutes: 30
+    # attestations: publish-release-images signs each image (scripts/release/sign-image.sh) and puts its
+    # SBOM and provenance in GitHub's attestation store.
     permissions:
       contents: read
       id-token: write
+      attestations: write
       packages: write
     outputs:
       max_digest: ${{ steps.images.outputs.max_digest }}
