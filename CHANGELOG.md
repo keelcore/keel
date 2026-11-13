@@ -226,8 +226,12 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
   tree reads only those, so it had listened on keel's defaults and the sidecar compose tests timed out.
   `tests/consistency.bats` checks every `KEEL_` name the stacks set is one `docs/config-reference.md` documents.
 - `make build-mockupstream-image` runs `scripts/build/build-mockupstream-image.sh`, as every script needs a make target
-  (CI Audit). `tests/mockupstream` joins `cmd/` in `GO_COVERAGE_IGNORE_REGEX`: it runs only as a built binary, so the
-  per-file coverage gate skips it.
+  (CI Audit).
+- CI Coverage No-Regression passes again: `tests/mockupstream/main.go` joins `cmd/` in `GO_COVERAGE_IGNORE_REGEX`, as
+  it runs only as the mock upstream binary the sidecar stack tests build; `tests/consistency.bats` checks the regex. The
+  mock package itself (`tests/mockupstream/mock`) has unit tests (`mock_test.go`, `behaviors_test.go`) covering every
+  statement, with no port bound: seams for the logger, the socket and keel's run loop, and each behavior served over
+  `net.Pipe`.
 - dev-image's merge + sign job holds `attestations: write`, which `make merge-dev-image` needs to upload each index's
   provenance to GitHub's attestation store (it failed with 403); `tests/release-scripts.bats` checks it.
 - CI Audit passes again: `make lint-all-local` invokes `scripts/lint-all.local.sh`, as every script needs a make

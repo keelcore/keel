@@ -786,3 +786,15 @@ site_issues() {
   done
   [ -z "${missing}" ] || { echo "undocumented, so keel ignores them:${missing}"; return 1; }
 }
+
+@test "coverage: cmd/ and the mock upstream's main.go are outside Go coverage (GO_COVERAGE_IGNORE_REGEX); library sources are not" {
+  local regex file
+  regex="$(sed -nE 's/^export GO_COVERAGE_IGNORE_REGEX := (.*)$/\1/p' "${REPO_ROOT}/Makefile")"
+  [ -n "${regex}" ]
+  for file in cmd/keel/main.go cmd/config-schema/main.go tests/mockupstream/main.go; do
+    printf '%s:1.1,2.2 1 0\n' "${file}" | grep -qE "${regex}" || { echo "${file} is in coverage"; return 1; }
+  done
+  ! printf 'pkg/core/server.go:1.1,2.2 1 0\n' | grep -qE "${regex}" || false
+  ! printf 'tests/mockupstream/mock/mock.go:1.1,2.2 1 0\n' | grep -qE "${regex}" || false
+  ! printf 'examples/myapp/main.go:1.1,2.2 1 0\n' | grep -qE "${regex}" || false
+}
