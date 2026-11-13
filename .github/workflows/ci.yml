@@ -74,6 +74,20 @@ jobs:
         run: make check-rulesets
 
   # ---------------------------------------------------------------------------
+  # Dev Image — publishes each tool image's build context (containers/*, and each
+  # build file config/tool-images.local.txt lists) to GHCR as ctx-<hash>, signed and
+  # attested; dev-image.yml has no trigger of its own. Pull requests do not publish.
+  # ---------------------------------------------------------------------------
+  dev-image:
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/dev-image.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+  # ---------------------------------------------------------------------------
   # Secret Scan — required gate; runs on every push and PR.
   # ---------------------------------------------------------------------------
   secret-scan:

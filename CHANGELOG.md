@@ -221,6 +221,10 @@ Each release identifies all CVE fixes per [OpenSSF best practices](https://bestp
 
 ### Fixed
 
+- CI publishes the tool images again: `ci.yml` calls `dev-image.yml` on every push to main, as the canonical CI does.
+  The canonical `dev-image.yml` has no trigger of its own, so `keel-toolbox` and `keel-certs` were never published and
+  the v0.9.37 release's Verify Published Release step could not pull them (HTTP 403). `tests/tool-images.bats` checks
+  the call and its permissions.
 - The mock upstream answers on its stack ports again: the compose and k8s stacks set them with the schema-path names
   `KEEL_LISTENERS_HTTP_PORT`, `KEEL_LISTENERS_HEALTH_PORT` and `KEEL_LISTENERS_READY_PORT`. The mock now built from this
   tree reads only those, so it had listened on keel's defaults and the sidecar compose tests timed out.

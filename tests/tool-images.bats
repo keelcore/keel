@@ -53,6 +53,15 @@ RUN
   cmp "${REPO_ROOT}/.github/workflows/dev-image.yml" "${REPO_ROOT}/.standards/.github/workflows/dev-image.yml"
 }
 
+@test "tool images: ci.yml calls dev-image.yml on every push, which publishes them (it has no trigger of its own)" {
+  local job
+  job="$(awk '/^  dev-image:$/ { on = 1; print; next } on && /^  [^ #]/ { exit } on' "${REPO_ROOT}/.github/workflows/ci.yml")"
+  grep -qxF '    uses: ./.github/workflows/dev-image.yml' <<< "${job}"
+  grep -qxF "    if: github.event_name != 'pull_request'" <<< "${job}"
+  [ "$(awk '/^    permissions:$/ { on = 1; next } on && /^      / { sub(/^ +/, ""); print; next } on { exit }' <<< "${job}" \
+    | sort | paste -sd, -)" = 'attestations: write,contents: read,id-token: write,packages: write' ]
+}
+
 @test "tool images: the container harness starts the toolbox from its tool image, never a :latest it builds" {
   grep -qF 'bash "${KEELCORE_RUN_SH}" --image toolbox --fetch-image' "${REPO_ROOT}/scripts/container/setup.sh"
   ! grep -rqE "keel-toolbox:latest|container build" "${REPO_ROOT}/scripts/container/setup.sh" || false
